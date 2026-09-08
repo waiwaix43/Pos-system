@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  --background: #d6d6d6;
+  --foreground: #171717;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Keep cards, inputs, and section dividers distinct from the gray page background. */
+.border-gray-100 {
+  border-color: #c2c2c2;
+}
+
+.border-gray-200 {
+  border-color: #ababab;
+}
+
+.border-gray-300 {
+  border-color: #8f8f8f;
+}
+
+.shadow-sm {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-menu > button {
+  border-bottom-width: 0;
+}
+
+.sidebar-menu > button + button {
+  border-top: 1px solid #666666;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+}
