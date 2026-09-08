@@ -1405,5 +1405,5 @@ app.get('/api/reports/export', (req, res) => res.send("ระบบ Export ก�
 // ==========================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`Server r]unning on port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
