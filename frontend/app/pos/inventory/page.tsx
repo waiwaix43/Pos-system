@@ -5,7 +5,7 @@ import NotificationBell from "../../components/NotificationBell";
 import { createClient } from "@supabase/supabase-js";
 import { 
   Search, Plus, LayoutGrid, List, AlignJustify, RefreshCw, AlertCircle, X, 
-  Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter
+  Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2
 } from "lucide-react";
 
 // ==========================================
@@ -149,10 +149,32 @@ export default function InventoryPage() {
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error("บันทึกข้อมูลไม่สำเร็จ");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.message || "บันทึกข้อมูลไม่สำเร็จ");
       setShowFormModal(false);
       setFormData({});
       fetchData(); 
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!selectedItem) return;
+    if (!window.confirm(`คุณต้องการลบ "${selectedItem.name}" ใช่หรือไม่? การเปลี่ยนแปลงนี้ไม่สามารถย้อนกลับได้`)) return;
+
+    setIsSaving(true);
+    try {
+      const res = await fetch(`http://localhost:5000/api/inventory/items/${selectedItem.id}`, {
+        method: "DELETE"
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "ลบรายการไม่สำเร็จ");
+
+      setSelectedItem(null);
+      await fetchData();
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -557,6 +579,9 @@ export default function InventoryPage() {
 
                       <button onClick={() => openEditForm(selectedItem)} className="w-full py-4 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 shadow-sm">
                         <Edit className="w-4 h-4" /> แก้ไขข้อมูล
+                      </button>
+                      <button onClick={handleDeleteItem} disabled={isSaving} className="w-full py-4 bg-red-50 border border-red-200 text-red-600 rounded-xl font-bold text-[15px] hover:bg-red-100 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50">
+                        <Trash2 className="w-4 h-4" /> ลบรายการนี้
                       </button>
                     </div>
                   )}
