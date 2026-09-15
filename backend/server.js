@@ -796,10 +796,17 @@ app.get('/api/inventory/items', async (req, res) => {
 });
 
 app.post('/api/inventory/items', async (req, res) => {
-    const { shop_id, category_id, name, quantity, unit, min_threshold, image_url, sku, cost, type } = req.body;
+    const { shop_id, category_id, name, quantity, unit, min_threshold, image_url, sku, cost, type, status } = req.body;
     try {
+        if (!shop_id || !name) return res.status(400).json({ error: "กรุณาระบุร้านค้าและชื่อรายการ" });
+
+        const { data: shop, error: shopError } = await db.from('shops').select('id').eq('id', shop_id).maybeSingle();
+        if (shopError) throw shopError;
+        if (!shop) return res.status(400).json({ error: "ไม่พบร้านค้านี้ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่" });
+
         const { error } = await db.from('inventory_items').insert([{
-            shop_id, category_id, name, quantity, unit, min_threshold, image_url: image_url || null, sku: sku || null, cost: cost || 0, type: type || 'raw_material'
+            shop_id, category_id: category_id || null, name, quantity: quantity || 0, unit, min_threshold: min_threshold || 0,
+            image_url: image_url || null, sku: sku || null, cost: cost || 0, type: type || 'raw_material', status: status || 'active'
         }]);
         if (error) throw error; res.json({ success: true, message: "เพิ่มรายการเข้าคลังสำเร็จ" });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -807,7 +814,23 @@ app.post('/api/inventory/items', async (req, res) => {
 
 app.put('/api/inventory/items/:id', async (req, res) => {
     try {
-        const { error } = await db.from('inventory_items').update(req.body).eq('id', req.params.id);
+        const { shop_id, category_id, name, quantity, unit, min_threshold, image_url, sku, cost, type, status } = req.body;
+        const updates = {
+            category_id: category_id || null,
+            name,
+            quantity: quantity ?? 0,
+            unit,
+            min_threshold: min_threshold ?? 0,
+            image_url: image_url || null,
+            sku: sku || null,
+            cost: cost ?? 0,
+            type: type || 'raw_material',
+            status: status || 'active'
+        };
+
+        let query = db.from('inventory_items').update(updates).eq('id', req.params.id);
+        if (shop_id) query = query.eq('shop_id', shop_id);
+        const { error } = await query;
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
