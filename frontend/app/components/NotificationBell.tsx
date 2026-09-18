@@ -14,16 +14,38 @@ interface InventoryItem {
 export default function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [notificationSettings, setNotificationSettings] = useState({ alert_low_stock: true, notify_low_stock: true, notify_out_of_stock: true, low_stock_threshold: 0 });
 
   useEffect(() => {
     const savedUser = JSON.parse(localStorage.getItem("userContext") || "null");
     if (!savedUser?.shop_id) return;
 
-    fetch(`http://localhost:5000/api/inventory/items?shop_id=${savedUser.shop_id}`)
-      .then((response) => response.ok ? response.json() : [])
-      .then((data) => {
+    Promise.all([
+      fetch(`http://localhost:5000/api/settings?shop_id=${savedUser.shop_id}`),
+      fetch(`http://localhost:5000/api/inventory/items?shop_id=${savedUser.shop_id}`)
+    ])
+      .then(async ([settingsResponse, inventoryResponse]) => [
+        settingsResponse.ok ? await settingsResponse.json() : {},
+        inventoryResponse.ok ? await inventoryResponse.json() : []
+      ])
+      .then(([settings, data]) => {
+        const nextSettings = {
+          alert_low_stock: settings.alert_low_stock !== false,
+          notify_low_stock: settings.notify_low_stock !== false,
+          notify_out_of_stock: settings.notify_out_of_stock !== false,
+          low_stock_threshold: Number(settings.low_stock_threshold || 0)
+        };
+        setNotificationSettings(nextSettings);
+        if (!nextSettings.alert_low_stock || (!nextSettings.notify_low_stock && !nextSettings.notify_out_of_stock)) {
+          setItems([]);
+          return;
+        }
         const lowStockItems = Array.isArray(data)
-          ? data.filter((item: InventoryItem) => Number(item.quantity) <= Number(item.min_threshold ?? 0))
+          ? data.filter((item: InventoryItem) => {
+              const threshold = Math.max(Number(item.min_threshold ?? 0), nextSettings.low_stock_threshold);
+              const isOutOfStock = Number(item.quantity) <= 0;
+              return Number(item.quantity) <= threshold && (isOutOfStock ? nextSettings.notify_out_of_stock : nextSettings.notify_low_stock);
+            })
           : [];
         setItems(lowStockItems);
       })
