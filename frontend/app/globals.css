@@ -42,3 +42,31 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
 }
+
+.shop-map-marker-icon {
+  background: transparent;
+  border: 0;
+}
+
+.shop-map-pin {
+  display: block;
+  width: 28px;
+  height: 28px;
+  background: #e24b2c;
+  border: 3px solid #ffffff;
+  border-radius: 50% 50% 50% 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transform: rotate(-45deg);
+  position: relative;
+}
+
+.shop-map-pin::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  top: 7px;
+  left: 7px;
+}
