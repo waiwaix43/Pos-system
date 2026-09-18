@@ -70,6 +70,7 @@ export default function HistoryPage() {
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null);
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
   const [currentShopTimezone, setCurrentShopTimezone] = useState<string>("auto");
+  const [currentReceiptSettings, setCurrentReceiptSettings] = useState<any>(null);
 
   // States สำหรับ Modal ยืนยันการ Void (ยกเลิกบิล)
   const [voidModal, setVoidModal] = useState({ show: false, receiptId: null, receiptNo: "" });
@@ -115,6 +116,7 @@ export default function HistoryPage() {
       
       const settingsData = await settingsRes.json();
       const data = await ordersRes.json();
+      setCurrentReceiptSettings(settingsData);
       
       // ตรวจสอบ Timezone: ถ้าตั้งเป็น auto ให้ดึงจากเครื่องคอมพิวเตอร์
       const activeTz = (!settingsData.timezone || settingsData.timezone === "auto") 
@@ -199,17 +201,46 @@ export default function HistoryPage() {
       if (!resOrder.ok) throw new Error("ไม่สามารถโหลดข้อมูลบิลได้");
       const orderData = await resOrder.json();
 
-      const resItems = await fetch(`http://localhost:5000/api/orders/${receiptId}/items`);
+      const [resItems, resSettings] = await Promise.all([
+        fetch(`http://localhost:5000/api/orders/${receiptId}/items`),
+        fetch(`http://localhost:5000/api/settings?shop_id=${user?.shop_id}`)
+      ]);
       const itemsData = resItems.ok ? await resItems.json() : [];
+      const latestSettings = resSettings.ok ? await resSettings.json() : currentReceiptSettings || {};
       const receiptSettings = orderData.receipt_settings || {};
+      const displaySettings = {
+        ...receiptSettings,
+        ...latestSettings
+      };
+      const hasCurrentSettings = Boolean(resSettings.ok || currentReceiptSettings);
+      const vatEnabled = hasCurrentSettings
+        ? displaySettings.vat_enabled === true || displaySettings.vat_enabled === 'true'
+        : receiptSettings.receipt_vat_enabled === true || receiptSettings.vat_enabled === true;
+      const vatRate = Number(hasCurrentSettings ? displaySettings.vat_rate : (receiptSettings.receipt_vat_rate ?? receiptSettings.vat_rate ?? 0));
+      const receiptTotal = Number(receiptSettings.receipt_total_amount ?? orderData.total_amount);
+      const pricesIncludeVat = hasCurrentSettings
+        ? displaySettings.prices_include_vat !== false && displaySettings.prices_include_vat !== 'false'
+        : receiptSettings.receipt_prices_include_vat ?? receiptSettings.prices_include_vat ?? true;
+      const vatAmount = !hasCurrentSettings && receiptSettings.receipt_vat_amount !== undefined
+        ? Number(receiptSettings.receipt_vat_amount)
+        : vatEnabled && vatRate > 0
+          ? pricesIncludeVat ? receiptTotal * (vatRate / (100 + vatRate)) : receiptTotal - (receiptTotal / (1 + vatRate / 100))
+          : 0;
+      const subtotalExcludingVat = !hasCurrentSettings && receiptSettings.receipt_subtotal_excluding_vat !== undefined
+        ? Number(receiptSettings.receipt_subtotal_excluding_vat)
+        : !hasCurrentSettings && receiptSettings.receipt_subtotal !== undefined
+          ? Number(receiptSettings.receipt_subtotal)
+          : receiptTotal - vatAmount;
 
       const detailData = {
         id: orderData.id,
-        shopName: receiptSettings.shop_name || user?.shop_name || "POS Shop",
-        branchName: receiptSettings.branch_name || user?.branch || "สาขาหลัก",
-        address: receiptSettings.address || "-",
-        logo: receiptSettings.logo || "",
-        receiptFooter: receiptSettings.receipt_footer || "",
+        shopName: displaySettings.shop_name || user?.shop_name || "POS Shop",
+        branchName: displaySettings.branch_name || user?.branch || "สาขาหลัก",
+        address: displaySettings.address || "-",
+        phone: displaySettings.phone || "-",
+        taxId: displaySettings.tax_id || "-",
+        logo: displaySettings.receipt_show_logo === false ? "" : (displaySettings.logo || ""),
+        receiptFooter: displaySettings.receipt_footer || "",
         receiptNo: orderData.bill_number,
         dateTime: formatDynamicTime(orderData.created_at, currentShopTimezone),
         employeeName: user?.name || "พนักงาน",
@@ -225,9 +256,12 @@ export default function HistoryPage() {
           sweetness: item.sweetness,
           addon: item.addon_name
         })),
-        subTotal: Number(orderData.total_amount), 
+        subTotal: subtotalExcludingVat,
         totalDiscount: 0, 
-        netTotal: Number(orderData.total_amount),
+        vatEnabled,
+        vatRate,
+        vatAmount,
+        netTotal: receiptTotal,
         paymentMethod: orderData.payment_method || "เงินสด",
         amountReceived: Number(orderData.received_amount) || Number(orderData.total_amount),
         change: Number(orderData.change_amount) || 0
@@ -508,6 +542,8 @@ export default function HistoryPage() {
                 {selectedReceipt.logo && <img src={selectedReceipt.logo} alt="โลโก้ร้าน" className="w-16 h-16 object-contain mx-auto mb-3" />}
                 <h3 className="text-[24px] font-black text-gray-800">{selectedReceipt.shopName}</h3>
                 <p className="text-[14px] text-gray-500">สาขา: {selectedReceipt.branchName}</p>
+                <p className="mt-1 whitespace-pre-wrap text-[13px] text-gray-500">{selectedReceipt.address}</p>
+                <p className="text-[13px] text-gray-500">โทร: {selectedReceipt.phone} | Tax ID: {selectedReceipt.taxId}</p>
               </div>
 
               <div className="bg-gray-50 rounded-[16px] p-4 mb-6 text-[14px]">
@@ -555,6 +591,12 @@ export default function HistoryPage() {
                   <span className="text-gray-500">ส่วนลดทั้งหมด</span>
                   <span className={`font-medium ${selectedReceipt.status === 'ยกเลิก' ? 'text-gray-400' : 'text-red-500'}`}>- ฿{selectedReceipt.totalDiscount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
+                {selectedReceipt.vatEnabled && (
+                  <div className="flex justify-between mb-2">
+                    <span className="text-gray-500">ภาษีมูลค่าเพิ่ม ({selectedReceipt.vatRate}%)</span>
+                    <span className={`font-medium ${selectedReceipt.status === 'ยกเลิก' ? 'text-gray-400' : 'text-gray-800'}`}>฿{selectedReceipt.vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
                 <div className="flex justify-between mt-4">
                   <span className="text-[18px] font-bold text-gray-800">ยอดสุทธิ</span>
                   <span className={`text-[20px] font-black ${selectedReceipt.status === 'ยกเลิก' ? 'text-gray-400' : 'text-[#7a5c4e]'}`}>฿{selectedReceipt.netTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
