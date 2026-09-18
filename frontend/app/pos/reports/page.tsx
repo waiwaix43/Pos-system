@@ -62,16 +62,16 @@ function useReportAPI(endpoint: string, paramsStr: string) {
 }
 
 const formatCurrency = (value: number) => `฿${value.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const formatSalesDate = (key: string, granularity: string) => {
+const formatSalesDate = (key: string, granularity: string, timeZone: string) => {
   const dateKey = granularity === "month" ? `${key}-01` : key.split("T")[0];
   const date = new Date(`${dateKey}T00:00:00+07:00`);
-  if (granularity === "hour") return date.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) + ` ${key.slice(11, 16)} น.`;
-  return date.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+  if (granularity === "hour") return date.toLocaleDateString("th-TH", { timeZone, day: "numeric", month: "short", year: "numeric" }) + ` ${key.slice(11, 16)} น.`;
+  return date.toLocaleDateString("th-TH", { timeZone, day: "numeric", month: "short", year: "numeric" });
 };
-const formatAxisLabel = (key: string, granularity: string) => {
+const formatAxisLabel = (key: string, granularity: string, timeZone: string) => {
   if (granularity === "hour") return key.slice(11, 16);
   const dateKey = granularity === "month" ? `${key}-01` : key;
-  return new Date(`${dateKey}T00:00:00+07:00`).toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+  return new Date(`${dateKey}T00:00:00+07:00`).toLocaleDateString("th-TH", { timeZone, day: "numeric", month: "short" });
 };
 const getInitialReportDateRange = (): DateRangeValue => {
   if (typeof window === "undefined") return getCurrentMonthToDate();
@@ -91,6 +91,7 @@ export default function ReportsDashboardPage() {
   const [queryParams, setQueryParams] = useState<string>("");
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [selectedSalesBucket, setSelectedSalesBucket] = useState<any | null>(null);
+  const [reportTimeZone, setReportTimeZone] = useState("Asia/Bangkok");
 
   useEffect(() => {
     const savedUser = JSON.parse(localStorage.getItem("userContext") || "{}");
@@ -99,6 +100,12 @@ export default function ReportsDashboardPage() {
       return;
     }
     setUser(savedUser);
+    fetch(`http://localhost:5000/api/settings?shop_id=${savedUser.shop_id}`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((settings) => {
+        if (settings?.timezone && settings.timezone !== "auto") setReportTimeZone(settings.timezone);
+      })
+      .catch(() => undefined);
   }, [router]);
 
   // อัปเดต Query Parameter เมื่อ User เปลี่ยนวันที่
@@ -301,16 +308,16 @@ export default function ReportsDashboardPage() {
                            const amount = Number(d.value ?? d.amount) || 0;
                            const height = amount > 0 ? Math.max((amount / maxSalesValue) * 100, 4) : 0;
                            return (
-                             <button key={d.key || d.label} type="button" onClick={() => setSelectedSalesBucket(d)} className="group relative flex h-full min-w-8 flex-1 flex-col items-center justify-end focus:outline-none" aria-label={`ดูรายละเอียด ${formatSalesDate(d.key || d.label, salesGranularity)}`}>
+                            <button key={d.key || d.label} type="button" onClick={() => setSelectedSalesBucket(d)} className="group relative flex h-full min-w-8 flex-1 flex-col items-center justify-end focus:outline-none" aria-label={`ดูรายละเอียด ${formatSalesDate(d.key || d.label, salesGranularity, reportTimeZone)}`}>
                                <span className="pointer-events-none absolute bottom-[calc(var(--bar-height)+8px)] z-10 hidden w-52 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus:block" style={{ left: "50%", "--bar-height": `${height}%` } as React.CSSProperties}>
-                                 <span className="block text-[12px] font-bold text-gray-800">{formatSalesDate(d.key || d.label, salesGranularity)}</span>
+                                 <span className="block text-[12px] font-bold text-gray-800">{formatSalesDate(d.key || d.label, salesGranularity, reportTimeZone)}</span>
                                  <span className="mt-1 block text-[12px] text-gray-600">ยอดขาย {formatCurrency(amount)}</span>
                                  {d.orderCount !== undefined && <span className="block text-[12px] text-gray-600">จำนวนบิล {d.orderCount.toLocaleString()} บิล</span>}
                                  {d.itemCount !== undefined && <span className="block text-[12px] text-gray-600">จำนวนสินค้า {d.itemCount.toLocaleString()} ชิ้น</span>}
                                  {d.averageBill !== undefined && d.orderCount > 0 && <span className="block text-[12px] text-gray-600">ยอดเฉลี่ย / บิล {formatCurrency(Number(d.averageBill))}</span>}
                                </span>
                                <span className="w-full rounded-t-sm bg-[#7a5c4e]/80 transition-colors group-hover:bg-[#7a5c4e]" style={{ height: `${height}%` }} />
-                               <span className="mt-2 w-full overflow-hidden text-ellipsis whitespace-nowrap text-center text-[10px] text-gray-500">{formatAxisLabel(d.key || d.label, salesGranularity)}</span>
+                               <span className="mt-2 w-full overflow-hidden text-ellipsis whitespace-nowrap text-center text-[10px] text-gray-500">{formatAxisLabel(d.key || d.label, salesGranularity, reportTimeZone)}</span>
                              </button>
                            );
                          })}
@@ -429,7 +436,7 @@ export default function ReportsDashboardPage() {
             <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
               <div>
                 <h3 className="text-[18px] font-bold text-gray-800">รายละเอียดการขาย</h3>
-                <p className="mt-1 text-[13px] text-gray-500">{formatSalesDate(selectedSalesBucket.key || selectedSalesBucket.label, salesGranularity)}</p>
+                <p className="mt-1 text-[13px] text-gray-500">{formatSalesDate(selectedSalesBucket.key || selectedSalesBucket.label, salesGranularity, reportTimeZone)}</p>
               </div>
               <button type="button" onClick={() => setSelectedSalesBucket(null)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="ปิดรายละเอียด"><X className="h-5 w-5" /></button>
             </div>
@@ -443,7 +450,7 @@ export default function ReportsDashboardPage() {
               {selectedSalesBucket.orders?.length ? (
                 <table className="w-full min-w-[620px] text-left">
                   <thead><tr className="border-b border-gray-200 text-[12px] text-gray-500"><th className="py-3">เลขที่บิล</th><th>เวลา</th><th>พนักงาน</th><th>จำนวนสินค้า</th><th>ยอดรวม</th><th>ช่องทางชำระเงิน</th></tr></thead>
-                  <tbody>{selectedSalesBucket.orders.map((order: any) => <tr key={order.id} className="border-b border-dashed border-gray-100 text-[13px] text-gray-700"><td className="py-3 font-bold">{order.billNumber || `#${order.id}`}</td><td>{new Date(order.createdAt).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit" })}</td><td>{order.staffName || "ไม่ระบุ"}</td><td>{order.itemCount} ชิ้น</td><td>{formatCurrency(Number(order.amount) || 0)}</td><td>{order.paymentMethod || "ไม่ระบุ"}</td></tr>)}</tbody>
+                  <tbody>{selectedSalesBucket.orders.map((order: any) => <tr key={order.id} className="border-b border-dashed border-gray-100 text-[13px] text-gray-700"><td className="py-3 font-bold">{order.billNumber || `#${order.id}`}</td><td>{new Date(order.createdAt).toLocaleTimeString("th-TH", { timeZone: reportTimeZone, hour: "2-digit", minute: "2-digit" })}</td><td>{order.staffName || "ไม่ระบุ"}</td><td>{order.itemCount} ชิ้น</td><td>{formatCurrency(Number(order.amount) || 0)}</td><td>{order.paymentMethod || "ไม่ระบุ"}</td></tr>)}</tbody>
                 </table>
               ) : <EmptyState />}
             </div>
