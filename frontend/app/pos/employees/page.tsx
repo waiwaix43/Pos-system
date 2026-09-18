@@ -348,19 +348,19 @@ export default function EmployeeManagementPage() {
             {/* SUMMARY CARDS */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 xl:gap-6 shrink-0">
               <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-sm flex items-center gap-5">
-                <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center shrink-0"><Users className="w-7 h-7" /></div>
+                <div className="w-14 h-14 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center shrink-0"><Users className="w-7 h-7" /></div>
                 <div><div className="text-[13px] font-bold text-gray-400 uppercase">พนักงานทั้งหมด</div><div className="text-[28px] font-black text-gray-800 leading-none mt-1">{totalStaff}</div></div>
               </div>
               <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-sm flex items-center gap-5">
-                <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center shrink-0"><ShieldCheck className="w-7 h-7" /></div>
+                <div className="w-14 h-14 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center shrink-0"><ShieldCheck className="w-7 h-7" /></div>
                 <div><div className="text-[13px] font-bold text-gray-400 uppercase">กำลังใช้งาน (Active)</div><div className="text-[28px] font-black text-gray-800 leading-none mt-1">{activeStaff}</div></div>
               </div>
               <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-sm flex items-center gap-5">
-                <div className="w-14 h-14 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center shrink-0"><Key className="w-7 h-7" /></div>
+                <div className="w-14 h-14 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center shrink-0"><Key className="w-7 h-7" /></div>
                 <div><div className="text-[13px] font-bold text-gray-400 uppercase">ระดับผู้จัดการ</div><div className="text-[28px] font-black text-gray-800 leading-none mt-1">{managerStaff}</div></div>
               </div>
               <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-sm flex items-center gap-5">
-                <div className="w-14 h-14 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center shrink-0"><ShieldAlert className="w-7 h-7" /></div>
+                <div className="w-14 h-14 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center shrink-0"><ShieldAlert className="w-7 h-7" /></div>
                 <div><div className="text-[13px] font-bold text-gray-400 uppercase">ปิดใช้งาน (Inactive)</div><div className="text-[28px] font-black text-gray-800 leading-none mt-1">{inactiveStaff}</div></div>
               </div>
             </div>
@@ -434,12 +434,12 @@ export default function EmployeeManagementPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${['เจ้าของร้าน', 'ผู้จัดการ'].includes(staff.role) ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>
+                            <span className="px-2.5 py-1 rounded-md text-[11px] font-bold border bg-gray-50 text-gray-700 border-gray-300">
                               {staff.role}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase border ${staff.status === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-300'}`}>
+                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold uppercase border bg-gray-50 text-gray-700 border-gray-300">
                               {staff.status === 'active' ? 'ใช้งาน' : 'ระงับ'}
                             </span>
                           </td>
@@ -593,8 +593,8 @@ export default function EmployeeManagementPage() {
                 <p className="text-[14px] text-gray-500 font-medium mb-3">{selectedStaff.email}</p>
 
                 <div className="flex gap-2">
-                  <span className="px-3 py-1 rounded-full text-[12px] font-bold bg-[#7a5c4e]/10 text-[#7a5c4e] border border-[#7a5c4e]/20">{selectedStaff.role}</span>
-                  <span className={`px-3 py-1 rounded-full text-[12px] font-bold border ${selectedStaff.status === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-gray-100 text-gray-500 border-gray-300'}`}>
+                  <span className="px-3 py-1 rounded-full text-[12px] font-bold bg-gray-50 text-gray-700 border border-gray-300">{selectedStaff.role}</span>
+                  <span className="px-3 py-1 rounded-full text-[12px] font-bold border bg-gray-50 text-gray-700 border-gray-300">
                     {selectedStaff.status === 'active' ? 'กำลังใช้งาน' : 'ถูกระงับ'}
                   </span>
                 </div>
