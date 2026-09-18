@@ -29,6 +29,7 @@ export default function InventoryPage() {
   const [activeTab, setActiveTab] = useState("วัตถุดิบ"); 
   const [filterStatus, setFilterStatus] = useState("all"); 
   const [filterStock, setFilterStock] = useState("all"); 
+  const [lowStockThreshold, setLowStockThreshold] = useState(0);
 
   // States: Modals (Add / Edit)
   const [showFormModal, setShowFormModal] = useState(false);
@@ -70,8 +71,15 @@ export default function InventoryPage() {
     if (!user?.shop_id) return;
     setLoading(true);
     try {
-      const invRes = await fetch(`http://localhost:5000/api/inventory/items?shop_id=${user.shop_id}`);
+      const [invRes, settingsRes] = await Promise.all([
+        fetch(`http://localhost:5000/api/inventory/items?shop_id=${user.shop_id}`),
+        fetch(`http://localhost:5000/api/settings?shop_id=${user.shop_id}`)
+      ]);
       if (invRes.ok) setInventoryItems(await invRes.json());
+      if (settingsRes.ok) {
+        const settings = await settingsRes.json();
+        setLowStockThreshold(Number(settings.low_stock_threshold || 0));
+      }
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -98,7 +106,7 @@ export default function InventoryPage() {
     displayedItems = displayedItems.filter(i => i.status === filterStatus);
   }
   if (filterStock === "low") {
-    displayedItems = displayedItems.filter(i => i.quantity <= (i.min_threshold || 0) && i.quantity > 0);
+    displayedItems = displayedItems.filter(i => i.quantity <= Math.max(i.min_threshold || 0, lowStockThreshold) && i.quantity > 0);
   } else if (filterStock === "out") {
     displayedItems = displayedItems.filter(i => i.quantity <= 0);
   }
