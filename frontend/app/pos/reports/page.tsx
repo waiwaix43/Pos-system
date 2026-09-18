@@ -217,6 +217,43 @@ export default function ReportsDashboardPage() {
     return <EmptyState />;
   };
 
+  const renderStockMovementTable = (data: any) => {
+    if (!data) return <EmptyState />;
+    if (data.available === false) return <UnavailableState message={data.message} />;
+    if (!Array.isArray(data) || data.length === 0) return <EmptyState />;
+
+    return (
+      <div className="max-h-[360px] overflow-auto">
+        <table className="w-full min-w-[720px] border-collapse text-left">
+          <thead className="sticky top-0 z-10 bg-white">
+            <tr>
+              {['วันที่', 'รายการวัตถุดิบ', 'ประเภท', 'จำนวนที่เปลี่ยน', 'หน่วย', 'คงเหลือ', 'รายละเอียด'].map((heading) => (
+                <th key={heading} className="border-b border-gray-200 px-3 py-3 text-[11px] font-bold text-gray-500 whitespace-nowrap">{heading}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((movement: any, index: number) => {
+              const quantityText = String(movement['จำนวนที่เปลี่ยน'] ?? '-');
+              const isOutgoing = quantityText.startsWith('-');
+              return (
+                <tr key={`${movement['วันที่']}-${movement['รายการวัตถุดิบ']}-${index}`} className="border-b border-dashed border-gray-100 hover:bg-gray-50">
+                  <td className="px-3 py-3 text-[12px] text-gray-500 whitespace-nowrap">{movement['วันที่']}</td>
+                  <td className="px-3 py-3 text-[13px] font-bold text-gray-800">{movement['รายการวัตถุดิบ']}</td>
+                  <td className="px-3 py-3 text-[12px] text-gray-600 whitespace-nowrap">{movement['ประเภท']}</td>
+                  <td className={`px-3 py-3 text-right text-[14px] font-black whitespace-nowrap ${isOutgoing ? 'text-red-500' : 'text-green-600'}`}>{quantityText}</td>
+                  <td className="px-3 py-3 text-[12px] text-gray-500">{movement['หน่วย']}</td>
+                  <td className="px-3 py-3 text-right text-[13px] font-bold text-gray-700">{movement['คงเหลือหลังรายการ']}</td>
+                  <td className="px-3 py-3 text-[12px] text-gray-500">{movement['รายละเอียด']}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-screen bg-[#d6d6d6] font-sans overflow-hidden print:bg-white print:h-auto print:overflow-visible">
 
@@ -266,8 +303,8 @@ export default function ReportsDashboardPage() {
               {showExportMenu && (
                 <div className="absolute right-0 top-14 w-[180px] bg-white border border-gray-200 rounded-[16px] shadow-xl py-2 z-50 overflow-hidden">
                   <button onClick={() => handleExport("csv")} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 text-[14px] font-bold text-gray-700"><FileText className="w-4 h-4 text-[#7a5c4e]"/> Export CSV</button>
-                  <button onClick={() => handleExport("excel")} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 text-[14px] font-bold text-gray-700"><FileSpreadsheet className="w-4 h-4 text-green-600"/> Export Excel</button>
-                  <button onClick={() => handleExport("pdf")} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 text-[14px] font-bold text-gray-700"><FileIcon className="w-4 h-4 text-red-500"/> Export PDF</button>
+                  <button onClick={() => handleExport("excel")} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 text-[14px] font-bold text-gray-700"><FileSpreadsheet className="w-4 h-4 text-gray-600"/> Export Excel</button>
+                  <button onClick={() => handleExport("pdf")} className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 text-[14px] font-bold text-gray-700"><FileIcon className="w-4 h-4 text-gray-600"/> Export PDF</button>
                 </div>
               )}
             </div>
@@ -370,20 +407,20 @@ export default function ReportsDashboardPage() {
                       <span className="block text-[12px] font-bold text-gray-500 uppercase">สินค้าทั้งหมด</span>
                       <span className="block text-[24px] font-black text-gray-700">{inventoryApi.data?.totalItems}</span>
                     </div>
-                    <button type="button" onClick={() => router.push('/pos/inventory?stock=out')} className="bg-red-50 border border-red-100 p-4 rounded-[16px] text-center hover:bg-red-100 transition-colors">
-                        <span className="block text-[12px] font-bold text-red-500 uppercase">สินค้าหมด</span>
-                        <span className="block text-[24px] font-black text-red-600">{inventoryApi.data?.outOfStock || 0}</span>
+                    <button type="button" onClick={() => router.push('/pos/inventory?stock=out')} className="bg-gray-50 border border-gray-200 p-4 rounded-[16px] text-center hover:bg-gray-100 transition-colors">
+                      <span className="block text-[12px] font-bold text-gray-600 uppercase">สินค้าหมด</span>
+                      <span className="block text-[24px] font-black text-gray-800">{inventoryApi.data?.outOfStock || 0}</span>
                     </button>
-                    <button type="button" onClick={() => router.push('/pos/inventory?stock=low')} className="bg-orange-50 border border-orange-100 p-4 rounded-[16px] text-center hover:bg-orange-100 transition-colors">
-                        <span className="block text-[12px] font-bold text-orange-500 uppercase">ใกล้หมดสต็อก</span>
-                        <span className="block text-[24px] font-black text-orange-600">{inventoryApi.data?.lowStock || 0}</span>
+                    <button type="button" onClick={() => router.push('/pos/inventory?stock=low')} className="bg-gray-50 border border-gray-200 p-4 rounded-[16px] text-center hover:bg-gray-100 transition-colors">
+                      <span className="block text-[12px] font-bold text-gray-600 uppercase">ใกล้หมดสต็อก</span>
+                      <span className="block text-[24px] font-black text-gray-800">{inventoryApi.data?.lowStock || 0}</span>
                     </button>
                   </div>
                   {renderGenericTable(inventoryApi.data?.table || inventoryApi.data?.alertItems || inventoryApi.data)}
                </SectionWrapper>
 
                <SectionWrapper state={stockMovementsApi} title="การเคลื่อนไหวของ Stock" className="lg:col-span-1" icon={<Activity className="w-5 h-5 text-[#7a5c4e]"/>}>
-                  {renderGenericTable(stockMovementsApi.data)}
+                {renderStockMovementTable(stockMovementsApi.data)}
                </SectionWrapper>
             </div>
 
@@ -392,21 +429,21 @@ export default function ReportsDashboardPage() {
               <>
                 <SectionWrapper state={profitApi} title="ภาพรวมทางการเงิน" icon={<Wallet className="w-5 h-5 text-[#7a5c4e]"/>}>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                     <div className="bg-green-50/50 border border-green-100 p-5 rounded-[16px] flex flex-col justify-center">
+                     <div className="bg-gray-50 border border-gray-200 p-5 rounded-[16px] flex flex-col justify-center">
                        <span className="text-[13px] font-bold text-gray-500 mb-1">รายรับรวม</span>
-                       <span className="text-[22px] font-black text-green-600">฿{Number(profitApi.data?.revenue || 0).toLocaleString()}</span>
+                       <span className="text-[22px] font-black text-gray-800">฿{Number(profitApi.data?.revenue || 0).toLocaleString()}</span>
                      </div>
-                     <div className="bg-red-50/50 border border-red-100 p-5 rounded-[16px] flex flex-col justify-center">
+                     <div className="bg-gray-50 border border-gray-200 p-5 rounded-[16px] flex flex-col justify-center">
                        <span className="text-[13px] font-bold text-gray-500 mb-1">รายจ่ายรวม</span>
-                       <span className="text-[22px] font-black text-red-500">฿{Number(profitApi.data?.expenses || 0).toLocaleString()}</span>
+                       <span className="text-[22px] font-black text-gray-800">฿{Number(profitApi.data?.expenses || 0).toLocaleString()}</span>
                      </div>
-                     <div className="bg-orange-50/50 border border-orange-100 p-5 rounded-[16px] flex flex-col justify-center">
+                     <div className="bg-gray-50 border border-gray-200 p-5 rounded-[16px] flex flex-col justify-center">
                        <span className="text-[13px] font-bold text-gray-500 mb-1">ต้นทุนสินค้า (COGS)</span>
-                       <span className="text-[18px] font-black text-orange-600">{profitApi.data?.cogsAvailable ? `฿${Number(profitApi.data.cogs).toLocaleString()}` : "ยังคำนวณไม่ได้"}</span>
+                       <span className="text-[18px] font-black text-gray-800">{profitApi.data?.cogsAvailable ? `฿${Number(profitApi.data.cogs).toLocaleString()}` : "ยังคำนวณไม่ได้"}</span>
                      </div>
-                     <div className="bg-[#7a5c4e]/5 border border-[#7a5c4e]/20 p-5 rounded-[16px] flex flex-col justify-center">
+                     <div className="bg-gray-50 border border-gray-200 p-5 rounded-[16px] flex flex-col justify-center">
                        <span className="text-[13px] font-bold text-gray-500 mb-1">กำไรสุทธิ (Net Profit)</span>
-                       <span className="text-[18px] font-black text-[#7a5c4e]">{profitApi.data?.cogsAvailable ? `฿${Number(profitApi.data.netProfit).toLocaleString()}` : "ยังคำนวณไม่ได้"}</span>
+                       <span className="text-[18px] font-black text-gray-800">{profitApi.data?.cogsAvailable ? `฿${Number(profitApi.data.netProfit).toLocaleString()}` : "ยังคำนวณไม่ได้"}</span>
                      </div>
                   </div>
                 </SectionWrapper>
