@@ -28,6 +28,7 @@ export default function POSPage() {
 
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [itemDetails, setItemDetails] = useState({ quantity: 1, note: "" });
+  const [itemPrice, setItemPrice] = useState("");
 
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paidAmountStr, setPaidAmountStr] = useState("");
@@ -122,6 +123,7 @@ export default function POSPage() {
   // ==========================================
   const openItemModal = async (product: any) => {
     setSelectedProduct(product);
+    setItemPrice(String(product.price ?? 0));
     setItemDetails({ quantity: 1, note: "" });
     setCurrentProductOptions([]);
     setSelectedDynamicOptions({});
@@ -188,7 +190,7 @@ export default function POSPage() {
        });
     });
 
-    const finalPrice = Number(selectedProduct.price) + optionsPrice;
+    const finalPrice = Number(itemPrice || selectedProduct.price || 0) + optionsPrice;
     const optionsText = optionsTextArr.join(', ');
 
     setCart((prev) => {
@@ -232,6 +234,12 @@ export default function POSPage() {
   };
 
   const totalPrice = calculateTotal();
+  const cartSubtotal = cart.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+  const vatAmount = shopSettings?.vat_enabled
+    ? shopSettings.prices_include_vat
+      ? cartSubtotal * (Number(shopSettings.vat_rate) / (100 + Number(shopSettings.vat_rate)))
+      : cartSubtotal * (Number(shopSettings.vat_rate) / 100)
+    : 0;
 
   const handleKeypad = (val: string) => {
     if (val === "C") setPaidAmountStr("");
@@ -422,8 +430,8 @@ export default function POSPage() {
                     </div>
                     {shopSettings?.vat_enabled && cart.length > 0 && (
                       <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-between text-[13px] text-gray-600">
-                        <span>{shopSettings.prices_include_vat ? 'ราคารวม VAT แล้ว' : 'ภาษีมูลค่าเพิ่ม (' + shopSettings.vat_rate + '%)'}</span>
-                        <span>{shopSettings.prices_include_vat ? '' : '+'}{(totalPrice - cart.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>{shopSettings.prices_include_vat ? 'รวม VAT ในราคาแล้ว' : 'ภาษีมูลค่าเพิ่ม (' + shopSettings.vat_rate + '%)'}</span>
+                        <span>{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                       </div>
                     )}
                   </div>
@@ -451,7 +459,14 @@ export default function POSPage() {
                 </div>
 
                 <div className="flex justify-between items-center text-[18px] border-b border-gray-200 pb-4 mb-4 shrink-0">
-                  <span className="font-bold text-black">{Number(selectedProduct.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  {shopSettings?.allow_price_override ? (
+                    <label className="flex items-center gap-2 text-[14px] text-gray-500">
+                      ราคา
+                      <input type="number" min="0" step="0.01" value={itemPrice} onChange={(e) => setItemPrice(e.target.value)} className="w-28 rounded-lg border border-gray-300 px-2 py-1 text-right text-[18px] font-bold text-black outline-none focus:border-[#7a5c4e]" />
+                    </label>
+                  ) : (
+                    <span className="font-bold text-black">{Number(selectedProduct.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  )}
                   <div className="flex items-center gap-3">
                     <span className="text-[14px] text-gray-500">จำนวน:</span>
                     <input type="number" min="1" value={itemDetails.quantity} onChange={(e) => setItemDetails({ ...itemDetails, quantity: parseInt(e.target.value) || 1 })} className="w-14 text-center border rounded-lg py-1 outline-none font-bold bg-gray-50" />
@@ -511,6 +526,7 @@ export default function POSPage() {
                 <h2 className="text-2xl font-bold mb-6 text-black border-b pb-4">ชำระเงินสำเร็จ</h2>
                 <div className="w-24 h-24 bg-[#4CAF50] rounded-full flex items-center justify-center mx-auto mb-6 shadow-md"><svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"></path></svg></div>
                 <p className="text-gray-600 mb-1 text-sm">ช่องทางการชำระ: {paymentMethod}</p>
+                {shopSettings?.vat_enabled && <p className="text-gray-500 mb-1 text-sm">VAT {Number(shopSettings.vat_rate || 0)}%: {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>}
                 <p className="text-[18px] font-bold mb-8 text-black">ยอดรวม: {totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                 <button onClick={finishTransaction} className="w-full bg-[#7a5c4e] text-white py-3.5 rounded-full font-bold hover:bg-[#684c3f] transition-all">ชำระเงินสำเร็จ</button>
               </div>
@@ -523,7 +539,9 @@ export default function POSPage() {
                 <button onClick={() => setView('pos')} className="text-xl font-bold text-gray-800 text-left w-fit flex items-center gap-2 hover:text-gray-500"><ArrowLeft className="w-5 h-5"/> ชำระเงิน</button>
                 <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-sm space-y-4">
                   <div className="flex justify-between font-bold text-lg border-b pb-3"><span>บิล: {billNumber}</span><span className="font-normal text-gray-500">{orderType}</span></div>
-                  <div className="flex justify-between text-gray-500 font-medium"><span>ยอดรวม:</span><span>{totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+                  <div className="flex justify-between text-gray-500 font-medium"><span>ยอดสินค้าก่อน VAT:</span><span>{cartSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+                  {shopSettings?.vat_enabled && <div className="flex justify-between text-gray-500 font-medium"><span>VAT {Number(shopSettings.vat_rate || 0)}%:</span><span>{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>}
+                  <div className="flex justify-between text-gray-800 font-bold"><span>ยอดรวม:</span><span>{totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
                   <div className="flex justify-between text-gray-500 font-medium"><span>ชำระแล้ว:</span><span>{displayPaidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
                   <div className="flex justify-between text-2xl font-bold border-t pt-4 text-black"><span>ค้างชำระ:</span><span>{remainingAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
                 </div>
