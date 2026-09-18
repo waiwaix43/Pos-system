@@ -833,17 +833,28 @@ app.post('/api/inventory/items', async (req, res) => {
         if (shopError) throw shopError;
         if (!shop) return res.status(400).json({ error: "ไม่พบร้านค้านี้ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่" });
 
-        const { error } = await db.from('inventory_items').insert([{
+        const { data: createdItem, error } = await db.from('inventory_items').insert([{
             shop_id, category_id: category_id || null, name, quantity: quantity || 0, unit, min_threshold: min_threshold || 0,
             image_url: image_url || null, sku: sku || null, cost: cost || 0, type: type || 'raw_material', status: status || 'active'
-        }]);
-        if (error) throw error; res.json({ success: true, message: "เพิ่มรายการเข้าคลังสำเร็จ" });
+        }]).select('id, quantity').single();
+        if (error) throw error;
+        const initialQuantity = Number(quantity || 0);
+        if (createdItem && initialQuantity !== 0) {
+            const { error: movementError } = await db.from('stock_movements').insert([{
+                shop_id, inventory_item_id: createdItem.id, movement_type: 'INITIAL_STOCK',
+                quantity: initialQuantity, balance_after: initialQuantity, reason: 'เพิ่มสินค้าเข้าคลัง'
+            }]);
+            if (movementError) throw movementError;
+        }
+        res.json({ success: true, message: "เพิ่มรายการเข้าคลังสำเร็จ" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/inventory/items/:id', async (req, res) => {
     try {
         const { shop_id, category_id, name, quantity, unit, min_threshold, image_url, sku, cost, type, status } = req.body;
+        const { data: existingItem, error: existingError } = await db.from('inventory_items').select('shop_id, quantity').eq('id', req.params.id).single();
+        if (existingError || !existingItem) throw existingError || new Error('ไม่พบวัตถุดิบในระบบ');
         const updates = {
             category_id: category_id || null,
             name,
@@ -860,7 +871,18 @@ app.put('/api/inventory/items/:id', async (req, res) => {
         let query = db.from('inventory_items').update(updates).eq('id', req.params.id);
         if (shop_id) query = query.eq('shop_id', shop_id);
         const { error } = await query;
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        const previousQuantity = Number(existingItem.quantity || 0);
+        const nextQuantity = Number(quantity ?? 0);
+        const quantityDelta = nextQuantity - previousQuantity;
+        if (quantityDelta !== 0) {
+            const { error: movementError } = await db.from('stock_movements').insert([{
+                shop_id: shop_id || existingItem.shop_id, inventory_item_id: req.params.id, movement_type: 'ADJUSTMENT',
+                quantity: quantityDelta, balance_after: nextQuantity, reason: 'แก้ไขจำนวนสินค้าในคลัง'
+            }]);
+            if (movementError) throw movementError;
+        }
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1336,14 +1358,32 @@ app.get('/api/reports/stock-movement', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const { data: movements } = await db.from('stock_movements').select('id, created_at, movement_type, quantity, balance_after, reason, reference_id, inventory_item_id, inventory_items(name)')
+        const { data: movements, error: movementError } = await db.from('stock_movements').select('id, created_at, movement_type, quantity, balance_after, reason, reference_id, inventory_item_id')
             .eq('shop_id', shop_id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }).limit(20);
-        
-        if (!movements) return res.json([]);
+        if (movementError) throw movementError;
+        if (!movements || movements.length === 0) return res.json([]);
+
+        const inventoryItemIds = [...new Set(movements.map(m => m.inventory_item_id).filter(Boolean))];
+        const { data: inventoryItems, error: inventoryError } = inventoryItemIds.length > 0
+            ? await db.from('inventory_items').select('id, name, unit').in('id', inventoryItemIds)
+            : { data: [], error: null };
+        if (inventoryError) throw inventoryError;
+        const itemDetails = new Map((inventoryItems || []).map(item => [item.id, item]));
+        const movementLabels = {
+            SALE: 'ใช้ไปจากการขาย',
+            VOID_RETURN: 'คืนจากการยกเลิกบิล',
+            ADJUSTMENT: 'ปรับ Stock',
+            INITIAL_STOCK: 'เพิ่มเข้าคลัง'
+        };
+
         res.json(movements.map(m => ({
             "วันที่": new Date(m.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }),
-            "รายการ": m.inventory_items?.name || '-', "ประเภท": m.movement_type, "จำนวน": m.quantity > 0 ? `+${m.quantity}` : m.quantity,
-            "คงเหลือหลังรายการ": m.balance_after ?? '-', "อ้างอิง": m.reference_id ? `Order #${m.reference_id}` : (m.reason || '-')
+            "รายการวัตถุดิบ": itemDetails.get(m.inventory_item_id)?.name || '-',
+            "ประเภท": movementLabels[m.movement_type] || m.movement_type,
+            "จำนวนที่เปลี่ยน": Number(m.quantity) > 0 ? `+${m.quantity}` : m.quantity,
+            "หน่วย": itemDetails.get(m.inventory_item_id)?.unit || 'หน่วย',
+            "คงเหลือหลังรายการ": m.balance_after ?? '-',
+            "รายละเอียด": m.reference_id ? `บิล #${m.reference_id}` : (m.reason || '-')
         })));
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
