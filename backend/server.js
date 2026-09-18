@@ -489,6 +489,35 @@ app.post('/api/orders', async (req, res) => {
                 ? JSON.parse(shopSettings.settings_data)
                 : shopSettings.settings_data;
         }
+        const cartSubtotal = (cart || []).reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
+        const vatEnabled = receiptSettingsSnapshot?.vat_enabled === true || receiptSettingsSnapshot?.vat_enabled === 'true';
+        const vatRate = Number(receiptSettingsSnapshot?.vat_rate || 0);
+        const pricesIncludeVat = receiptSettingsSnapshot?.prices_include_vat !== false && receiptSettingsSnapshot?.prices_include_vat !== 'false';
+        const vatAmount = vatEnabled && vatRate > 0
+            ? pricesIncludeVat ? cartSubtotal * (vatRate / (100 + vatRate)) : cartSubtotal * (vatRate / 100)
+            : 0;
+        const calculatedTotal = vatEnabled && !pricesIncludeVat ? cartSubtotal + vatAmount : cartSubtotal;
+        if (receiptSettingsSnapshot) {
+            receiptSettingsSnapshot.receipt_subtotal = cartSubtotal;
+            receiptSettingsSnapshot.receipt_subtotal_excluding_vat = pricesIncludeVat ? calculatedTotal - vatAmount : cartSubtotal;
+            receiptSettingsSnapshot.receipt_vat_enabled = vatEnabled;
+            receiptSettingsSnapshot.receipt_vat_rate = vatRate;
+            receiptSettingsSnapshot.receipt_vat_amount = vatAmount;
+            receiptSettingsSnapshot.receipt_total_amount = calculatedTotal;
+        }
+        if (receiptSettingsSnapshot?.allow_negative_stock === false) {
+            for (const item of cart || []) {
+                const productId = item.id || item.product_id;
+                const { data: recipes } = await db.from('recipes').select('inventory_item_id, quantity').eq('product_id', productId);
+                for (const recipe of recipes || []) {
+                    const { data: inventoryItem } = await db.from('inventory_items').select('quantity, name').eq('id', recipe.inventory_item_id).single();
+                    const requiredQuantity = Number(recipe.quantity || 0) * Number(item.quantity || 0);
+                    if (inventoryItem && Number(inventoryItem.quantity) < requiredQuantity) {
+                        return res.status(400).json({ success: false, error: `วัตถุดิบ ${inventoryItem.name || ''} ไม่เพียงพอสำหรับการขาย` });
+                    }
+                }
+            }
+        }
         const receiptPrefix = receiptSettingsSnapshot?.receipt_prefix ?? 'INV-';
         const startNumber = Number.parseInt(receiptSettingsSnapshot?.receipt_start_number, 10);
         const nextNumber = Number.isNaN(startNumber) ? (count || 0) + 1 : startNumber + (count || 0);
@@ -496,8 +525,8 @@ app.post('/api/orders', async (req, res) => {
         const billNumber = `${receiptPrefix}${String(nextNumber).padStart(padding, '0')}`;
 
         const { data: orderRes, error: orderErr } = await db.from('orders').insert([{
-            bill_number: billNumber, shop_id, staff_id: staff_id || null, shift_id, order_type, total_amount, 
-            payment_method: payment_method || 'เงินสด', received_amount: received_amount || total_amount, change_amount: change_amount || 0, status: 'completed'
+            bill_number: billNumber, shop_id, staff_id: staff_id || null, shift_id, order_type, total_amount: calculatedTotal,
+            payment_method: payment_method || 'เงินสด', received_amount: received_amount || calculatedTotal, change_amount: change_amount || 0, status: 'completed'
         }]).select('id').single();
         if (orderErr) throw orderErr;
 
@@ -894,7 +923,10 @@ app.get('/api/settings', async (req, res) => {
     try {
         const { data, error } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
         if (error && error.code !== 'PGRST116') throw error;
-        if (data) { res.json({ shop_id: Number(shop_id), ...data.settings_data }); } 
+        if (data) {
+            const savedSettings = typeof data.settings_data === 'string' ? JSON.parse(data.settings_data) : data.settings_data;
+            res.json({ shop_id: Number(shop_id), ...defaultSettings, ...(savedSettings || {}) });
+        }
         else { res.json({ shop_id: Number(shop_id), ...defaultSettings }); }
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });
