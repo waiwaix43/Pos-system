@@ -498,9 +498,9 @@ export default function ShiftsPage() {
           </div>
           <div className="flex items-center gap-4">
              {currentShift ? (
-               <div className="flex items-center gap-3 bg-green-100 px-5 py-2.5 rounded-full border border-green-200 shadow-sm">
-                 <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                 <span className="text-[14px] font-bold text-green-700">กำลังเปิดรอบการขาย</span>
+               <div className="flex items-center gap-3 bg-gray-100 px-5 py-2.5 rounded-full border border-gray-200 shadow-sm">
+                 <div className="w-3 h-3 bg-[#7a5c4e] rounded-full animate-pulse"></div>
+                 <span className="text-[14px] font-bold text-gray-700">กำลังเปิดรอบการขาย</span>
                </div>
              ) : (
                <div className="flex items-center gap-3 bg-gray-200 px-5 py-2.5 rounded-full border border-gray-300 shadow-sm">
@@ -663,7 +663,7 @@ export default function ShiftsPage() {
                           <div className="absolute bottom-full mb-3 hidden group-hover:flex flex-col items-center pointer-events-none w-max">
                             <div className="bg-gray-800 text-white text-center px-4 py-2 rounded-xl shadow-lg border border-gray-700/50">
                               <span className="block text-[12px] text-gray-300 font-medium mb-0.5">ช่วงเวลา {p.dateTime}</span>
-                              <span className="block text-[15px] font-bold text-green-400">ยอดขาย ฿{(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                              <span className="block text-[15px] font-bold text-gray-600">ยอดขาย ฿{(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                               <span className="block text-[12px] text-gray-300">ออเดอร์ {p.orderCount} รายการ</span>
                               <span className="block text-[12px] text-gray-300">สินค้า {p.itemCount} ชิ้น</span>
                             </div>
@@ -726,7 +726,7 @@ export default function ShiftsPage() {
                       </div>
                       <div className="flex flex-col">
                         <span className="text-[13px] text-gray-400">ส่วนลดทั้งหมด</span>
-                        <span className="text-[15px] font-medium text-red-500 mt-1">-฿{(shiftSummary?.totalDiscount || 0).toLocaleString()}</span>
+                        <span className="text-[15px] font-medium text-gray-600 mt-1">-฿{(shiftSummary?.totalDiscount || 0).toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
@@ -747,22 +747,22 @@ export default function ShiftsPage() {
                         <span className="text-[15px] font-bold text-gray-600">฿{(currentShift?.opening_cash || 0).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between items-center py-3 px-4 border-b border-dashed border-gray-200">
-                        <span className="text-[15px] font-bold text-green-600">ยอดขายเงินสด (Cash Sales)</span>
-                        <span className="text-[15px] font-black text-green-600">+฿{(shiftSummary?.cashSales || 0).toLocaleString()}</span>
+                        <span className="text-[15px] font-bold text-gray-700">ยอดขายเงินสด (Cash Sales)</span>
+                        <span className="text-[15px] font-black text-gray-800">+฿{(shiftSummary?.cashSales || 0).toLocaleString()}</span>
                       </div>
                       
                       {/* แสดงยอดเงินเข้า ถ้ามี */}
                       {totalCashIn > 0 && (
-                        <div className="flex justify-between items-center py-3 px-4 border-b border-dashed border-gray-200 bg-green-50/50 rounded-lg my-1">
-                          <span className="text-[15px] font-bold text-green-600">เงินเข้าเพิ่มเติม (Cash In)</span>
-                          <span className="text-[15px] font-black text-green-600">+฿{totalCashIn.toLocaleString()}</span>
+                        <div className="flex justify-between items-center py-3 px-4 border-b border-dashed border-gray-200 bg-gray-50 rounded-lg my-1">
+                          <span className="text-[15px] font-bold text-gray-700">เงินเข้าเพิ่มเติม (Cash In)</span>
+                          <span className="text-[15px] font-black text-gray-800">+฿{totalCashIn.toLocaleString()}</span>
                         </div>
                       )}
 
                       {/* แสดงยอดเงินออก (เบิกจ่าย) */}
-                      <div className="flex justify-between items-center py-3 px-4 bg-red-50/50 rounded-lg my-1">
-                        <span className="text-[15px] font-bold text-red-500">เงินออก / เบิกจ่าย (Expenses)</span>
-                        <span className="text-[15px] font-black text-red-500">-฿{totalCashOut.toLocaleString()}</span>
+                      <div className="flex justify-between items-center py-3 px-4 bg-gray-50 rounded-lg my-1">
+                        <span className="text-[15px] font-bold text-gray-700">เงินออก / เบิกจ่าย (Expenses)</span>
+                        <span className="text-[15px] font-black text-gray-800">-฿{totalCashOut.toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
@@ -781,7 +781,7 @@ export default function ShiftsPage() {
                           return (
                             <div key={idx} className="flex justify-between items-center p-4 hover:bg-gray-50 rounded-xl transition-colors border-b border-dashed border-gray-100 last:border-0">
                               <div className="flex items-center gap-4">
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isCashIn ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-gray-100 text-gray-600">
                                   {isCashIn ? <ArrowDownCircle className="w-5 h-5" /> : <ArrowUpCircle className="w-5 h-5" />}
                                 </div>
                                 <div className="flex flex-col">
@@ -789,7 +789,7 @@ export default function ShiftsPage() {
                                   <span className="text-[13px] text-gray-500 mt-0.5">{formatTime(exp.created_at)}</span>
                                 </div>
                               </div>
-                              <span className={`text-[16px] font-black ${isCashIn ? 'text-green-600' : 'text-red-500'}`}>
+                              <span className="text-[16px] font-black text-gray-800">
                                 {isCashIn ? '+' : '-'}฿{displayAmount}
                               </span>
                             </div>
