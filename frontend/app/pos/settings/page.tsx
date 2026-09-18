@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
+import InteractiveShopMap from "../../components/InteractiveShopMap";
+import "leaflet/dist/leaflet.css";
 import { createClient } from "@supabase/supabase-js";
 import { 
   Store, 
@@ -23,7 +25,9 @@ import {
   Upload,
   Trash2,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  MapPin,
+  LocateFixed
 } from "lucide-react";
 
 // ==========================================
@@ -95,7 +99,52 @@ interface ShopSettings {
   timezone: string;
   date_format: string;
   time_format: string;
+  latitude?: number;
+  longitude?: number;
 }
+
+const DEFAULT_SETTINGS: ShopSettings = {
+  shop_id: 0,
+  shop_name: "ชื่อร้านของคุณ",
+  branch_name: "สาขาหลัก",
+  logo: "",
+  address: "ที่อยู่ร้าน",
+  phone: "-",
+  email: "-",
+  tax_id: "-",
+  allow_negative_stock: false,
+  auto_deduct_stock: true,
+  allow_price_override: true,
+  allow_discounts: true,
+  require_reason_delete_item: true,
+  require_reason_cancel_bill: true,
+  auto_print_receipt: true,
+  enable_e_receipt: false,
+  receipt_show_logo: false,
+  receipt_prefix: "INV-",
+  receipt_start_number: "10001",
+  receipt_footer: "ขอบคุณที่ใช้บริการ",
+  alert_low_stock: true,
+  low_stock_threshold: 10,
+  vat_enabled: false,
+  vat_rate: 7,
+  prices_include_vat: true,
+  notify_low_stock: true,
+  notify_out_of_stock: true,
+  notify_refund: true,
+  notify_cancel_bill: true,
+  notify_stock_adjust: true,
+  hardware_printer_type: "none",
+  hardware_barcode_scanner: false,
+  hardware_cash_drawer: false,
+  language: "th",
+  currency: "THB",
+  timezone: "auto",
+  date_format: "DD/MM/YYYY",
+  time_format: "24h",
+  latitude: undefined,
+  longitude: undefined
+};
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -124,6 +173,7 @@ export default function SettingsPage() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const [isFindingAddress, setIsFindingAddress] = useState(false);
   
   const [securityForm, setSecurityForm] = useState({ oldPass: "", newPass: "", confirmPass: "", oldPin: "", newPin: "", confirmPin: "" });
 
@@ -163,9 +213,14 @@ export default function SettingsPage() {
       const res = await fetch(`http://localhost:5000/api/settings?shop_id=${shopId}`);
       if (!res.ok) throw new Error(`เกิดข้อผิดพลาดในการโหลดข้อมูล (Status: ${res.status})`);
       const data = await res.json();
-      setOriginalSettings(data);
-      setCurrentSettings(data);
-      setLogoPreview(data.logo || null);
+      const normalizedSettings: ShopSettings = {
+        ...DEFAULT_SETTINGS,
+        ...data,
+        shop_id: Number(data.shop_id ?? shopId)
+      };
+      setOriginalSettings(normalizedSettings);
+      setCurrentSettings(normalizedSettings);
+      setLogoPreview(normalizedSettings.logo || null);
 
       // โหลด Payment Methods
       const payRes = await fetch(`http://localhost:5000/api/payment-methods?shop_id=${shopId}`);
@@ -213,6 +268,33 @@ export default function SettingsPage() {
     setLogoFile(null);
     setLogoPreview(null);
     handleChange('logo', '');
+  };
+
+  const handleFindAddress = async () => {
+    const address = currentSettings?.address?.trim();
+    if (!address) return showToast("กรุณากรอกที่อยู่ก่อนค้นหาตำแหน่ง", "error");
+
+    setIsFindingAddress(true);
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=th&q=${encodeURIComponent(address)}`, {
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) throw new Error("ไม่สามารถค้นหาตำแหน่งได้");
+      const results = await response.json();
+      if (!results.length) return showToast("ไม่พบตำแหน่งจากที่อยู่นี้ ลองเพิ่มตำบล อำเภอ และจังหวัด", "error");
+
+      setCurrentSettings(prev => prev ? ({
+        ...prev,
+        latitude: Number(results[0].lat),
+        longitude: Number(results[0].lon)
+      }) : prev);
+      setHasUnsavedChanges(true);
+      showToast("พบตำแหน่งแล้ว กดบันทึกเพื่อเก็บพิกัดร้าน", "success");
+    } catch (error: any) {
+      showToast(error.message || "ไม่สามารถค้นหาตำแหน่งได้", "error");
+    } finally {
+      setIsFindingAddress(false);
+    }
   };
 
   // จัดการลำดับการชำระเงิน
@@ -369,30 +451,64 @@ export default function SettingsPage() {
     { id: "system", name: "ระบบ", icon: Settings, allowed: isOwner },
   ];
 
+  const latitude = Number(currentSettings?.latitude);
+  const longitude = Number(currentSettings?.longitude);
+  const hasMapLocation = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const previewItemTotal = 100;
+  const previewVatRate = Number(currentSettings?.vat_rate || 0);
+  const previewVatEnabled = Boolean(currentSettings?.vat_enabled);
+  const previewVatAmount = previewVatEnabled && previewVatRate > 0
+    ? currentSettings?.prices_include_vat
+      ? previewItemTotal * (previewVatRate / (100 + previewVatRate))
+      : previewItemTotal * (previewVatRate / 100)
+    : 0;
+  const previewSubtotal = currentSettings?.prices_include_vat
+    ? previewItemTotal - previewVatAmount
+    : previewItemTotal;
+  const previewTotal = currentSettings?.prices_include_vat
+    ? previewItemTotal
+    : previewItemTotal + previewVatAmount;
+
   const receiptPreview = currentSettings && (
-    <div className="w-full bg-white p-6 shadow-sm font-mono text-[12px] text-gray-800 space-y-3 border border-gray-200 rounded-xl">
-      <div className="text-center border-b border-dashed pb-3 space-y-1 border-gray-300">
-        {logoPreview && <img src={logoPreview} alt="logo" className="w-12 h-12 object-contain mx-auto mb-2 grayscale" />}
-        <div className="font-bold text-[14px]">{currentSettings.shop_name || "-"}</div>
-        <div>{currentSettings.address}</div>
-        <div>โทร: {currentSettings.phone}</div>
-        <div>Tax ID: {currentSettings.tax_id}</div>
-        {currentSettings.vat_enabled && <div>(VAT Included)</div>}
+    <div className="w-full max-w-[420px] rounded-[16px] bg-white p-6 text-[13px] text-gray-800 shadow-sm ring-1 ring-gray-200">
+      <div className="mb-6 border-b border-gray-200 pb-5 text-center">
+        {currentSettings.receipt_show_logo && logoPreview && <img src={logoPreview} alt="โลโก้ร้าน" className="mb-3 h-16 w-16 object-contain mx-auto" />}
+        <div className="text-[20px] font-black">{currentSettings.shop_name || "-"}</div>
+        <div className="mt-1 text-gray-500">สาขา: {currentSettings.branch_name || "-"}</div>
+        <div className="mt-2 whitespace-pre-wrap text-[12px] text-gray-500">{currentSettings.address || "-"}</div>
+        <div className="text-[12px] text-gray-500">โทร: {currentSettings.phone || "-"}</div>
+        <div className="text-[12px] text-gray-500">Tax ID: {currentSettings.tax_id || "-"}</div>
       </div>
-      <div className="space-y-1">
-        <div className="flex justify-between font-bold"><span>เลขที่: {currentSettings.receipt_prefix}{currentSettings.receipt_start_number}</span></div>
+
+      <div className="mb-5 rounded-xl bg-gray-50 p-4 text-[12px]">
+        <div className="flex justify-between"><span className="text-gray-500">เลขที่ใบเสร็จ</span><strong>{currentSettings.receipt_prefix}{currentSettings.receipt_start_number || "0001"}</strong></div>
+        <div className="mt-2 flex justify-between"><span className="text-gray-500">ประเภท</span><span>ทานที่ร้าน</span></div>
+        <div className="mt-2 flex justify-between"><span className="text-gray-500">สถานะ</span><span className="font-bold text-green-600">สำเร็จ</span></div>
       </div>
-      <div className="border-t border-b border-dashed py-3 space-y-2 border-gray-300">
-        <div className="flex justify-between font-bold"><span>รายการ</span><span>ราคา</span></div>
-        <div className="flex justify-between"><span>สินค้าตัวอย่าง x1</span><span>100.00</span></div>
+
+      <div className="mb-5">
+        <h4 className="mb-3 border-b border-gray-200 pb-2 text-[15px] font-bold">รายการสินค้า</h4>
+        <div className="flex justify-between">
+          <div><div className="font-medium">สินค้าตัวอย่าง</div><div className="text-[12px] text-gray-500">1 x ฿100.00</div></div>
+          <span className="font-bold">฿100.00</span>
+        </div>
       </div>
-      <div className="space-y-1 text-right pt-1">
-        <div className="flex justify-between font-bold text-[13px]"><span>รวมทั้งสิ้น</span><span>100.00</span></div>
-        {currentSettings.vat_enabled && <div className="text-[11px] text-gray-500">รวมภาษีมูลค่าเพิ่ม ({currentSettings.vat_rate}%) แล้ว</div>}
+
+      <div className="border-t border-dashed border-gray-300 pt-4 text-[13px]">
+        <div className="flex justify-between"><span className="text-gray-500">ยอดรวมก่อนส่วนลด</span><span>฿{previewSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+        <div className="mt-2 flex justify-between"><span className="text-gray-500">ส่วนลดทั้งหมด</span><span className="text-red-500">- ฿0.00</span></div>
+        {previewVatEnabled && <div className="mt-2 flex justify-between"><span className="text-gray-500">ภาษีมูลค่าเพิ่ม ({previewVatRate}%)</span><span>฿{previewVatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>}
+        <div className="mt-4 flex justify-between text-[18px] font-black"><span>ยอดสุทธิ</span><span className="text-[#7a5c4e]">฿{previewTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
       </div>
-      <div className="border-t border-dashed pt-4 text-center text-gray-500 text-[11px] border-gray-300 whitespace-pre-wrap">
-        {currentSettings.receipt_footer}
+
+      <div className="mt-5 rounded-xl bg-gray-50 p-4 text-[12px]">
+        <h4 className="mb-2 font-bold">ข้อมูลการชำระเงิน</h4>
+        <div className="flex justify-between"><span className="text-gray-500">ช่องทาง</span><span>เงินสด</span></div>
+        <div className="mt-2 flex justify-between"><span className="text-gray-500">ยอดรับเงิน</span><span>฿{previewTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+        <div className="mt-2 flex justify-between"><span className="text-gray-500">เงินทอน</span><span>฿0.00</span></div>
       </div>
+
+      {currentSettings.receipt_footer && <div className="mt-5 border-t border-dashed border-gray-300 pt-4 text-center text-[12px] text-gray-500 whitespace-pre-wrap">{currentSettings.receipt_footer}</div>}
     </div>
   );
 
@@ -466,7 +582,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Setting Panel */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
             {errorMsg ? (
                <div className="flex items-center justify-center h-full">
                  <div className="bg-white p-8 rounded-[24px] border border-gray-200 shadow-sm flex flex-col items-center max-w-sm text-center">
@@ -551,6 +667,32 @@ export default function SettingsPage() {
                         <div className="col-span-2">
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">ที่อยู่</label>
                           <textarea disabled={!isEditing} value={currentSettings.address} onChange={(e) => handleChange('address', e.target.value)} rows={3} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-500 text-[15px]" />
+                          <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <button type="button" disabled={!isEditing || isFindingAddress} onClick={handleFindAddress} className="flex items-center gap-2 rounded-xl bg-[#7a5c4e] px-4 py-2.5 text-[14px] font-bold text-white hover:bg-[#684c3f] disabled:cursor-not-allowed disabled:opacity-50">
+                              {isFindingAddress ? <RefreshCw className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+                              {isFindingAddress ? "กำลังค้นหาตำแหน่ง..." : "ค้นหาตำแหน่งจากที่อยู่"}
+                            </button>
+                            {hasMapLocation && <span className="text-[12px] text-green-600">พบพิกัดแล้ว กดบันทึกเพื่อใช้งานจริง</span>}
+                          </div>
+                          <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                            <InteractiveShopMap
+                              latitude={hasMapLocation ? latitude : undefined}
+                              longitude={hasMapLocation ? longitude : undefined}
+                              editable={isEditing}
+                              onLocationChange={(nextLatitude, nextLongitude) => {
+                                setCurrentSettings(prev => prev ? ({ ...prev, latitude: nextLatitude, longitude: nextLongitude }) : prev);
+                                setHasUnsavedChanges(true);
+                              }}
+                            />
+                            <div className="flex items-center justify-between gap-3 px-4 py-3 text-[12px] text-gray-500">
+                              {hasMapLocation ? (
+                                <span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-[#7a5c4e]" /> {latitude.toFixed(6)}, {longitude.toFixed(6)}</span>
+                              ) : (
+                                <span>กดแก้ไข แล้วคลิกบนแผนที่เพื่อเลือกตำแหน่งร้าน</span>
+                              )}
+                              {hasMapLocation && <a href={`https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`} target="_blank" rel="noreferrer" className="font-bold text-[#7a5c4e] hover:underline">เปิดแผนที่ขนาดใหญ่</a>}
+                            </div>
+                          </div>
                         </div>
                         <div>
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">เบอร์โทรศัพท์</label>
@@ -586,12 +728,16 @@ export default function SettingsPage() {
 
                     {/* ใบเสร็จ */}
                     {activeTab === 'receipt' && (
-                      <div className="flex gap-10">
-                         <div className="flex-1 space-y-5">
+                       <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(320px,1fr)_420px]">
+                         <div className="space-y-5">
                             <div>
                                <label className="block text-[15px] font-bold text-gray-700 mb-2">ชื่อร้านบนใบเสร็จ</label>
                                <input type="text" disabled={!isEditing} value={currentSettings.shop_name} onChange={(e) => handleChange('shop_name', e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl disabled:bg-gray-50 text-[15px] outline-none focus:border-[#7a5c4e]" />
                             </div>
+                             <div className="flex items-center justify-between p-4 rounded-[16px] border border-gray-200">
+                               <span className="font-bold text-[15px] text-gray-800">แสดงโลโก้บนใบเสร็จ</span>
+                               <input type="checkbox" disabled={!isEditing} checked={currentSettings.receipt_show_logo} onChange={(e) => handleChange('receipt_show_logo', e.target.checked)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
+                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                <div>
                                   <label className="block text-[15px] font-bold text-gray-700 mb-2">Prefix เลขที่ใบเสร็จ</label>
@@ -608,11 +754,16 @@ export default function SettingsPage() {
                             </div>
                          </div>
                          {/* Receipt Preview */}
-                         <button type="button" onClick={() => setShowReceiptPreview(true)} className="w-[340px] shrink-0 bg-gray-50 p-6 rounded-[24px] border border-gray-200 flex flex-col items-center text-left hover:border-[#7a5c4e] hover:shadow-md transition-all">
-                            <span className="text-xs font-bold text-gray-500 uppercase mb-4 tracking-widest">ตัวอย่างใบเสร็จจริง</span>
-                           <div className="w-full max-h-[240px] overflow-hidden pointer-events-none">{receiptPreview}</div>
-                           <span className="text-[12px] text-[#7a5c4e] font-bold mt-4">คลิกเพื่อดูตัวอย่างขนาดเต็ม</span>
-                         </button>
+                         <div className="min-w-0 rounded-[20px] border border-gray-200 bg-gray-50 p-5 xl:sticky xl:top-4">
+                           <div className="mb-4 flex items-center justify-between">
+                             <div>
+                               <p className="text-[16px] font-bold text-gray-800">ตัวอย่างใบเสร็จ</p>
+                               <p className="mt-1 text-[12px] text-gray-500">แสดงผลเหมือนใบเสร็จจากประวัติ</p>
+                             </div>
+                             <button type="button" onClick={() => setShowReceiptPreview(true)} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-[12px] font-bold text-gray-700 hover:bg-gray-100">ดูเต็มจอ</button>
+                           </div>
+                           <div className="max-h-[560px] overflow-x-hidden overflow-y-auto rounded-xl">{receiptPreview}</div>
+                         </div>
                       </div>
                     )}
 
@@ -744,7 +895,13 @@ export default function SettingsPage() {
                         </div>
                         <div>
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">เขตเวลา (Timezone)</label>
-                          <input type="text" disabled value="Asia/Bangkok (GMT+7)" className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-[15px]" />
+                          <select disabled={!isEditing} value={currentSettings.timezone} onChange={(e) => handleChange('timezone', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer">
+                            <option value="auto">ใช้เขตเวลาของเครื่อง</option>
+                            <option value="Asia/Bangkok">Asia/Bangkok (GMT+7)</option>
+                            <option value="Asia/Tokyo">Asia/Tokyo (GMT+9)</option>
+                            <option value="Europe/London">Europe/London</option>
+                            <option value="America/New_York">America/New_York</option>
+                          </select>
                         </div>
                         <div>
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">รูปแบบวันที่</label>
@@ -791,7 +948,7 @@ export default function SettingsPage() {
 
       {showReceiptPreview && (
         <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowReceiptPreview(false)}>
-          <div className="bg-gray-100 rounded-[24px] shadow-2xl w-full max-w-[460px] max-h-[90vh] overflow-y-auto p-6" onClick={(event) => event.stopPropagation()}>
+          <div className="w-full max-w-[560px] max-h-[90vh] overflow-x-hidden overflow-y-auto rounded-[24px] bg-gray-100 p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-[20px] font-bold text-gray-800">ตัวอย่างใบเสร็จ</h3>
               <button type="button" onClick={() => setShowReceiptPreview(false)} className="w-9 h-9 rounded-full bg-white text-gray-500 hover:bg-gray-200 flex items-center justify-center" aria-label="ปิดตัวอย่างใบเสร็จ">
