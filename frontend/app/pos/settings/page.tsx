@@ -168,6 +168,8 @@ export default function SettingsPage() {
   // Payment Methods State
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [originalPaymentMethods, setOriginalPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [newPaymentMethod, setNewPaymentMethod] = useState({ name: "", type: "OTHER" });
+  const [isAddingPaymentMethod, setIsAddingPaymentMethod] = useState(false);
 
   // Logo Upload State
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -316,6 +318,42 @@ export default function SettingsPage() {
     newMethods[index].is_enabled = !newMethods[index].is_enabled;
     setPaymentMethods(newMethods);
     setHasUnsavedChanges(true);
+  };
+
+  const handleAddPaymentMethod = async () => {
+    if (!user || !newPaymentMethod.name.trim()) return showToast("กรุณาระบุชื่อช่องทางการชำระเงิน", "error");
+    setIsAddingPaymentMethod(true);
+    try {
+      const response = await fetch("http://localhost:5000/api/payment-methods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shop_id: user.shop_id, ...newPaymentMethod })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "เพิ่มช่องทางการชำระเงินไม่สำเร็จ");
+      setPaymentMethods(previous => [...previous, data]);
+      setOriginalPaymentMethods(previous => [...previous, data]);
+      setNewPaymentMethod({ name: "", type: "OTHER" });
+      showToast("เพิ่มช่องทางการชำระเงินแล้ว", "success");
+    } catch (error: any) {
+      showToast(error.message, "error");
+    } finally {
+      setIsAddingPaymentMethod(false);
+    }
+  };
+
+  const handleDeletePaymentMethod = async (method: PaymentMethod) => {
+    if (!user || !window.confirm(`ลบช่องทาง “${method.name}” ใช่หรือไม่?`)) return;
+    try {
+      const response = await fetch(`http://localhost:5000/api/payment-methods/${method.id}?shop_id=${user.shop_id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "ลบช่องทางการชำระเงินไม่สำเร็จ");
+      setPaymentMethods(previous => previous.filter(item => item.id !== method.id));
+      setOriginalPaymentMethods(previous => previous.filter(item => item.id !== method.id));
+      showToast("ลบช่องทางการชำระเงินแล้ว", "success");
+    } catch (error: any) {
+      showToast(error.message, "error");
+    }
   };
 
   const handleNavigationRequest = (target: string) => {
@@ -774,6 +812,21 @@ export default function SettingsPage() {
                            <AlertCircle className="w-5 h-5 text-blue-500 shrink-0" />
                            <p>กำหนดช่องทางการชำระเงินที่ต้องการแสดงในหน้า POS สามารถเปิด-ปิด และจัดเรียงลำดับได้ ข้อมูลนี้จะถูกบันทึกลงในบิลขายจริง</p>
                         </div>
+                        {isEditing && (
+                          <div className="mb-5 rounded-[16px] border border-gray-200 bg-gray-50 p-4">
+                            <p className="mb-3 text-[14px] font-bold text-gray-800">เพิ่มช่องทางการชำระเงิน</p>
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                              <input value={newPaymentMethod.name} onChange={(event) => setNewPaymentMethod({ ...newPaymentMethod, name: event.target.value })} placeholder="เช่น TrueMoney, GrabPay" className="min-w-0 flex-1 rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e]" />
+                              <select value={newPaymentMethod.type} onChange={(event) => setNewPaymentMethod({ ...newPaymentMethod, type: event.target.value })} className="rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e]">
+                                <option value="OTHER">ทั่วไป</option>
+                                <option value="QR">QR / E-Wallet</option>
+                                <option value="TRANSFER">โอนเงิน</option>
+                                <option value="CARD">บัตร</option>
+                              </select>
+                              <button type="button" onClick={handleAddPaymentMethod} disabled={isAddingPaymentMethod} className="rounded-xl bg-[#7a5c4e] px-5 py-3 text-[14px] font-bold text-white disabled:opacity-50">เพิ่ม</button>
+                            </div>
+                          </div>
+                        )}
                         <div className="space-y-3">
                           {paymentMethods.map((method, index) => (
                             <div key={method.id} className={`flex items-center justify-between p-4 rounded-[16px] border ${isEditing ? 'border-gray-300 bg-white' : 'border-gray-100 bg-gray-50 opacity-80'}`}>
@@ -784,7 +837,10 @@ export default function SettingsPage() {
                                  </div>
                                  <span className={`font-bold text-[15px] ${method.is_enabled ? 'text-gray-800' : 'text-gray-400 line-through'}`}>{method.name}</span>
                               </div>
-                              <input type="checkbox" disabled={!isEditing} checked={method.is_enabled} onChange={() => handleTogglePayment(index)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
+                              <div className="flex items-center gap-3">
+                                <input type="checkbox" disabled={!isEditing} checked={method.is_enabled} onChange={() => handleTogglePayment(index)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
+                                {isEditing && <button type="button" onClick={() => handleDeletePaymentMethod(method)} className="text-gray-400 hover:text-red-500" title="ลบช่องทาง"><Trash2 className="h-4 w-4" /></button>}
+                              </div>
                             </div>
                           ))}
                         </div>
