@@ -3,9 +3,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
 import { createClient } from "@supabase/supabase-js";
-import { 
-  Search, Plus, LayoutGrid, List, AlignJustify, RefreshCw, AlertCircle, X, 
-  Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2
+import {
+  Search, Plus, LayoutGrid, List, AlignJustify, RefreshCw, AlertCircle, X,
+  Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2, Minus, Check
 } from "lucide-react";
 
 // ==========================================
@@ -43,6 +43,8 @@ export default function InventoryPage() {
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
   const [drawerTab, setDrawerTab] = useState<"detail" | "adjustment" | "movement">("detail");
   const [adjustData, setAdjustData] = useState({ qty: "", reason: "นับ Stock ประจำวัน", note: "" });
+  const [stockDialog, setStockDialog] = useState<{ open: boolean; mode: "in" | "out" }>({ open: false, mode: "in" });
+  const [stockForm, setStockForm] = useState({ amount: "1", reason: "รับสินค้าเข้า", note: "" });
 
   useEffect(() => {
     const savedUser = JSON.parse(localStorage.getItem("userContext") || "{}");
@@ -117,19 +119,20 @@ export default function InventoryPage() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      return alert("รองรับไฟล์ JPG, PNG และ WEBP เท่านั้น");
+    }
     if (file.size > 2 * 1024 * 1024) return alert("ขนาดรูปต้องไม่เกิน 2MB");
 
     setUploadingImage(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.shop_id}-${Date.now()}.${fileExt}`;
-      const bucketName = "shop_assets";
-
-      const { error: uploadErr } = await supabase.storage.from(bucketName).upload(fileName, file, { upsert: true });
-      if (uploadErr) throw uploadErr;
-
-      const { data: { publicUrl } } = supabase.storage.from(bucketName).getPublicUrl(fileName);
-      setFormData({ ...formData, image_url: publicUrl });
+      const imageDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("อ่านไฟล์รูปภาพไม่สำเร็จ"));
+        reader.readAsDataURL(file);
+      });
+      setFormData((previous: any) => ({ ...previous, image_url: imageDataUrl }));
     } catch (err: any) {
       alert("อัปโหลดรูปไม่สำเร็จ: " + err.message);
     } finally {
@@ -219,6 +222,43 @@ export default function InventoryPage() {
       fetchData(); 
     } catch (err: any) {
       alert(err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openStockDialog = (mode: "in" | "out") => {
+    setStockDialog({ open: true, mode });
+    setStockForm({ amount: "1", reason: mode === "in" ? "รับสินค้าเข้า" : "สินค้าเสียหาย / หมดอายุ / สูญหาย", note: "" });
+  };
+
+  const submitStockAdjustment = async () => {
+    if (!selectedItem) return;
+    const amount = Number(stockForm.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return alert("กรุณาระบุจำนวนที่มากกว่า 0");
+    if (stockDialog.mode === "out" && amount > Number(selectedItem.quantity || 0)) return alert("จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้");
+    setIsSaving(true);
+    try {
+      const response = await fetch("http://localhost:5000/api/inventory/adjust", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop_id: user.shop_id,
+          user_id: user.id,
+          item_id: selectedItem.id,
+          adjust_qty: stockDialog.mode === "in" ? amount : -amount,
+          expected_quantity: selectedItem.quantity,
+          reason: stockForm.reason,
+          note: stockForm.note
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "ปรับสต็อกไม่สำเร็จ");
+      setStockDialog({ open: false, mode: "in" });
+      await fetchData();
+      await handleOpenDetail(selectedItem.id);
+    } catch (error: any) {
+      alert(error.message);
     } finally {
       setIsSaving(false);
     }
@@ -433,9 +473,9 @@ export default function InventoryPage() {
                             <span className="text-[15px] font-bold text-gray-800">{item.name}</span>
                           </td>
                           <td className="px-6 py-4 text-[14px] text-gray-500">{item.sku || '-'}</td>
-                          <td className="px-6 py-4 text-[14px] font-bold text-gray-800 text-right">฿{Number(item.cost || 0).toLocaleString()}</td>
+                          <td className="px-6 py-4 text-[14px] font-bold text-gray-800 text-right">฿{Number(item.cost || 0).toLocaleString()}<div className="text-[11px] font-normal text-gray-500">฿{Number(item.cost_per_piece || item.cost || 0).toFixed(2)}/{item.package_unit || item.unit}</div></td>
                           <td className={`px-6 py-4 text-[15px] font-black text-right ${item.quantity <= 0 ? 'text-red-500' : 'text-gray-800'}`}>
-                            {Number(item.quantity || 0).toLocaleString()} <span className="text-[12px] font-normal text-gray-500">{item.unit}</span>
+                            {Number(item.quantity || 0).toLocaleString()} <span className="text-[12px] font-normal text-gray-500">{item.unit}</span><div className="text-[11px] font-normal text-gray-500">รวม {Number(item.total_pieces || item.quantity || 0).toLocaleString()} {item.package_unit || item.unit}</div>
                           </td>
                           <td className="px-6 py-4 text-center">
                             <span className={`px-3 py-1 rounded-full text-[12px] font-bold border ${
@@ -466,6 +506,7 @@ export default function InventoryPage() {
                             <div className="flex flex-col">
                               <span className="text-[11px] text-gray-400 font-medium">Stock คงเหลือ</span>
                               <span className="text-[18px] font-black text-[#7a5c4e] leading-none">{Number(item.quantity||0).toLocaleString()} <span className="text-[12px] text-gray-500 font-normal">{item.unit}</span></span>
+                              <span className="text-[11px] text-gray-500">รวม {Number(item.total_pieces || item.quantity || 0).toLocaleString()} {item.package_unit || item.unit}</span>
                             </div>
                           </div>
                         </div>
@@ -484,13 +525,15 @@ export default function InventoryPage() {
       ========================================== */}
       {showFormModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white w-[500px] rounded-[24px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[90vh]">
-            <div className="h-[70px] border-b border-gray-200 flex items-center justify-between px-6 shrink-0 bg-[#f5f6f8]">
-              <h2 className="text-[18px] font-bold text-gray-800">{formMode === 'add' ? 'เพิ่มข้อมูล' : 'แก้ไขข้อมูล'} ({activeTab})</h2>
+          <div className="bg-white w-full max-w-[680px] rounded-[24px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[92vh]">
+            <div className="h-[76px] border-b border-gray-200 flex items-center justify-between px-7 shrink-0 bg-[#f5f6f8]">
+              <div><h2 className="text-[20px] font-bold text-gray-800">{formMode === 'add' ? 'เพิ่มวัตถุดิบ' : 'แก้ไขวัตถุดิบ'}</h2><p className="mt-1 text-[12px] text-gray-500">{formMode === 'edit' ? formData.name : 'กรอกข้อมูลพื้นฐานที่จำเป็น แล้วบันทึกได้ทันที'}</p></div>
               <button onClick={() => setShowFormModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex-1 overflow-y-auto p-7 space-y-6">
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-4 text-[16px] font-bold text-gray-800">ข้อมูลวัตถุดิบ</h3>
               <div className="flex flex-col items-center mb-6">
                 <div className="w-24 h-24 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden mb-3 relative group">
                   {formData.image_url ? <img src={formData.image_url} alt="preview" className="w-full h-full object-cover" /> : <Upload className="w-8 h-8 text-gray-400" />}
@@ -503,17 +546,44 @@ export default function InventoryPage() {
               </div>
 
               <input type="hidden" value={formData.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material')} />
-              <div><label className="block text-[13px] font-bold text-gray-600 mb-1">ชื่อรายการ</label><input type="text" value={formData.name || ''} onChange={(e)=>setFormData({...formData, name: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+              <div><label className="block text-[13px] font-bold text-gray-600 mb-1">ชื่อวัตถุดิบ <span className="text-red-500">*</span></label><input type="text" value={formData.name || ''} onChange={(e)=>setFormData({...formData, name: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-[13px] font-bold text-gray-600 mb-1">SKU</label><input type="text" value={formData.sku || ''} onChange={(e)=>setFormData({...formData, sku: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
-                <div><label className="block text-[13px] font-bold text-gray-600 mb-1">หน่วย (เช่น g, ml, ชิ้น)</label><input type="text" value={formData.unit || ''} onChange={(e)=>setFormData({...formData, unit: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+                <div><label className="block text-[13px] font-bold text-gray-600 mb-1">หน่วยที่เก็บในสต๊อก</label><input type="text" value={formData.unit || ''} onChange={(e)=>setFormData({...formData, unit: e.target.value})} placeholder="เช่น ขวด, ถุง, กล่อง, ชิ้น" className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-[13px] font-bold text-gray-600 mb-1">ต้นทุน / หน่วย (฿)</label><input type="number" value={formData.cost || ''} onChange={(e)=>setFormData({...formData, cost: Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
-                <div><label className="block text-[13px] font-bold text-gray-600 mb-1">แจ้งเตือน Stock ต่ำกว่า</label><input type="number" value={formData.min_threshold || ''} onChange={(e)=>setFormData({...formData, min_threshold: Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+              <div><label className="block text-[13px] font-bold text-gray-600 mb-1">ต้นทุนต่อ 1 {formData.unit || 'หน่วย'} (฿) <span className="text-red-500">*</span></label><input type="number" min="0" value={formData.cost ?? ''} onChange={(e)=>setFormData({...formData, cost: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-4 text-[16px] font-bold text-gray-800">การตั้งค่าการแจ้งเตือน</h3>
+                <div className="flex items-center justify-between rounded-xl border border-gray-200 p-4">
+                  <div><p className="text-[14px] font-bold text-gray-800">แจ้งเตือนเมื่อสต็อกต่ำ</p><p className="mt-1 text-[12px] text-gray-500">ปิดได้ถ้าไม่ต้องการติดตามขั้นต่ำ</p></div>
+                  <input type="checkbox" checked={Number(formData.min_threshold || 0) > 0} onChange={(e)=>setFormData({...formData, min_threshold: e.target.checked ? (formData.min_threshold || 1) : 0})} className="h-5 w-5 accent-[#7a5c4e]" />
+                </div>
+                <div className="mt-4"><label className="block text-[13px] font-bold text-gray-600 mb-1">จำนวนขั้นต่ำที่ต้องการให้แจ้งเตือน</label><input type="number" min="0" disabled={Number(formData.min_threshold || 0) === 0} value={formData.min_threshold ?? ''} onChange={(e)=>setFormData({...formData, min_threshold: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none disabled:bg-gray-100" /></div>
+                {Number(formData.min_threshold || 0) > 0 && <p className="mt-3 text-[12px] text-gray-500">แจ้งเตือนเมื่อเหลือต่ำกว่า {formData.min_threshold} {formData.unit || 'หน่วย'}</p>}
+              </div>
+
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
+                <h3 className="mb-3 text-[16px] font-bold text-gray-800">หน่วยและปริมาณ</h3>
+                <p className="mb-3 text-[13px] font-bold text-gray-700">ขนาดบรรจุและต้นทุนต่อชิ้น</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-[12px] font-bold text-gray-600 mb-1">ปริมาณต่อ 1 {formData.unit || 'หน่วย'}</label><input type="number" min="0.01" step="0.01" value={formData.package_size ?? ''} onChange={(e)=>setFormData({...formData, package_size: e.target.value === '' ? '' : Math.max(0.01, Number(e.target.value))})} placeholder="เช่น 1000" className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+                  <div><label className="block text-[12px] font-bold text-gray-600 mb-1">หน่วยย่อยของปริมาณ</label><input type="text" value={formData.package_unit ?? ''} onChange={(e)=>setFormData({...formData, package_unit: e.target.value})} placeholder="เช่น ml, g, kg, ชิ้น" className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+                </div>
+                <p className="mt-3 text-[12px] text-gray-500">ตัวอย่าง: 1 {formData.unit || 'ขวด'} = {Number(formData.package_size || 1).toLocaleString()} {formData.package_unit || 'หน่วยย่อย'} | ต้นทุนต่อ {formData.package_unit || 'หน่วยย่อย'}: ฿{(Number(formData.cost || 0) / Math.max(0.01, Number(formData.package_size || 1))).toFixed(2)} | Stock รวม: {(Number(formData.quantity || 0) * Math.max(0.01, Number(formData.package_size || 1))).toLocaleString()} {formData.package_unit || 'หน่วยย่อย'}</p>
               </div>
               {formMode === 'add' && (
-                <div><label className="block text-[13px] font-bold text-gray-600 mb-1">Stock เริ่มต้น</label><input type="number" value={formData.quantity || ''} onChange={(e)=>setFormData({...formData, quantity: Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <h3 className="mb-3 text-[16px] font-bold text-gray-800">สต็อกเริ่มต้น</h3>
+                  <p className="mb-3 text-[12px] text-gray-500">ระบุจำนวนที่มีอยู่ตอนเริ่มต้น ระบบจะสร้างรายการรับเข้าให้อัตโนมัติ</p>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => setFormData({...formData, quantity: Math.max(0, Number(formData.quantity || 0) - 1)})} className="h-11 w-11 rounded-xl border border-gray-300 bg-white text-gray-700"><Minus className="mx-auto h-4 w-4" /></button>
+                    <input type="number" min="0" value={formData.quantity ?? 0} onChange={(e)=>setFormData({...formData, quantity: e.target.value === '' ? '' : Math.max(0, Number(e.target.value))})} className="h-11 min-w-0 flex-1 rounded-xl border border-gray-300 text-center text-[18px] font-bold outline-none" />
+                    <button type="button" onClick={() => setFormData({...formData, quantity: Number(formData.quantity || 0) + 1})} className="h-11 w-11 rounded-xl bg-[#7a5c4e] text-white"><Plus className="mx-auto h-4 w-4" /></button>
+                    <span className="min-w-[70px] text-[13px] font-bold text-gray-500">{formData.unit || 'หน่วย'}</span>
+                  </div>
+                </div>
               )}
               <div>
                 <label className="block text-[13px] font-bold text-gray-600 mb-1">สถานะ</label>
@@ -550,7 +620,6 @@ export default function InventoryPage() {
 
             <div className="flex border-b border-gray-200 px-6 shrink-0 overflow-x-auto no-scrollbar">
               <button onClick={() => setDrawerTab("detail")} className={`py-4 text-[14px] font-bold border-b-2 mr-6 shrink-0 ${drawerTab === 'detail' ? 'border-[#7a5c4e] text-[#7a5c4e]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>รายละเอียด</button>
-              <button onClick={() => setDrawerTab("adjustment")} className={`py-4 text-[14px] font-bold border-b-2 mr-6 shrink-0 ${drawerTab === 'adjustment' ? 'border-[#7a5c4e] text-[#7a5c4e]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>ปรับ Stock ทันที</button>
               <button onClick={() => setDrawerTab("movement")} className={`py-4 text-[14px] font-bold border-b-2 shrink-0 ${drawerTab === 'movement' ? 'border-[#7a5c4e] text-[#7a5c4e]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>ประวัติ Movement</button>
             </div>
 
@@ -559,6 +628,23 @@ export default function InventoryPage() {
                  <div className="absolute inset-0 flex items-center justify-center text-gray-400 bg-white/50"><RefreshCw className="w-8 h-8 animate-spin" /></div>
               ) : (
                 <>
+                  {drawerTab === "detail" && (
+                    <div className="mb-4 rounded-[20px] border border-[#7a5c4e]/20 bg-[#7a5c4e]/5 p-5 shadow-sm">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-[12px] font-bold text-gray-500">สต็อกปัจจุบัน</p>
+                          <p className="mt-1 text-[30px] font-black text-gray-900">{Number(selectedItem.quantity || 0).toLocaleString()} <span className="text-[15px] font-bold text-gray-500">{selectedItem.unit}</span></p>
+                          <p className="text-[12px] text-gray-500">รวม {Number(selectedItem.total_pieces || selectedItem.quantity || 0).toLocaleString()} {selectedItem.package_unit || selectedItem.unit}</p>
+                        </div>
+                        <span className="rounded-full bg-white px-3 py-1 text-[12px] font-bold text-gray-700 shadow-sm">{Number(selectedItem.quantity || 0) > Number(selectedItem.min_threshold || 0) ? "มีสินค้าเพียงพอ" : "ควรสั่งเพิ่ม"}</span>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <button type="button" onClick={() => openStockDialog("in")} className="flex items-center justify-center gap-2 rounded-xl bg-[#7a5c4e] py-3 text-[14px] font-bold text-white hover:bg-[#684c3f]"><Plus className="h-4 w-4" /> เพิ่มสต็อก</button>
+                        <button type="button" onClick={() => openStockDialog("out")} className="flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white py-3 text-[14px] font-bold text-gray-700 hover:bg-gray-50"><Minus className="h-4 w-4" /> ลดสต็อก</button>
+                      </div>
+                    </div>
+                  )}
+
                   {drawerTab === "detail" && (
                     <div className="space-y-4">
                       <div className="bg-white p-5 rounded-[16px] border border-gray-200 shadow-sm flex gap-5 items-center">
@@ -579,9 +665,9 @@ export default function InventoryPage() {
                         
                         <div className="space-y-3 text-[14px]">
                           <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">ประเภท</span><span className="font-medium text-gray-800">{selectedItem.type === 'packaging' ? 'บรรจุภัณฑ์' : 'วัตถุดิบ'}</span></div>
-                          <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">Stock ในคลัง</span><span className="font-black text-[18px] text-[#7a5c4e]">{Number(selectedItem.quantity||0).toLocaleString()} {selectedItem.unit}</span></div>
+                          <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">Stock ในคลัง</span><span className="text-right font-black text-[18px] text-[#7a5c4e]">{Number(selectedItem.quantity||0).toLocaleString()} {selectedItem.unit}<small className="block text-[12px] font-normal text-gray-500">รวม {Number(selectedItem.total_pieces || selectedItem.quantity || 0).toLocaleString()} {selectedItem.package_unit || selectedItem.unit}</small></span></div>
                           <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">แจ้งเตือนเมื่อต่ำกว่า</span><span className="font-medium text-gray-800">{selectedItem.min_threshold} {selectedItem.unit}</span></div>
-                          <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">ต้นทุนต่อหน่วย</span><span className="font-medium text-gray-800">฿{Number(selectedItem.cost||0).toLocaleString()}</span></div>
+                          <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">ต้นทุนต่อ {selectedItem.package_unit || selectedItem.unit}</span><span className="font-medium text-gray-800">฿{Number(selectedItem.cost_per_piece || selectedItem.cost || 0).toFixed(2)}<small className="block text-right text-[11px] text-gray-500">ต่อ {selectedItem.unit}: ฿{Number(selectedItem.cost || 0).toFixed(2)}</small></span></div>
                         </div>
                       </div>
 
@@ -674,6 +760,32 @@ export default function InventoryPage() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {stockDialog.open && selectedItem && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-[440px] overflow-hidden rounded-[24px] bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5">
+              <div><h2 className="text-[20px] font-bold text-gray-800">{stockDialog.mode === 'in' ? 'เพิ่มสต็อก' : 'ลดสต็อก'}</h2><p className="mt-1 text-[12px] text-gray-500">{selectedItem.name}</p></div>
+              <button type="button" onClick={() => setStockDialog({ open: false, mode: 'in' })} className="rounded-full p-2 text-gray-400 hover:bg-gray-100"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-5 p-6">
+              <div>
+                <label className="mb-2 block text-[13px] font-bold text-gray-700">จำนวนที่ต้องการ{stockDialog.mode === 'in' ? 'เพิ่ม' : 'ลด'}</label>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={() => setStockForm({...stockForm, amount: String(Math.max(1, Number(stockForm.amount || 1) - 1))})} className="h-12 w-12 rounded-xl border border-gray-300 bg-white"><Minus className="mx-auto h-4 w-4" /></button>
+                  <input type="number" min="1" value={stockForm.amount} onChange={(e) => setStockForm({...stockForm, amount: e.target.value})} className="h-12 min-w-0 flex-1 rounded-xl border border-gray-300 text-center text-[20px] font-bold outline-none" />
+                  <button type="button" onClick={() => setStockForm({...stockForm, amount: String(Number(stockForm.amount || 0) + 1)})} className="h-12 w-12 rounded-xl bg-[#7a5c4e] text-white"><Plus className="mx-auto h-4 w-4" /></button>
+                </div>
+                <p className="mt-2 text-[12px] text-gray-500">หน่วย: {selectedItem.unit}</p>
+              </div>
+              <div><label className="mb-2 block text-[13px] font-bold text-gray-700">เหตุผล</label><select value={stockForm.reason} onChange={(e) => setStockForm({...stockForm, reason: e.target.value})} className="w-full rounded-xl border border-gray-300 p-3"><option value="รับสินค้าเข้า">รับสินค้าเข้า</option><option value="สินค้าเสียหาย / หมดอายุ / สูญหาย">สินค้าเสียหาย / หมดอายุ / สูญหาย</option><option value="นับ Stock ประจำวัน">นับ Stock ประจำวัน</option><option value="อื่นๆ">อื่นๆ</option></select></div>
+              <div><label className="mb-2 block text-[13px] font-bold text-gray-700">หมายเหตุ <span className="font-normal text-gray-400">(ไม่บังคับ)</span></label><textarea value={stockForm.note} onChange={(e) => setStockForm({...stockForm, note: e.target.value})} rows={2} className="w-full rounded-xl border border-gray-300 p-3" /></div>
+              <div className="rounded-xl bg-gray-50 p-4 text-center"><span className="text-[13px] text-gray-500">สต็อกหลังรายการ</span><p className="mt-1 text-[20px] font-black text-gray-800">{Number(selectedItem.quantity || 0).toLocaleString()} → {Math.max(0, Number(selectedItem.quantity || 0) + (stockDialog.mode === 'in' ? Number(stockForm.amount || 0) : -Number(stockForm.amount || 0))).toLocaleString()} {selectedItem.unit}</p></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 border-t border-gray-200 bg-gray-50 p-5"><button type="button" onClick={() => setStockDialog({ open: false, mode: 'in' })} className="rounded-xl border border-gray-300 bg-white py-3 font-bold text-gray-700">ยกเลิก</button><button type="button" onClick={submitStockAdjustment} disabled={isSaving} className="flex items-center justify-center gap-2 rounded-xl bg-[#7a5c4e] py-3 font-bold text-white disabled:opacity-50">{isSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {stockDialog.mode === 'in' ? 'เพิ่มสต็อก' : 'ลดสต็อก'}</button></div>
           </div>
         </div>
       )}
