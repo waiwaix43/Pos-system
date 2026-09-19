@@ -230,13 +230,17 @@ app.post('/api/categories', async (req, res) => {
 });
 app.put('/api/categories/:id', async (req, res) => {
     try {
-        const { error } = await db.from('categories').update(req.body).eq('id', req.params.id);
+        const shopId = req.body.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('categories').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.delete('/api/categories/:id', async (req, res) => {
     try {
-        const { error } = await db.from('categories').delete().eq('id', req.params.id);
+        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('categories').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -263,13 +267,17 @@ app.post('/api/products', async (req, res) => {
 });
 app.put('/api/products/:id', async (req, res) => {
     try {
-        const { error } = await db.from('products').update(req.body).eq('id', req.params.id);
+        const shopId = req.body.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('products').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.delete('/api/products/:id', async (req, res) => {
     try {
-        const { error } = await db.from('products').delete().eq('id', req.params.id);
+        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('products').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -321,11 +329,13 @@ app.post('/api/options', async (req, res) => {
 
 app.put('/api/options/:id', async (req, res) => {
     const groupId = req.params.id;
-    const { name, description, type, is_required, min_selection, max_selection, status, items } = req.body;
+    const { shop_id, name, description, type, is_required, min_selection, max_selection, status, items } = req.body;
     try {
+        if (!shop_id) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error: groupErr } = await db.from('option_groups')
             .update({ name, description, type, is_required, min_selection, max_selection, status })
-            .eq('id', groupId);
+            .eq('id', groupId)
+            .eq('shop_id', shop_id);
         if (groupErr) throw groupErr;
 
         await db.from('option_items').delete().eq('option_group_id', groupId);
@@ -343,7 +353,9 @@ app.put('/api/options/:id', async (req, res) => {
 
 app.delete('/api/options/:id', async (req, res) => {
     try {
-        const { error } = await db.from('option_groups').delete().eq('id', req.params.id);
+        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('option_groups').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; 
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -364,16 +376,24 @@ app.get('/api/product_options', async (req, res) => {
 app.post('/api/product_options', async (req, res) => {
     const { product_id, option_group_ids, shop_id } = req.body;
     try {
+        if (!shop_id || !product_id) return res.status(400).json({ error: 'ต้องระบุ shop_id และ product_id' });
+        const { data: product, error: productErr } = await db.from('products').select('id, shop_id').eq('id', product_id).eq('shop_id', shop_id).single();
+        if (productErr || !product) return res.status(403).json({ error: 'สินค้านี้ไม่ได้อยู่ในร้านของคุณ' });
+
         await db.from('product_options').delete().eq('product_id', product_id);
         
         if (option_group_ids && option_group_ids.length > 0) {
-            const inserts = option_group_ids.map(oid => ({ product_id, option_group_id: oid }));
+            const { data: validGroups, error: groupsErr } = await db.from('option_groups').select('id').eq('shop_id', shop_id).in('id', option_group_ids);
+            if (groupsErr) throw groupsErr;
+            const validIds = (validGroups || []).map(g => g.id);
+            if (validIds.length === 0) return res.status(400).json({ error: 'ไม่มีตัวเลือกที่ตรงกับร้านนี้' });
+            const inserts = validIds.map(oid => ({ product_id, option_group_id: oid }));
             const { error: insertErr } = await db.from('product_options').insert(inserts);
             if (insertErr) throw insertErr;
         }
         
         const hasOptions = option_group_ids && option_group_ids.length > 0;
-        await db.from('products').update({ has_options: hasOptions }).eq('id', product_id);
+        await db.from('products').update({ has_options: hasOptions }).eq('id', product_id).eq('shop_id', shop_id);
 
         res.json({ success: true, message: "ผูกตัวเลือกเรียบร้อยแล้ว" });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -384,10 +404,16 @@ app.post('/api/product_options', async (req, res) => {
 // ==========================================
 app.get('/api/recipes', async (req, res) => {
     try {
-        const { product_id } = req.query;
+        const { product_id, shop_id } = req.query;
         let query = db.from('recipes').select('*, inventory_items(name, unit, cost)');
         if (product_id) query = query.eq('product_id', product_id);
-        
+        if (shop_id) {
+            const { data: productRows, error: productErr } = await db.from('products').select('id').eq('shop_id', shop_id).in('id', product_id ? [product_id] : []);
+            if (productErr) throw productErr;
+            const productIds = (productRows || []).map(p => p.id);
+            if (product_id && productIds.length === 0) return res.json([]);
+            if (product_id) query = query.in('product_id', productIds);
+        }
         const { data, error } = await query;
         if (error) throw error;
         res.json(data);
@@ -403,17 +429,17 @@ app.put('/api/products/:productId/recipe', async (req, res) => {
     }
 
     try {
-        // 1. ลบสูตรเดิมทั้งหมดที่ผูกกับสินค้านี้ออกก่อน
-        const { error: deleteError } = await db.from('recipes')
-            .delete()
-            .eq('product_id', productId);
+        if (!shop_id) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { data: product, error: productErr } = await db.from('products').select('id, shop_id').eq('id', productId).eq('shop_id', shop_id).single();
+        if (productErr || !product) return res.status(403).json({ error: 'สินค้านี้ไม่ได้อยู่ในร้านของคุณ' });
+
+        const { error: deleteError } = await db.from('recipes').delete().eq('product_id', productId);
 
         if (deleteError) {
             console.error("Delete Recipe Error:", deleteError);
             return res.status(500).json({ error: "ไม่สามารถเคลียร์สูตรเดิมได้: " + deleteError.message });
         }
 
-        // 2. ถ้ามีการส่งวัตถุดิบมาในสูตรใหม่ ให้ Insert รวดเดียว (Batch Insert)
         if (items && items.length > 0) {
             const insertPayload = items.map(item => ({
                 product_id: productId,
@@ -422,8 +448,7 @@ app.put('/api/products/:productId/recipe', async (req, res) => {
                 unit: item.unit
             }));
 
-            const { error: insertError } = await db.from('recipes')
-                .insert(insertPayload);
+            const { error: insertError } = await db.from('recipes').insert(insertPayload);
 
             if (insertError) {
                 console.error("Insert Recipe Error:", insertError);
@@ -431,7 +456,6 @@ app.put('/api/products/:productId/recipe', async (req, res) => {
             }
         }
 
-        // 3. ส่ง Status 200 กลับไปให้ Frontend รู้ว่าสำเร็จ
         return res.status(200).json({ success: true, message: "อัปเดตสูตรสำเร็จ" });
 
     } catch (error) {
@@ -440,10 +464,12 @@ app.put('/api/products/:productId/recipe', async (req, res) => {
     }
 });
 
-// Endpoint เดิม (เผื่อมีการเรียกใช้แยกรายตัว)
 app.post('/api/recipes', async (req, res) => {
-    const { product_id, inventory_item_id, quantity, unit } = req.body;
+    const { product_id, inventory_item_id, quantity, unit, shop_id } = req.body;
     try {
+        if (!shop_id || !product_id) return res.status(400).json({ error: 'ต้องระบุ shop_id และ product_id' });
+        const { data: product, error: productErr } = await db.from('products').select('id').eq('id', product_id).eq('shop_id', shop_id).single();
+        if (productErr || !product) return res.status(403).json({ error: 'สินค้านี้ไม่ได้อยู่ในร้านของคุณ' });
         const { error } = await db.from('recipes').insert([{ product_id, inventory_item_id, quantity, unit }]);
         if (error) throw error;
         res.json({ success: true });
@@ -452,7 +478,9 @@ app.post('/api/recipes', async (req, res) => {
 
 app.delete('/api/recipes/:id', async (req, res) => {
     try {
-        const { error } = await db.from('recipes').delete().eq('id', req.params.id);
+        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('recipes').delete().eq('id', req.params.id).eq('product_id', req.body.product_id || '').not('product_id', 'is', null);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -597,8 +625,8 @@ app.get('/api/orders', async (req, res) => {
 
 app.get('/api/orders/single/:id', async (req, res) => {
     try {
-        const query = db.from('orders').select('*').eq('id', req.params.id);
-        if (req.query.shop_id) query.eq('shop_id', req.query.shop_id);
+        if (!req.query.shop_id) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const query = db.from('orders').select('*').eq('id', req.params.id).eq('shop_id', req.query.shop_id);
         const { data, error } = await query.single();
         if (error || !data) return res.status(404).json({ error: "ไม่พบข้อมูลบิล" });
         res.json(data);
@@ -607,8 +635,14 @@ app.get('/api/orders/single/:id', async (req, res) => {
 
 app.get('/api/orders/:id/items', async (req, res) => {
     try {
-        const { data, error } = await db.from('order_items').select('*, products(name)').eq('order_id', req.params.id);
-        if (error) throw error; res.json(data.map(item => ({ ...item, name: item.products?.name })));
+        const shopId = req.query.shop_id;
+        let query = db.from('order_items').select('*, products(name)');
+        if (shopId) {
+            query = query.eq('shop_id', shopId);
+        }
+        query = query.eq('order_id', req.params.id);
+        const { data, error } = await query;
+        if (error) throw error; res.json((data || []).map(item => ({ ...item, name: item.products?.name })));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -630,7 +664,7 @@ app.post('/api/orders/:id/void', async (req, res) => {
         
         if (!validUser) return res.status(403).json({ success: false, error: "รหัส PIN ไม่ถูกต้อง" });
 
-        const { data: order } = await db.from('orders').select('*').eq('id', orderId).single();
+        const { data: order } = await db.from('orders').select('*').eq('id', orderId).eq('shop_id', shop_id).single();
         if (!order || order.status === 'cancelled') return res.status(400).json({ success: false, error: "ไม่พบบิลนี้ หรือบิลถูกยกเลิกไปแล้ว" });
 
         let autoDeduct = true;
@@ -823,18 +857,111 @@ const presentInventoryItem = (item) => {
 
 app.get('/api/inventory/categories', async (req, res) => {
     try {
-        const { data: categories, error: catErr } = await db.from('inventory_categories').select('id, name').eq('shop_id', req.query.shop_id);
-        if (catErr) throw catErr;
+        let categoriesQuery = db.from('inventory_categories').select('id, name, type').eq('shop_id', req.query.shop_id);
+        let { data: categories, error: catErr } = await categoriesQuery;
+        if (catErr && String(catErr.message || '').toLowerCase().includes('type')) {
+            const fallback = await db.from('inventory_categories').select('id, name').eq('shop_id', req.query.shop_id);
+            categories = fallback.data || [];
+        } else if (catErr) {
+            throw catErr;
+        }
         const { data: items, error: itemErr } = await db.from('inventory_items').select('category_id').eq('shop_id', req.query.shop_id);
         if (itemErr) throw itemErr;
-        res.json(categories.map(c => ({ ...c, item_count: items.filter(i => i.category_id === c.id).length })));
+        res.json((categories || []).map(c => ({
+            ...c,
+            type: c.type || 'raw_material',
+            item_count: items.filter(i => i.category_id === c.id).length
+        })));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/inventory/categories', async (req, res) => {
     try {
-        const { error } = await db.from('inventory_categories').insert([{ shop_id: req.body.shop_id, name: req.body.name }]);
-        if (error) throw error; res.json({ success: true, message: "เพิ่มหมวดหมู่สต็อกสำเร็จ" });
+        const { shop_id, name, type } = req.body;
+        const normalizedShopId = Number(shop_id);
+        const normalizedType = String(type || 'raw_material');
+        if (!normalizedShopId || !String(name || '').trim()) return res.status(400).json({ error: 'กรุณาระบุร้านค้าและชื่อหมวดย่อย' });
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหมวดย่อยไม่ถูกต้อง' });
+
+        const trimmedName = String(name).trim();
+        const { data: duplicate, error: duplicateErr } = await db.from('inventory_categories').select('id').eq('shop_id', normalizedShopId).ilike('name', trimmedName).limit(1);
+        if (duplicateErr) throw duplicateErr;
+        if (duplicate && duplicate.length > 0) return res.status(409).json({ error: 'มีหมวดย่อยชื่อเดียวกันอยู่แล้วในร้านนี้' });
+
+        let categoryInsert = { shop_id: normalizedShopId, name: trimmedName };
+        try {
+            const { data, error } = await db.from('inventory_categories').insert([{ ...categoryInsert, type: normalizedType }]).select('*').single();
+            if (error) throw error;
+            const createdCategory = { ...data, type: data.type || 'raw_material' };
+            return res.json({ success: true, message: "เพิ่มหมวดหมู่สต็อกสำเร็จ", id: createdCategory.id, category: createdCategory });
+        } catch (err) {
+            if (String(err.message || '').toLowerCase().includes('type')) {
+                const { data, error } = await db.from('inventory_categories').insert([{ ...categoryInsert }]).select('*').single();
+                if (error) throw error;
+                const createdCategory = { ...data, type: 'raw_material' };
+                return res.json({ success: true, message: "เพิ่มหมวดหมู่สต็อกสำเร็จ", id: createdCategory.id, category: createdCategory });
+            }
+            throw err;
+        }
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/inventory/categories/:id', async (req, res) => {
+    try {
+        const { shop_id, name, type } = req.body;
+        const normalizedShopId = Number(shop_id);
+        const normalizedCategoryId = Number(req.params.id);
+        const normalizedType = String(type || 'raw_material');
+        if (!normalizedShopId || !String(name || '').trim()) return res.status(400).json({ error: 'กรุณาระบุร้านค้าและชื่อหมวดย่อย' });
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหมวดย่อยไม่ถูกต้อง' });
+
+        const trimmedName = String(name).trim();
+        const { data: existingCategory, error: existingError } = await db.from('inventory_categories').select('id, type').eq('id', normalizedCategoryId).eq('shop_id', normalizedShopId).maybeSingle();
+        if (existingError) throw existingError;
+        if (!existingCategory) return res.status(404).json({ error: 'ไม่พบหมวดย่อยนี้ในร้านของคุณ' });
+
+        const { data: duplicate, error: duplicateErr } = await db.from('inventory_categories').select('id').eq('shop_id', normalizedShopId).ilike('name', trimmedName).neq('id', normalizedCategoryId).limit(1);
+        if (duplicateErr) throw duplicateErr;
+        if (duplicate && duplicate.length > 0) return res.status(409).json({ error: 'มีหมวดย่อยชื่อเดียวกันอยู่แล้วในร้านนี้' });
+
+        const categoryUpdate = { name: trimmedName };
+        try {
+            const { error: itemTypeError } = await db.from('inventory_items').update({ type: normalizedType }).eq('category_id', normalizedCategoryId).eq('shop_id', normalizedShopId);
+            if (itemTypeError) throw itemTypeError;
+
+            const { data, error } = await db.from('inventory_categories').update({ ...categoryUpdate, type: normalizedType }).eq('id', normalizedCategoryId).eq('shop_id', normalizedShopId).select('*').single();
+            if (error) throw error;
+            const updatedCategory = { ...data, type: data.type || 'raw_material' };
+            return res.json({ success: true, message: 'แก้ไขหมวดย่อยสำเร็จ', id: updatedCategory.id, category: updatedCategory });
+        } catch (err) {
+            if (String(err.message || '').toLowerCase().includes('type')) {
+                const { data, error } = await db.from('inventory_categories').update(categoryUpdate).eq('id', normalizedCategoryId).eq('shop_id', normalizedShopId).select('*').single();
+                if (error) throw error;
+                const updatedCategory = { ...data, type: 'raw_material' };
+                return res.json({ success: true, message: 'แก้ไขหมวดย่อยสำเร็จ', id: updatedCategory.id, category: updatedCategory });
+            }
+            throw err;
+        }
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/inventory/categories/:id', async (req, res) => {
+    try {
+        const shopId = Number(req.query.shop_id || req.body?.shop_id);
+        const categoryId = Number(req.params.id);
+        if (!shopId || !categoryId) return res.status(400).json({ error: 'ต้องระบุ shop_id และ category_id' });
+
+        const { data: linkedItems, error: checkErr } = await db.from('inventory_items').select('id').eq('category_id', categoryId).eq('shop_id', shopId);
+        if (checkErr) throw checkErr;
+
+        if (linkedItems && linkedItems.length > 0) {
+            const { error: unlinkError } = await db.from('inventory_items').update({ category_id: null }).eq('category_id', categoryId).eq('shop_id', shopId);
+            if (unlinkError) throw unlinkError;
+        }
+
+        const { error } = await db.from('inventory_categories').delete().eq('id', categoryId).eq('shop_id', shopId);
+        if (error) throw error;
+        res.json({ success: true, message: 'ลบหมวดย่อยสำเร็จ และย้ายรายการที่ใช้หมวดนี้ออกแล้ว' });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -854,6 +981,27 @@ app.post('/api/inventory/items', async (req, res) => {
     const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
     try {
         if (!shop_id || !name) return res.status(400).json({ error: "กรุณาระบุร้านค้าและชื่อรายการ" });
+        if (!category_id) return res.status(400).json({ error: "กรุณาเลือกหมวดย่อยก่อนบันทึก" });
+        const normalizedType = String(type || 'raw_material');
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหลักไม่ถูกต้อง' });
+
+        let category = null;
+        try {
+            const { data, error } = await db.from('inventory_categories').select('id, type').eq('id', category_id).eq('shop_id', shop_id).single();
+            if (error) throw error;
+            category = data;
+        } catch (err) {
+            const { data, error } = await db.from('inventory_categories').select('id').eq('id', category_id).eq('shop_id', shop_id).single();
+            if (error || !data) return res.status(400).json({ error: 'หมวดย่อยที่เลือกไม่มีอยู่ในร้านนี้ หรือไม่ตรงกับประเภทหลัก' });
+            category = { id: data.id, type: normalizedType };
+        }
+        if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'หมวดย่อยต้องเป็นของประเภทหลักที่เลือก' });
+
+        if (sku && String(sku).trim()) {
+            const { data: skuMatch, error: skuError } = await db.from('inventory_items').select('id').eq('shop_id', shop_id).eq('sku', String(sku).trim()).maybeSingle();
+            if (skuError) throw skuError;
+            if (skuMatch) return res.status(400).json({ error: 'SKU นี้ถูกใช้แล้วในร้านนี้' });
+        }
 
         const { data: shop, error: shopError } = await db.from('shops').select('id').eq('id', shop_id).maybeSingle();
         if (shopError) throw shopError;
@@ -861,7 +1009,7 @@ app.post('/api/inventory/items', async (req, res) => {
 
         const { data: createdItem, error } = await db.from('inventory_items').insert([{
             shop_id, category_id: category_id || null, name, quantity: quantity || 0, unit: encodeInventoryUnit(unit, package_size, package_unit), min_threshold: min_threshold || 0,
-            image_url: image_url || null, sku: sku || null, cost: cost || 0, type: type || 'raw_material', status: status || 'active'
+            image_url: image_url || null, sku: sku || null, cost: cost || 0, type: normalizedType, status: status || 'active'
         }]).select('id, quantity').single();
         if (error) throw error;
         const initialQuantity = Number(quantity || 0);
@@ -879,8 +1027,31 @@ app.post('/api/inventory/items', async (req, res) => {
 app.put('/api/inventory/items/:id', async (req, res) => {
     try {
         const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
-        const { data: existingItem, error: existingError } = await db.from('inventory_items').select('shop_id, quantity').eq('id', req.params.id).single();
-        if (existingError || !existingItem) throw existingError || new Error('ไม่พบวัตถุดิบในระบบ');
+        if (!shop_id) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        if (!category_id) return res.status(400).json({ error: 'กรุณาเลือกหมวดย่อยก่อนบันทึก' });
+        const normalizedType = String(type || 'raw_material');
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหลักไม่ถูกต้อง' });
+
+        let category = null;
+        try {
+            const { data, error } = await db.from('inventory_categories').select('id, type').eq('id', category_id).eq('shop_id', shop_id).single();
+            if (error) throw error;
+            category = data;
+        } catch (err) {
+            const { data, error } = await db.from('inventory_categories').select('id').eq('id', category_id).eq('shop_id', shop_id).single();
+            if (error || !data) return res.status(400).json({ error: 'หมวดย่อยที่เลือกไม่มีอยู่ในร้านนี้ หรือไม่ตรงกับประเภทหลัก' });
+            category = { id: data.id, type: normalizedType };
+        }
+        if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'หมวดย่อยต้องเป็นของประเภทหลักที่เลือก' });
+
+        if (sku && String(sku).trim()) {
+            const { data: skuMatch, error: skuError } = await db.from('inventory_items').select('id').eq('shop_id', shop_id).eq('sku', String(sku).trim()).neq('id', req.params.id).maybeSingle();
+            if (skuError) throw skuError;
+            if (skuMatch) return res.status(400).json({ error: 'SKU นี้ถูกใช้แล้วในร้านนี้' });
+        }
+
+        const { data: existingItem, error: existingError } = await db.from('inventory_items').select('shop_id, quantity').eq('id', req.params.id).eq('shop_id', shop_id).single();
+        if (existingError || !existingItem) return res.status(403).json({ error: 'ไม่พบวัตถุดิบนี้ในร้านของคุณ' });
         const updates = {
             category_id: category_id || null,
             name,
@@ -889,13 +1060,11 @@ app.put('/api/inventory/items/:id', async (req, res) => {
             image_url: image_url || null,
             sku: sku || null,
             cost: cost ?? 0,
-            type: type || 'raw_material',
+            type: normalizedType,
             status: status || 'active'
         };
 
-        let query = db.from('inventory_items').update(updates).eq('id', req.params.id);
-        if (shop_id) query = query.eq('shop_id', shop_id);
-        const { error } = await query;
+        const { error } = await db.from('inventory_items').update(updates).eq('id', req.params.id).eq('shop_id', shop_id);
         if (error) throw error;
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -903,7 +1072,9 @@ app.put('/api/inventory/items/:id', async (req, res) => {
 
 app.delete('/api/inventory/items/:id', async (req, res) => {
     try {
-        const { error } = await db.from('inventory_items').delete().eq('id', req.params.id);
+        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('inventory_items').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -934,7 +1105,9 @@ app.post('/api/inventory/adjust', async (req, res) => {
 
 app.get('/api/inventory/:id', async (req, res) => {
     try {
-        const { data, error } = await db.from('inventory_items').select('*').eq('id', req.params.id).single();
+        const shopId = req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { data, error } = await db.from('inventory_items').select('*').eq('id', req.params.id).eq('shop_id', shopId).single();
         if (error) throw error; res.json({ ...presentInventoryItem(data), stock: data.quantity, minStock: data.min_threshold || 10, sku: data.sku || `SKU-${data.id}`, movements: [] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1053,14 +1226,18 @@ app.post('/api/promotions', async (req, res) => {
 
 app.put('/api/promotions/:id', async (req, res) => {
     try {
-        const { error } = await db.from('promotions').update(req.body).eq('id', req.params.id);
+        const shopId = req.body.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('promotions').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/promotions/:id', async (req, res) => {
     try {
-        const { error } = await db.from('promotions').delete().eq('id', req.params.id);
+        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        const { error } = await db.from('promotions').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
