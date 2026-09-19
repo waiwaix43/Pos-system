@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const db = require('./db'); // Supabase client
 const bcrypt = require('bcryptjs');
+const { syncInventoryNotification } = require('./notificationService');
 
 const app = express();
 app.use(cors()); 
@@ -37,7 +38,7 @@ app.post('/api/register', async (req, res) => {
         const hashedAdminPassword = await bcrypt.hash(password, salt);
         const hashedStaffPassword = await bcrypt.hash('staff_password', salt);
         
-        const finalRoles = (roles && roles.length > 0) ? roles : [{ roleName: 'เจ้าของร้าน', pin: '0000' }];
+        const finalRoles = (roles && roles.length > 0) ? roles : [{ roleName: 'เจ้าของร้าน', pin: null }];
         const getEmailPrefix = (role) => { if(role === 'เจ้าของร้าน') return 'owner'; if(role === 'ผู้จัดการ') return 'manager'; return 'staff'; };
 
         const staffValues = await Promise.all(finalRoles.map(async (r, index) => {
@@ -215,8 +216,10 @@ app.post('/api/verify-manager-pin', async (req, res) => {
 // ==========================================
 app.get('/api/categories', async (req, res) => {
     try {
-        const { data, error } = await db.from('categories').select('*').eq('shop_id', req.query.shop_id);
-        if (error) throw error; res.json(data);
+        const { shop_id } = req.query;
+        const { data, error } = await db.from('categories').select('*').eq('shop_id', shop_id).order('id', { ascending: false });
+        if (error) throw error;
+        return res.status(200).json(data || []);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/categories', async (req, res) => {
@@ -246,8 +249,9 @@ app.get('/api/products', async (req, res) => {
     try {
         let query = db.from('products').select('*').eq('shop_id', shop_id);
         if (category_id && category_id !== 'all') query = query.eq('category_id', category_id);
-        const { data, error } = await query;
-        if (error) throw error; res.json(data);
+        const { data, error } = await query.order('id', { ascending: false });
+        if (error) throw error;
+        return res.status(200).json(data || []);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.post('/api/products', async (req, res) => {
@@ -574,6 +578,7 @@ app.post('/api/orders', async (req, res) => {
                                 shop_id, inventory_item_id: recipe.inventory_item_id, movement_type: 'SALE',
                                 quantity: -totalDeduct, balance_after: newStock, reference_id: orderId, reason: `ขายสินค้า POS (บิล ${billNumber})`
                             }]);
+                            await syncInventoryNotification({ shopId: shop_id, itemId: recipe.inventory_item_id, userId: staff_id || null });
                         }
                     }
                 }
@@ -795,6 +800,27 @@ app.get('/api/shifts/:id/summary', async (req, res) => {
 // ==========================================
 // --- 10. API ระบบคลังสินค้า (Inventory) ---
 // ==========================================
+const decodeInventoryUnit = (unit) => {
+    const value = String(unit || 'หน่วย');
+    const parts = value.split('|');
+    if (parts.length === 3 && Number(parts[1]) > 0) {
+        return { unit: parts[0], package_size: Number(parts[1]), package_unit: parts[2] };
+    }
+    return { unit: value, package_size: 1, package_unit: value };
+};
+
+const encodeInventoryUnit = (unit, packageSize, packageUnit) => {
+    const baseUnit = String(unit || 'หน่วย').trim();
+    const size = Number(packageSize || 1);
+    const contentUnit = String(packageUnit || 'ชิ้น').trim();
+    return size !== 1 ? `${baseUnit}|${size}|${contentUnit}` : baseUnit;
+};
+
+const presentInventoryItem = (item) => {
+    const unitInfo = decodeInventoryUnit(item.unit);
+    return { ...item, unit: unitInfo.unit, package_size: unitInfo.package_size, package_unit: unitInfo.package_unit, total_pieces: Number(item.quantity || 0) * unitInfo.package_size, cost_per_piece: unitInfo.package_size > 0 ? Number(item.cost || 0) / unitInfo.package_size : 0 };
+};
+
 app.get('/api/inventory/categories', async (req, res) => {
     try {
         const { data: categories, error: catErr } = await db.from('inventory_categories').select('id, name').eq('shop_id', req.query.shop_id);
@@ -820,12 +846,12 @@ app.get('/api/inventory/items', async (req, res) => {
         if (search) query = query.ilike('name', `%${search}%`);
         const { data, error } = await query;
         if (error) throw error;
-        res.json(data.map(item => ({ ...item, category_name: item.inventory_categories?.name })));
+        res.json(data.map(item => presentInventoryItem({ ...item, category_name: item.inventory_categories?.name })));
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/inventory/items', async (req, res) => {
-    const { shop_id, category_id, name, quantity, unit, min_threshold, image_url, sku, cost, type, status } = req.body;
+    const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
     try {
         if (!shop_id || !name) return res.status(400).json({ error: "กรุณาระบุร้านค้าและชื่อรายการ" });
 
@@ -834,7 +860,7 @@ app.post('/api/inventory/items', async (req, res) => {
         if (!shop) return res.status(400).json({ error: "ไม่พบร้านค้านี้ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่" });
 
         const { data: createdItem, error } = await db.from('inventory_items').insert([{
-            shop_id, category_id: category_id || null, name, quantity: quantity || 0, unit, min_threshold: min_threshold || 0,
+            shop_id, category_id: category_id || null, name, quantity: quantity || 0, unit: encodeInventoryUnit(unit, package_size, package_unit), min_threshold: min_threshold || 0,
             image_url: image_url || null, sku: sku || null, cost: cost || 0, type: type || 'raw_material', status: status || 'active'
         }]).select('id, quantity').single();
         if (error) throw error;
@@ -852,14 +878,13 @@ app.post('/api/inventory/items', async (req, res) => {
 
 app.put('/api/inventory/items/:id', async (req, res) => {
     try {
-        const { shop_id, category_id, name, quantity, unit, min_threshold, image_url, sku, cost, type, status } = req.body;
+        const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
         const { data: existingItem, error: existingError } = await db.from('inventory_items').select('shop_id, quantity').eq('id', req.params.id).single();
         if (existingError || !existingItem) throw existingError || new Error('ไม่พบวัตถุดิบในระบบ');
         const updates = {
             category_id: category_id || null,
             name,
-            quantity: quantity ?? 0,
-            unit,
+            unit: encodeInventoryUnit(unit, package_size, package_unit),
             min_threshold: min_threshold ?? 0,
             image_url: image_url || null,
             sku: sku || null,
@@ -872,16 +897,6 @@ app.put('/api/inventory/items/:id', async (req, res) => {
         if (shop_id) query = query.eq('shop_id', shop_id);
         const { error } = await query;
         if (error) throw error;
-        const previousQuantity = Number(existingItem.quantity || 0);
-        const nextQuantity = Number(quantity ?? 0);
-        const quantityDelta = nextQuantity - previousQuantity;
-        if (quantityDelta !== 0) {
-            const { error: movementError } = await db.from('stock_movements').insert([{
-                shop_id: shop_id || existingItem.shop_id, inventory_item_id: req.params.id, movement_type: 'ADJUSTMENT',
-                quantity: quantityDelta, balance_after: nextQuantity, reason: 'แก้ไขจำนวนสินค้าในคลัง'
-            }]);
-            if (movementError) throw movementError;
-        }
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -894,19 +909,25 @@ app.delete('/api/inventory/items/:id', async (req, res) => {
 });
 
 app.post('/api/inventory/adjust', async (req, res) => {
-    const { shop_id, item_id, user_id, adjust_qty, reason } = req.body;
+    const { shop_id, item_id, user_id, adjust_qty, reason, note, expected_quantity } = req.body;
     try {
-        const { data: item, error: itemErr } = await db.from('inventory_items').select('quantity').eq('id', item_id).single();
+        const amount = Number(adjust_qty);
+        if (!shop_id || !item_id || !Number.isFinite(amount) || amount === 0) return res.status(400).json({ error: 'กรุณาระบุจำนวนที่ถูกต้อง' });
+        const { data: item, error: itemErr } = await db.from('inventory_items').select('quantity, shop_id').eq('id', item_id).eq('shop_id', shop_id).single();
         if (itemErr || !item) throw new Error("ไม่พบวัตถุดิบในระบบ");
-        
-        const newQty = Number(item.quantity) + Number(adjust_qty);
-        const { error: updateErr } = await db.from('inventory_items').update({ quantity: newQty }).eq('id', item_id);
+        const previousQuantity = Number(item.quantity || 0);
+        if (expected_quantity !== undefined && Number(expected_quantity) !== previousQuantity) return res.status(409).json({ error: 'สต็อกถูกเปลี่ยนแปลงแล้ว กรุณาโหลดข้อมูลใหม่' });
+        const newQty = previousQuantity + amount;
+        if (newQty < 0) return res.status(400).json({ error: 'จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้' });
+        const { data: updatedItem, error: updateErr } = await db.from('inventory_items').update({ quantity: newQty }).eq('id', item_id).eq('shop_id', shop_id).eq('quantity', previousQuantity).select('quantity').single();
         if (updateErr) throw updateErr;
+        if (!updatedItem) return res.status(409).json({ error: 'สต็อกถูกเปลี่ยนแปลงแล้ว กรุณาลองใหม่' });
 
         const { error: moveErr } = await db.from('stock_movements').insert([{
-            shop_id, inventory_item_id: item_id, movement_type: 'ADJUSTMENT', quantity: Number(adjust_qty), balance_after: newQty, reason: reason, created_by: user_id || null
+            shop_id, inventory_item_id: item_id, movement_type: amount > 0 ? 'STOCK_IN' : 'STOCK_OUT', quantity: amount, balance_before: previousQuantity, balance_after: newQty, reason: reason || 'ปรับสต็อก', note: note || null, created_by: user_id || null
         }]);
         if (moveErr) throw moveErr;
+        await syncInventoryNotification({ shopId: shop_id, itemId: item_id, userId: user_id || null });
         res.json({ success: true, message: "ปรับปรุง Stock สำเร็จ", new_stock: newQty });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -914,7 +935,7 @@ app.post('/api/inventory/adjust', async (req, res) => {
 app.get('/api/inventory/:id', async (req, res) => {
     try {
         const { data, error } = await db.from('inventory_items').select('*').eq('id', req.params.id).single();
-        if (error) throw error; res.json({ ...data, stock: data.quantity, minStock: data.min_threshold || 10, sku: data.sku || `SKU-${data.id}`, movements: [] });
+        if (error) throw error; res.json({ ...presentInventoryItem(data), stock: data.quantity, minStock: data.min_threshold || 10, sku: data.sku || `SKU-${data.id}`, movements: [] });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -962,8 +983,42 @@ app.put('/api/settings', async (req, res) => {
 
 app.get('/api/payment-methods', async (req, res) => {
     try {
-        const { data, error } = await db.from('payment_methods').select('*').eq('shop_id', req.query.shop_id).order('display_order', { ascending: true });
-        if (error) throw error; res.json(data);
+        const shopId = req.query.shop_id;
+        let { data, error } = await db.from('payment_methods').select('*').eq('shop_id', shopId).order('display_order', { ascending: true });
+        if (error) throw error;
+        if (!data || data.length === 0) {
+            const defaults = [
+                { shop_id: shopId, name: 'เงินสด', type: 'CASH', is_enabled: true, display_order: 0 },
+                { shop_id: shopId, name: 'QR พร้อมเพย์', type: 'QR', is_enabled: true, display_order: 1 },
+                { shop_id: shopId, name: 'โอนเงิน', type: 'TRANSFER', is_enabled: true, display_order: 2 },
+                { shop_id: shopId, name: 'บัตรเครดิต', type: 'CARD', is_enabled: false, display_order: 3 }
+            ];
+            const seeded = await db.from('payment_methods').insert(defaults).select('*');
+            if (seeded.error) throw seeded.error;
+            return res.json(seeded.data || []);
+        }
+        return res.json(data);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/payment-methods', async (req, res) => {
+    try {
+        const { shop_id, name, type } = req.body;
+        if (!shop_id || !String(name || '').trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อช่องทางการชำระเงิน' });
+        const { count } = await db.from('payment_methods').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id);
+        const { data, error } = await db.from('payment_methods').insert([{
+            shop_id, name: String(name).trim(), type: type || 'OTHER', is_enabled: true, display_order: count || 0
+        }]).select('*').single();
+        if (error) throw error;
+        res.status(201).json(data);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/payment-methods/:id', async (req, res) => {
+    try {
+        const { error } = await db.from('payment_methods').delete().eq('id', req.params.id).eq('shop_id', req.query.shop_id);
+        if (error) throw error;
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1368,7 +1423,7 @@ app.get('/api/reports/stock-movement', async (req, res) => {
             ? await db.from('inventory_items').select('id, name, unit').in('id', inventoryItemIds)
             : { data: [], error: null };
         if (inventoryError) throw inventoryError;
-        const itemDetails = new Map((inventoryItems || []).map(item => [item.id, item]));
+        const itemDetails = new Map((inventoryItems || []).map(item => [item.id, { ...item, ...decodeInventoryUnit(item.unit) }]));
         const movementLabels = {
             SALE: 'ใช้ไปจากการขาย',
             VOID_RETURN: 'คืนจากการยกเลิกบิล',
@@ -1501,4 +1556,89 @@ app.get('/api/reports/export', (req, res) => res.send("ระบบ Export ก�
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+});
+
+// ==========================================
+// --- 10.5 API ศูนย์การแจ้งเตือน ---
+// ==========================================
+app.get('/api/notifications', async (req, res) => {
+    try {
+        const { shop_id, user_id, unread_only, type, priority, limit = 30, offset = 0 } = req.query;
+
+        if (!shop_id || !user_id) {
+            return res.status(400).json({ success: false, error: 'กรุณาระบุ shop_id และ user_id' });
+        }
+
+        const shopId = Number(shop_id);
+        const userId = Number(user_id);
+        if (!Number.isFinite(shopId) || !Number.isFinite(userId)) {
+            return res.status(400).json({ success: false, error: 'shop_id และ user_id ต้องเป็นตัวเลข' });
+        }
+
+        const { data: inventoryItems, error: inventoryError } = await db.from('inventory_items').select('id').eq('shop_id', shopId);
+        if (inventoryError) throw inventoryError;
+
+        for (const item of inventoryItems || []) {
+            await syncInventoryNotification({ shopId, itemId: item.id, userId });
+        }
+
+        let query = db.from('notifications').select('*', { count: 'exact' }).eq('shop_id', shopId).eq('is_active', true).order('created_at', { ascending: false }).range(Number(offset), Number(offset) + Math.min(Number(limit), 100) - 1);
+        if (unread_only === 'true') query = query.eq('is_read', false);
+        if (type) query = query.eq('type', type);
+        if (priority) query = query.eq('priority', priority);
+
+        const { data, count, error } = await query;
+        if (error) throw error;
+
+        const { count: unreadCount, error: unreadError } = await db.from('notifications').select('id', { count: 'exact', head: true }).eq('shop_id', shopId).eq('is_active', true).eq('is_read', false);
+        if (unreadError) throw unreadError;
+
+        return res.status(200).json({
+            success: true,
+            notifications: data || [],
+            total: count || 0,
+            unreadCount: unreadCount || 0
+        });
+    } catch (err) {
+        console.error('GET /api/notifications error:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'ไม่สามารถโหลดการแจ้งเตือนได้',
+            hint: 'กรุณารัน backend/notifications.sql ใน Supabase ก่อนใช้งาน'
+        });
+    }
+});
+
+app.patch('/api/notifications/:id/read', async (req, res) => {
+    try {
+        const { shop_id } = req.body;
+        if (!shop_id) {
+            return res.status(400).json({ success: false, error: 'กรุณาระบุ shop_id' });
+        }
+
+        const { data, error } = await db.from('notifications').update({ is_read: true, read_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', req.params.id).eq('shop_id', shop_id).select('*').single();
+        if (error) throw error;
+
+        return res.status(200).json({ success: true, notification: data });
+    } catch (err) {
+        console.error('PATCH /api/notifications/:id/read error:', err);
+        return res.status(500).json({ success: false, error: 'ไม่สามารถอัปเดตการแจ้งเตือนได้' });
+    }
+});
+
+app.patch('/api/notifications/read-all', async (req, res) => {
+    try {
+        const { shop_id } = req.body;
+        if (!shop_id) {
+            return res.status(400).json({ success: false, error: 'กรุณาระบุ shop_id' });
+        }
+
+        const { error } = await db.from('notifications').update({ is_read: true, read_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('shop_id', shop_id).eq('is_active', true).eq('is_read', false);
+        if (error) throw error;
+
+        return res.status(200).json({ success: true });
+    } catch (err) {
+        console.error('PATCH /api/notifications/read-all error:', err);
+        return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านการแจ้งเตือนทั้งหมดได้' });
+    }
 });
