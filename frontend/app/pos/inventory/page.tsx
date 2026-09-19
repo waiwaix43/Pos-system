@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
 import { createClient } from "@supabase/supabase-js";
@@ -28,8 +28,15 @@ export default function InventoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("วัตถุดิบ"); 
   const [filterStatus, setFilterStatus] = useState("all"); 
-  const [filterStock, setFilterStock] = useState("all"); 
+  const [filterStock, setFilterStock] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [filterSubcategory, setFilterSubcategory] = useState("all");
+  const [inventoryCategories, setInventoryCategories] = useState<any[]>([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [categoryForm, setCategoryForm] = useState({ id: null as number | null, name: "", type: "raw_material" });
+  const [categoryTypeMap, setCategoryTypeMap] = useState<Record<string, string>>({});
   const [lowStockThreshold, setLowStockThreshold] = useState(0);
+  const [toast, setToast] = useState<{ open: boolean; type: 'success' | 'error'; message: string } | null>(null);
 
   // States: Modals (Add / Edit)
   const [showFormModal, setShowFormModal] = useState(false);
@@ -73,11 +80,23 @@ export default function InventoryPage() {
     if (!user?.shop_id) return;
     setLoading(true);
     try {
-      const [invRes, settingsRes] = await Promise.all([
+      const [invRes, settingsRes, categoriesRes] = await Promise.all([
         fetch(`http://localhost:5000/api/inventory/items?shop_id=${user.shop_id}`),
-        fetch(`http://localhost:5000/api/settings?shop_id=${user.shop_id}`)
+        fetch(`http://localhost:5000/api/settings?shop_id=${user.shop_id}`),
+        fetch(`http://localhost:5000/api/inventory/categories?shop_id=${user.shop_id}`)
       ]);
       if (invRes.ok) setInventoryItems(await invRes.json());
+      if (categoriesRes.ok) {
+        const categories = await categoriesRes.json();
+        setInventoryCategories(categories || []);
+        setCategoryTypeMap((prev) => {
+          const next = { ...prev };
+          (categories || []).forEach((category: any) => {
+            next[String(category.id)] = category.type || next[String(category.id)] || 'raw_material';
+          });
+          return next;
+        });
+      }
       if (settingsRes.ok) {
         const settings = await settingsRes.json();
         setLowStockThreshold(Number(settings.low_stock_threshold || 0));
@@ -91,19 +110,180 @@ export default function InventoryPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  useEffect(() => {
+    if (!toast || !toast.open) return;
+    const timer = window.setTimeout(() => setToast(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const activeTypeValue = filterType === 'all' ? (activeTab === "วัตถุดิบ" ? "raw_material" : "packaging") : filterType;
+  const activeFilterTypeLabel = filterType === 'all' ? (activeTab === "วัตถุดิบ" ? "วัตถุดิบ" : "บรรจุภัณฑ์") : (filterType === 'raw_material' ? 'วัตถุดิบ' : 'บรรจุภัณฑ์');
+
+  const subcategoryOptions = useMemo(() => {
+    const filteredByType = inventoryItems.filter(item => {
+      if (filterType === 'all') {
+        return item.type === 'raw_material' || item.type === 'packaging' || (!item.type);
+      }
+      return item.type === filterType || (!item.type && filterType === 'raw_material');
+    });
+    const relevantCategoryIds = new Set(filteredByType
+      .map(item => item.category_id)
+      .filter((id) => id !== null && id !== undefined && id !== ''));
+
+    const dynamicCategories = inventoryCategories.filter((cat) => {
+      const categoryId = String(cat.id);
+      const localType = categoryTypeMap[categoryId];
+      return relevantCategoryIds.has(categoryId) || (filterType !== 'all' && localType === filterType) || (!relevantCategoryIds.has(categoryId) && !localType);
+    });
+
+    return [
+      { id: 'all', name: 'หมวดย่อยทั้งหมด', count: filteredByType.length },
+      ...dynamicCategories.map((cat) => ({
+        id: String(cat.id),
+        name: cat.name,
+        count: inventoryItems.filter((item) => {
+          const sameType = filterType === 'all'
+            ? (item.type === 'raw_material' || item.type === 'packaging' || (!item.type))
+            : (item.type === filterType || (!item.type && filterType === 'raw_material'));
+          return sameType && String(item.category_id) === String(cat.id);
+        }).length
+      }))
+    ];
+  }, [inventoryCategories, inventoryItems, filterType, categoryTypeMap]);
+
+  const categoryCountMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    inventoryItems.forEach((item) => {
+      if (item.category_id !== null && item.category_id !== undefined && item.category_id !== '') {
+        map[String(item.category_id)] = (map[String(item.category_id)] || 0) + 1;
+      }
+    });
+    return map;
+  }, [inventoryItems]);
+
+  const formCategoryOptions = useMemo(() => {
+    const selectedType = formData.type || (activeTab === 'บรรจุภัณฑ์' ? 'packaging' : 'raw_material');
+    return inventoryCategories.filter((category) => category.type === selectedType || !category.type);
+  }, [formData.type, inventoryCategories, activeTab]);
+
+  const updateCategoryTypeMap = (categoryId: number | string, type: string) => {
+    setCategoryTypeMap((prev) => ({ ...prev, [String(categoryId)]: type }));
+  };
+
+  const saveCategory = async () => {
+    if (!user?.shop_id || !categoryForm.name.trim()) {
+      setToast({ open: true, type: 'error', message: 'กรุณากรอกชื่อหมวดย่อย' });
+      return;
+    }
+    try {
+      const url = categoryForm.id ? `http://localhost:5000/api/inventory/categories/${categoryForm.id}` : `http://localhost:5000/api/inventory/categories`;
+      const method = categoryForm.id ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shop_id: Number(user.shop_id),
+          name: categoryForm.name.trim(),
+          type: categoryForm.type
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'บันทึกหมวดย่อยไม่สำเร็จ');
+
+      const savedCategory = data.category || data || { id: Date.now(), name: categoryForm.name.trim(), type: categoryForm.type };
+      const resolvedCategoryId = savedCategory.id ?? data.id ?? categoryForm.id ?? Date.now();
+      const normalizedCategory = { ...savedCategory, id: resolvedCategoryId, name: savedCategory.name || categoryForm.name.trim(), type: savedCategory.type || categoryForm.type };
+      setInventoryCategories((prev) => {
+        const existing = prev.find((cat) => Number(cat.id) === Number(normalizedCategory.id));
+        if (existing) {
+          return prev.map((cat) => Number(cat.id) === Number(normalizedCategory.id) ? { ...cat, name: normalizedCategory.name, type: normalizedCategory.type || categoryForm.type } : cat);
+        }
+        return [...prev, { ...normalizedCategory, type: normalizedCategory.type || categoryForm.type }];
+      });
+      setInventoryItems((prev) => prev.map((item) => Number(item.category_id) === Number(normalizedCategory.id)
+        ? { ...item, type: normalizedCategory.type || categoryForm.type }
+        : item));
+      updateCategoryTypeMap(normalizedCategory.id, categoryForm.type);
+      if (showFormModal && formData.type === categoryForm.type) {
+        setFormData((prev: any) => ({ ...prev, category_id: normalizedCategory.id || prev.category_id }));
+      }
+      setCategoryForm({ id: null, name: '', type: activeTypeValue });
+      setShowCategoryModal(false);
+      setFilterSubcategory('all');
+      await fetchData();
+      setToast({ open: true, type: 'success', message: categoryForm.id ? `แก้ไขหมวดย่อย '${normalizedCategory.name}' สำเร็จ` : `เพิ่มหมวดย่อย '${normalizedCategory.name}' สำเร็จ` });
+    } catch (err: any) {
+      setToast({ open: true, type: 'error', message: err.message || 'บันทึกหมวดย่อยไม่สำเร็จ' });
+    }
+  };
+
+  const deleteCategory = async (categoryId: number | string) => {
+    if (!user?.shop_id) return;
+    const category = inventoryCategories.find((cat) => Number(cat.id) === Number(categoryId));
+    if (!category) return;
+    if (!window.confirm(`ต้องการลบหมวดย่อย "${category.name}" หรือไม่?\nระบบจะย้ายสินค้าในหมวดนี้ให้เป็น "ยังไม่ได้จัดหมวดหมู่" ก่อนลบหมวด`)) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/inventory/categories/${Number(categoryId)}?shop_id=${Number(user.shop_id)}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'ลบหมวดย่อยไม่สำเร็จ');
+
+      setInventoryCategories((prev) => prev.filter((cat) => Number(cat.id) !== Number(categoryId)));
+      setInventoryItems((prev) => prev.map((item) => Number(item.category_id) === Number(categoryId)
+        ? { ...item, category_id: null }
+        : item));
+      setCategoryTypeMap((prev) => {
+        const next = { ...prev };
+        delete next[String(categoryId)];
+        return next;
+      });
+      if (String(filterSubcategory) === String(categoryId)) setFilterSubcategory('all');
+      await fetchData();
+      setToast({ open: true, type: 'success', message: `ลบหมวดย่อย '${category.name}' สำเร็จ` });
+    } catch (err: any) {
+      setToast({ open: true, type: 'error', message: err.message || 'ลบหมวดย่อยไม่สำเร็จ' });
+    }
+  };
+
+  const clearFilters = () => {
+    setFilterStatus('all');
+    setFilterStock('all');
+    setFilterSubcategory('all');
+    setFilterType('all');
+    setActiveTab('วัตถุดิบ');
+  };
+
   // Derived counts for Main Navigation
   const countRaw = inventoryItems.filter(i => !i.type || i.type === 'raw_material').length;
   const countPkg = inventoryItems.filter(i => i.type === 'packaging').length;
 
+  const selectTypeTab = (tab: string) => {
+    setActiveTab(tab);
+    setFilterSubcategory('all');
+    setFilterType(tab === 'วัตถุดิบ' ? 'raw_material' : 'packaging');
+  };
+
   // Compute Displayed Items based on active tab, search, and filters
   let displayedItems: any[] = [];
-  if (activeTab === "วัตถุดิบ") {
-      displayedItems = inventoryItems.filter(i => (!i.type || i.type === 'raw_material') && (i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase())));
-  } else if (activeTab === "บรรจุภัณฑ์") {
-      displayedItems = inventoryItems.filter(i => i.type === 'packaging' && (i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase())));
+  if (filterType === 'all') {
+    displayedItems = inventoryItems.filter(i => {
+      const matchesType = (!i.type || i.type === 'raw_material' || i.type === 'packaging');
+      const matchesSearch = (i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesType && matchesSearch;
+    });
+  } else {
+    displayedItems = inventoryItems.filter(i => {
+      const matchesType = i.type === filterType || (!i.type && filterType === 'raw_material');
+      const matchesSearch = (i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesType && matchesSearch;
+    });
   }
 
-  // ใช้งานตัวกรอง (Filters)
+  if (filterSubcategory !== 'all') {
+    displayedItems = displayedItems.filter((item) => String(item.category_id) === String(filterSubcategory));
+  }
+
   if (filterStatus !== "all") {
     displayedItems = displayedItems.filter(i => i.status === filterStatus);
   }
@@ -112,6 +292,12 @@ export default function InventoryPage() {
   } else if (filterStock === "out") {
     displayedItems = displayedItems.filter(i => i.quantity <= 0);
   }
+
+  const activeFilterChips = [
+    ...(filterSubcategory !== 'all' ? [{ label: subcategoryOptions.find((item) => String(item.id) === String(filterSubcategory))?.name || 'หมวดย่อย', key: 'subcategory' }] : []),
+    ...(filterStatus !== 'all' ? [{ label: filterStatus === 'active' ? 'เปิดใช้งาน' : 'ระงับ', key: 'status' }] : []),
+    ...(filterStock !== 'all' ? [{ label: filterStock === 'low' ? 'ใกล้หมด' : 'หมดสต็อก', key: 'stock' }] : [])
+  ];
 
   // ==========================================
   // IMAGE UPLOAD 
@@ -145,13 +331,16 @@ export default function InventoryPage() {
   // ==========================================
   const handleSaveData = async () => {
     if (!formData.name) return alert("กรุณากรอกชื่อรายการ");
+    if (!formData.type) return alert("กรุณาเลือกประเภทหลัก");
+    if (!formData.category_id) return alert("กรุณาเลือกหมวดย่อย");
     setIsSaving(true);
     try {
       let endpoint = `/api/inventory/items${formMode === 'edit' ? `/${formData.id}` : ''}`;
       let payload = { 
         ...formData, 
         shop_id: user.shop_id,
-        type: formData.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material')
+        type: formData.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material'),
+        category_id: Number(formData.category_id)
       };
 
       const res = await fetch(`http://localhost:5000${endpoint}`, {
@@ -164,7 +353,7 @@ export default function InventoryPage() {
       if (!res.ok) throw new Error(data.error || data.message || "บันทึกข้อมูลไม่สำเร็จ");
       setShowFormModal(false);
       setFormData({});
-      fetchData(); 
+      await fetchData(); 
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -299,20 +488,31 @@ export default function InventoryPage() {
     setFormMode("add");
     setFormData({ 
       status: 'active',
-      type: activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material'
+      type: activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material',
+      category_id: ""
     });
     setShowFormModal(true);
   };
 
   const openEditForm = (item: any) => {
     setFormMode("edit");
-    setFormData({ ...item });
+    setFormData({ ...item, category_id: item.category_id ?? '', type: item.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material') });
     setSelectedItem(null); 
     setShowFormModal(true);
   };
 
   return (
-    <div className="flex h-screen bg-[#d6d6d6] font-sans overflow-hidden text-gray-800">
+    <>
+      {toast?.open && (
+        <div className="fixed right-5 top-5 z-[220] min-w-[260px] max-w-[340px] rounded-xl border shadow-lg backdrop-blur-sm">
+          <div className={`flex items-center gap-3 rounded-xl px-4 py-3 ${toast.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            <span className={`inline-flex h-2.5 w-2.5 rounded-full ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-[13px] font-bold">{toast.message}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex h-screen bg-[#d6d6d6] font-sans overflow-hidden text-gray-800">
       
       {/* Sidebar POS */}
       <div className="w-[240px] bg-[#4d4d4d] text-white flex flex-col justify-between shrink-0 shadow-lg z-20">
@@ -410,6 +610,31 @@ export default function InventoryPage() {
                   <Filter className="w-4 h-4" />
                   <span className="text-[13px] font-bold uppercase tracking-wider">ตัวกรอง</span>
                 </div>
+
+                <select
+                  value={filterType}
+                  onChange={(e) => {
+                    const nextType = e.target.value;
+                    setFilterType(nextType);
+                    setFilterSubcategory('all');
+                    setActiveTab(nextType === 'raw_material' ? 'วัตถุดิบ' : nextType === 'packaging' ? 'บรรจุภัณฑ์' : activeTab);
+                  }}
+                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+                >
+                  <option value="all">ประเภททั้งหมด</option>
+                  <option value="raw_material">วัตถุดิบ</option>
+                  <option value="packaging">บรรจุภัณฑ์</option>
+                </select>
+
+                <select
+                  value={filterSubcategory}
+                  onChange={(e) => setFilterSubcategory(e.target.value)}
+                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+                >
+                  {subcategoryOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.name} {option.count > 0 ? `(${option.count})` : ''}</option>
+                  ))}
+                </select>
                 
                 <select 
                   value={filterStatus}
@@ -430,6 +655,22 @@ export default function InventoryPage() {
                   <option value="low">ใกล้หมดสต็อก</option>
                   <option value="out">หมดสต็อก</option>
                 </select>
+
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="h-[38px] px-3 rounded-lg border border-gray-200 bg-white text-[13px] font-medium text-gray-700 hover:border-[#7a5c4e] hover:text-[#7a5c4e]"
+                >
+                  ล้างตัวกรอง
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCategoryModal(true)}
+                  className="h-[38px] px-3 rounded-lg bg-[#7a5c4e] text-white text-[13px] font-medium hover:bg-[#684c3f]"
+                >
+                  จัดการหมวดย่อย
+                </button>
               </div>
 
               <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
@@ -437,6 +678,26 @@ export default function InventoryPage() {
                 <button onClick={() => changeViewMode("grid")} className={`p-2 border-l border-gray-200 transition-colors ${viewMode === 'grid' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid className="w-4 h-4" /></button>
               </div>
             </div>
+
+            {activeFilterChips.length > 0 && (
+              <div className="px-6 py-3 border-b border-gray-100 bg-white flex flex-wrap items-center gap-2">
+                <span className="text-[12px] font-bold text-gray-500">กำลังกรอง:</span>
+                {activeFilterChips.map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => {
+                      if (chip.key === 'subcategory') setFilterSubcategory('all');
+                      if (chip.key === 'status') setFilterStatus('all');
+                      if (chip.key === 'stock') setFilterStock('all');
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full bg-[#7a5c4e]/10 text-[#7a5c4e] px-3 py-1 text-[12px] font-bold border border-[#7a5c4e]/20"
+                  >
+                    {chip.label} <X className="w-3 h-3" />
+                  </button>
+                ))}
+              </div>
+            )}
 
             {loading ? (
               <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
@@ -550,6 +811,50 @@ export default function InventoryPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-[13px] font-bold text-gray-600 mb-1">SKU</label><input type="text" value={formData.sku || ''} onChange={(e)=>setFormData({...formData, sku: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
                 <div><label className="block text-[13px] font-bold text-gray-600 mb-1">หน่วยที่เก็บในสต๊อก</label><input type="text" value={formData.unit || ''} onChange={(e)=>setFormData({...formData, unit: e.target.value})} placeholder="เช่น ขวด, ถุง, กล่อง, ชิ้น" className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 mt-4">
+                <h4 className="text-[14px] font-bold text-gray-800 mb-3">หมวดหมู่</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[12px] font-bold text-gray-600 mb-1">ประเภทหลัก</label>
+                    <select
+                      value={formData.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material')}
+                      onChange={(e) => {
+                        const nextType = e.target.value;
+                        setFormData((prev: any) => ({ ...prev, type: nextType, category_id: '' }));
+                      }}
+                      className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white"
+                    >
+                      <option value="raw_material">วัตถุดิบ</option>
+                      <option value="packaging">บรรจุภัณฑ์</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-bold text-gray-600 mb-1">หมวดย่อย</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={formData.category_id ?? ''}
+                        onChange={(e) => setFormData((prev: any) => ({ ...prev, category_id: e.target.value }))}
+                        className="flex-1 p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white"
+                      >
+                        <option value="">เลือกหมวดย่อย</option>
+                        {formCategoryOptions.map((category: any) => (
+                          <option key={category.id} value={category.id}>{category.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCategoryForm({ id: null, name: '', type: formData.type || (activeTab === 'บรรจุภัณฑ์' ? 'packaging' : 'raw_material') });
+                          setShowCategoryModal(true);
+                        }}
+                        className="px-3 rounded-xl border border-[#7a5c4e] bg-[#7a5c4e] text-white text-[12px] font-bold whitespace-nowrap hover:bg-[#684c3f]"
+                      >
+                        + เพิ่มหมวดย่อย
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div><label className="block text-[13px] font-bold text-gray-600 mb-1">ต้นทุนต่อ 1 {formData.unit || 'หน่วย'} (฿) <span className="text-red-500">*</span></label><input type="number" min="0" value={formData.cost ?? ''} onChange={(e)=>setFormData({...formData, cost: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
               </div>
@@ -665,6 +970,7 @@ export default function InventoryPage() {
                         
                         <div className="space-y-3 text-[14px]">
                           <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">ประเภท</span><span className="font-medium text-gray-800">{selectedItem.type === 'packaging' ? 'บรรจุภัณฑ์' : 'วัตถุดิบ'}</span></div>
+                          <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">หมวดย่อย</span><span className="font-medium text-gray-800">{inventoryCategories.find((cat) => Number(cat.id) === Number(selectedItem.category_id))?.name || 'ยังไม่ได้เลือก'}</span></div>
                           <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">Stock ในคลัง</span><span className="text-right font-black text-[18px] text-[#7a5c4e]">{Number(selectedItem.quantity||0).toLocaleString()} {selectedItem.unit}<small className="block text-[12px] font-normal text-gray-500">รวม {Number(selectedItem.total_pieces || selectedItem.quantity || 0).toLocaleString()} {selectedItem.package_unit || selectedItem.unit}</small></span></div>
                           <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">แจ้งเตือนเมื่อต่ำกว่า</span><span className="font-medium text-gray-800">{selectedItem.min_threshold} {selectedItem.unit}</span></div>
                           <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">ต้นทุนต่อ {selectedItem.package_unit || selectedItem.unit}</span><span className="font-medium text-gray-800">฿{Number(selectedItem.cost_per_piece || selectedItem.cost || 0).toFixed(2)}<small className="block text-right text-[11px] text-gray-500">ต่อ {selectedItem.unit}: ฿{Number(selectedItem.cost || 0).toFixed(2)}</small></span></div>
@@ -764,6 +1070,79 @@ export default function InventoryPage() {
         </div>
       )}
 
+      {showCategoryModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white w-full max-w-[560px] rounded-[24px] shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-5 bg-[#f5f6f8]">
+              <div>
+                <h2 className="text-[20px] font-bold text-gray-800">จัดการหมวดย่อย</h2>
+                <p className="mt-1 text-[12px] text-gray-500">เพิ่ม/แก้ไข/ลบหมวดย่อยแบบเรียลไทม์</p>
+              </div>
+              <button onClick={() => setShowCategoryModal(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-200"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <label className="block text-[13px] font-bold text-gray-700 mb-2">ชื่อหมวดย่อย</label>
+                <input
+                  type="text"
+                  value={categoryForm.name}
+                  onChange={(e) => setCategoryForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="เช่น ชา, เมล็ดกาแฟ"
+                  className="w-full rounded-xl border border-gray-300 bg-white p-3 outline-none focus:border-[#7a5c4e]"
+                />
+                <div className="mt-3">
+                  <label className="block text-[13px] font-bold text-gray-700 mb-2">ประเภท</label>
+                  <select
+                    value={categoryForm.type}
+                    onChange={(e) => setCategoryForm((prev) => ({ ...prev, type: e.target.value }))}
+                    className="w-full rounded-xl border border-gray-300 bg-white p-3 outline-none focus:border-[#7a5c4e]"
+                  >
+                    <option value="raw_material">วัตถุดิบ</option>
+                    <option value="packaging">บรรจุภัณฑ์</option>
+                  </select>
+                </div>
+                <div className="mt-4 flex gap-3">
+                  <button type="button" onClick={saveCategory} className="flex-1 rounded-xl bg-[#7a5c4e] px-4 py-3 font-bold text-white hover:bg-[#684c3f]">
+                    {categoryForm.id ? 'บันทึกการแก้ไข' : 'เพิ่มหมวดย่อย'}
+                  </button>
+                  {categoryForm.id && (
+                    <button type="button" onClick={() => setCategoryForm({ id: null, name: '', type: activeTypeValue })} className="rounded-xl border border-gray-300 px-4 py-3 font-bold text-gray-700 hover:bg-gray-100">
+                      ยกเลิก
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-[14px] font-bold text-gray-700">หมวดย่อยปัจจุบัน</h3>
+                  <span className="text-[12px] text-gray-500">{inventoryCategories.length} รายการ</span>
+                </div>
+                <div className="max-h-[300px] overflow-auto rounded-2xl border border-gray-200 bg-white">
+                  {inventoryCategories.length === 0 ? (
+                    <div className="p-6 text-center text-[13px] text-gray-400">ยังไม่มีหมวดย่อย</div>
+                  ) : (
+                    inventoryCategories.map((category) => (
+                      <div key={category.id} className="flex items-center justify-between border-b border-gray-100 px-4 py-3 last:border-b-0">
+                        <div>
+                          <div className="font-bold text-gray-800">{category.name}</div>
+                          <div className="text-[11px] text-gray-500">{categoryCountMap[String(category.id)] || 0} รายการ</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => setCategoryForm({ id: Number(category.id), name: category.name, type: category.type || categoryTypeMap[String(category.id)] || activeTypeValue })} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] font-bold text-gray-700 hover:bg-gray-50">แก้ไข</button>
+                          <button type="button" onClick={() => deleteCategory(category.id)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-bold text-red-600 hover:bg-red-100">ลบ</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {stockDialog.open && selectedItem && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-[440px] overflow-hidden rounded-[24px] bg-white shadow-2xl">
@@ -791,5 +1170,6 @@ export default function InventoryPage() {
       )}
 
     </div>
+    </>
   );
 }
