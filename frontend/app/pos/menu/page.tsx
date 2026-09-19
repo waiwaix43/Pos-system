@@ -85,6 +85,7 @@ export default function MenuPromotionsPage() {
   const [options, setOptions] = useState<any[]>([]); 
   
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
@@ -117,22 +118,61 @@ export default function MenuPromotionsPage() {
   // ==========================================
   // FETCH ALL DATA
   // ==========================================
+  const fetchJsonWithTimeout = async (url: string, timeoutMs = 15000) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      const contentType = response.headers.get("content-type") || "";
+
+      if (!response.ok) {
+        const payload = contentType.includes("application/json") ? await response.json() : {};
+        throw new Error(payload.error || payload.message || `Request failed: ${response.status}`);
+      }
+
+      if (contentType && !contentType.includes("application/json")) {
+        throw new Error("API did not return JSON");
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      if (error?.name === "AbortError") {
+        throw new Error("เซิร์ฟเวอร์ตอบช้ากว่าเวลาที่กำหนด กรุณาลองใหม่อีกครั้ง");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  };
+
   const fetchAllData = async (shopId: number) => {
     setIsLoading(true);
+    setLoadError("");
+
     try {
-      const [catRes, prodRes, optRes, promoRes] = await Promise.all([
-        fetch(`http://localhost:5000/api/categories?shop_id=${shopId}`),
-        fetch(`http://localhost:5000/api/products?shop_id=${shopId}&category_id=all`),
-        fetch(`http://localhost:5000/api/options?shop_id=${shopId}`),
-        fetch(`http://localhost:5000/api/promotions?shop_id=${shopId}`)
+      const results = await Promise.allSettled([
+        fetchJsonWithTimeout(`http://localhost:5000/api/categories?shop_id=${shopId}`),
+        fetchJsonWithTimeout(`http://localhost:5000/api/products?shop_id=${shopId}&category_id=all`),
+        fetchJsonWithTimeout(`http://localhost:5000/api/options?shop_id=${shopId}`),
+        fetchJsonWithTimeout(`http://localhost:5000/api/promotions?shop_id=${shopId}`)
       ]);
 
-      if (catRes.ok) setCategories(await catRes.json() || []);
-      if (prodRes.ok) setProducts(await prodRes.json() || []);
-      if (optRes.ok) setOptions(await optRes.json() || []);
-      if (promoRes.ok) setPromotions(await promoRes.json() || []);
-    } catch (error) {
+      const [catResult, prodResult, optResult, promoResult] = results;
+
+      if (catResult.status === "fulfilled") setCategories(Array.isArray(catResult.value) ? catResult.value : []);
+      if (prodResult.status === "fulfilled") setProducts(Array.isArray(prodResult.value) ? prodResult.value : []);
+      if (optResult.status === "fulfilled") setOptions(Array.isArray(optResult.value) ? optResult.value : []);
+      if (promoResult.status === "fulfilled") setPromotions(Array.isArray(promoResult.value) ? promoResult.value : []);
+
+      const failed = results.filter(result => result.status === "rejected");
+      if (failed.length > 0) {
+        const reason = failed[0].reason as Error;
+        setLoadError(reason?.message || "ไม่สามารถโหลดข้อมูลจากระบบได้");
+      }
+    } catch (error: any) {
       console.error("Fetch Error:", error);
+      setLoadError(error?.message || "ไม่สามารถโหลดข้อมูลจากระบบได้");
     } finally {
       setIsLoading(false);
     }
@@ -558,6 +598,20 @@ export default function MenuPromotionsPage() {
                    <p className="text-[18px] font-medium">กำลังดึงข้อมูลจากระบบ...</p>
                  </div>
                </div>
+            ) : loadError ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="max-w-md rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-700 shadow-sm">
+                  <p className="text-lg font-bold">ไม่สามารถโหลดข้อมูลได้</p>
+                  <p className="mt-2 text-sm">{loadError}</p>
+                  <button
+                    type="button"
+                    onClick={() => user && fetchAllData(user.shop_id)}
+                    className="mt-4 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    ลองใหม่อีกครั้ง
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="bg-white rounded-[24px] border border-gray-200 shadow-sm flex flex-col h-full overflow-hidden">
                   
