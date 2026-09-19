@@ -260,7 +260,8 @@ export default function RegisterPage() {
                 consent_at: new Date().toISOString()
             };
 
-            const response = await fetch("/api/register", {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+            const response = await fetch(`${apiUrl}/api/register`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
@@ -268,7 +269,30 @@ export default function RegisterPage() {
             const data = await response.json();
 
             if (response.ok) {
-                setShowSuccess(true);
+                if (!hasPin) {
+                    const loginResponse = await fetch(`${apiUrl}/api/login`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email: formData.admin_email, password: formData.password })
+                    });
+                    const loginData = await loginResponse.json();
+                    if (!loginResponse.ok || !loginData.user) {
+                        throw new Error(loginData.error || "สมัครสำเร็จ แต่ไม่สามารถเข้าสู่ระบบอัตโนมัติได้");
+                    }
+                    localStorage.setItem("userContext", JSON.stringify({
+                        id: loginData.user.id,
+                        shop_id: loginData.user.shop_id,
+                        name: loginData.user.name,
+                        email: loginData.user.email,
+                        shop_name: loginData.user.shop_name,
+                        branch: loginData.user.branch,
+                        role: loginData.user.role,
+                        profile_image: loginData.user.profile_image
+                    }));
+                    router.push("/pos");
+                } else {
+                    setShowSuccess(true);
+                }
             } else {
                 setErrors((prev: any) => ({ ...prev, submit: data.error || "เกิดข้อผิดพลาดในการสมัครสมาชิก" }));
             }
