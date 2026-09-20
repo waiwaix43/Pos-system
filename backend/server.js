@@ -65,6 +65,7 @@ app.post('/api/register', async (req, res) => {
             require_reason_delete_item: true, require_reason_cancel_bill: true, auto_print_receipt: true, enable_e_receipt: false,
             receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "ขอบคุณที่ใช้บริการ",
             pin_enabled: Array.isArray(roles) && roles.length > 0,
+            pin_settings: {},
             payment_cash_enabled: true, payment_qr_enabled: true, payment_transfer_enabled: false, payment_credit_enabled: false, payment_debit_enabled: false,
             alert_low_stock: true, low_stock_threshold: 10, vat_enabled: false, vat_rate: 7, prices_include_vat: true,
             notify_low_stock: true, notify_out_of_stock: true, notify_refund: true, notify_cancel_bill: true, notify_stock_adjust: true,
@@ -99,15 +100,19 @@ app.post('/api/login', async (req, res) => {
 
         const { data: shopSettingsData } = await db.from('shop_settings').select('settings_data').eq('shop_id', user.shop_id).single();
         const savedSettings = shopSettingsData?.settings_data ? (typeof shopSettingsData.settings_data === 'string' ? JSON.parse(shopSettingsData.settings_data) : shopSettingsData.settings_data) : {};
-        const pinEnabled = savedSettings.pin_enabled !== undefined ? Boolean(savedSettings.pin_enabled) : true;
-        const hasPin = Boolean(user.pin) && pinEnabled;
+        const userPinMap = savedSettings.pin_settings && typeof savedSettings.pin_settings === 'object' && !Array.isArray(savedSettings.pin_settings)
+            ? savedSettings.pin_settings
+            : {};
+        const userPinSetting = userPinMap[String(user.id)] !== undefined ? userPinMap[String(user.id)] : savedSettings.pin_enabled;
+        const pinEnabled = userPinSetting !== undefined ? Boolean(userPinSetting) : true;
+        const shouldRequirePinForUser = Boolean(user.pin) && pinEnabled;
 
         res.json({ 
             success: true,
-            hasPin,
-            pinRequired: hasPin,
+            hasPin: shouldRequirePinForUser,
+            pinRequired: shouldRequirePinForUser,
             pinEnabled,
-            user: { id: user.id, email: user.email, name: user.name, role: user.role, pin: user.pin, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } 
+            user: { id: user.id, email: user.email, name: user.name, role: user.role, pin: user.pin, pin_enabled: pinEnabled, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } 
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -161,9 +166,15 @@ app.post('/api/reset-pin', async (req, res) => {
 });
 
 app.put('/api/users/change-password', async (req, res) => {
-    const { email, oldPass, newPass } = req.body;
-    if (!email || !oldPass || !newPass || String(newPass).length < 6) {
-        return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบ และรหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร" });
+    const { email, oldPass, newPass, confirmPass } = req.body;
+    if (!email || !oldPass || !newPass || !confirmPass) {
+        return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบทุกช่อง" });
+    }
+    if (String(newPass).length < 6) {
+        return res.status(400).json({ error: "รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร" });
+    }
+    if (String(newPass) !== String(confirmPass)) {
+        return res.status(400).json({ error: "รหัสผ่านใหม่กับยืนยันรหัสผ่านไม่ตรงกัน" });
     }
     try {
         const { data: user, error } = await db.from('staff').select('id, password').eq('email', email).single();
@@ -182,9 +193,15 @@ app.put('/api/users/change-password', async (req, res) => {
 });
 
 app.put('/api/users/change-pin', async (req, res) => {
-    const { email, oldPin, newPin } = req.body;
-    if (!email || !oldPin || !/^\d{4}$/.test(String(newPin))) {
+    const { email, oldPin, newPin, confirmPin } = req.body;
+    if (!email || !oldPin || !newPin || !confirmPin) {
+        return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบทุกช่อง" });
+    }
+    if (!/^\d{4}$/.test(String(newPin))) {
         return res.status(400).json({ error: "กรุณากรอก PIN ใหม่เป็นตัวเลข 4 หลัก" });
+    }
+    if (String(newPin) !== String(confirmPin)) {
+        return res.status(400).json({ error: "รหัส PIN ใหม่กับยืนยัน PIN ไม่ตรงกัน" });
     }
     try {
         const { data: user, error } = await db.from('staff').select('id, pin').eq('email', email).single();
@@ -1138,6 +1155,7 @@ const defaultSettings = {
     require_reason_delete_item: true, require_reason_cancel_bill: true, auto_print_receipt: true, enable_e_receipt: false,
     receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "ขอบคุณที่ใช้บริการ",
     pin_enabled: true,
+    pin_settings: {},
     payment_cash_enabled: true, payment_qr_enabled: true, payment_transfer_enabled: false, payment_credit_enabled: false, payment_debit_enabled: false,
     alert_low_stock: true, low_stock_threshold: 10, vat_enabled: false, vat_rate: 7, prices_include_vat: true,
     notify_low_stock: true, notify_out_of_stock: true, notify_refund: true, notify_cancel_bill: true, notify_stock_adjust: true,
@@ -1162,6 +1180,40 @@ app.put('/api/settings', async (req, res) => {
         const { error } = await db.from('shop_settings').upsert({ shop_id: req.body.shop_id, settings_data: req.body.data });
         if (error) throw error; res.json({ success: true, message: "บันทึกการตั้งค่าเรียบร้อยแล้วค่ะ" });
     } catch (error) { res.status(500).json({ error: "ไม่สามารถบันทึกข้อมูลได้" }); }
+});
+
+app.put('/api/users/:id/pin-setting', async (req, res) => {
+    try {
+        const { shop_id, pin_enabled } = req.body;
+        const userId = req.params.id;
+
+        if (!shop_id) {
+            return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        }
+
+        const { data: shopSettingsData, error: fetchError } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
+        if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+
+        const savedSettings = shopSettingsData?.settings_data ? (typeof shopSettingsData.settings_data === 'string' ? JSON.parse(shopSettingsData.settings_data) : shopSettingsData.settings_data) : {};
+        const userPinMap = savedSettings.pin_settings && typeof savedSettings.pin_settings === 'object' && !Array.isArray(savedSettings.pin_settings)
+            ? savedSettings.pin_settings
+            : {};
+
+        userPinMap[String(userId)] = Boolean(pin_enabled);
+
+        const nextSettings = {
+            ...savedSettings,
+            pin_enabled: Boolean(pin_enabled),
+            pin_settings: userPinMap,
+        };
+
+        const { error } = await db.from('shop_settings').upsert({ shop_id, settings_data: nextSettings });
+        if (error) throw error;
+
+        res.json({ success: true, pin_enabled: Boolean(pin_enabled), user_id: Number(userId) });
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'ไม่สามารถบันทึกสถานะ PIN ของพนักงานได้' });
+    }
 });
 
 app.get('/api/payment-methods', async (req, res) => {
