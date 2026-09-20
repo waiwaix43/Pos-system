@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import StartupLoader from "./components/StartupLoader"; // เพิ่มการ Import StartupLoader
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -18,10 +17,7 @@ export default function RootLayout({
   return (
     <html lang="th">
       <body className={inter.className}>
-        {/* นำ StartupLoader มาครอบ children ไว้ */}
-        <StartupLoader>
-          {children}
-        </StartupLoader>
+        {children}
       </body>
     </html>
   );
