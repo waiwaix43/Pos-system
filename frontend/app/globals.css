@@ -23,17 +23,28 @@ body {
 select,
 select:focus,
 select:focus-visible,
-button,
-button:focus,
-button:focus-visible,
 input,
 input:focus,
 input:focus-visible {
   outline: none !important;
   box-shadow: none !important;
   -webkit-box-shadow: none !important;
-  -webkit-appearance: none;
-  appearance: none;
+}
+
+button,
+button:focus,
+button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  -webkit-appearance: auto;
+  appearance: auto;
+}
+
+select,
+button {
+  -webkit-appearance: auto;
+  appearance: auto;
 }
 
 select:focus,
