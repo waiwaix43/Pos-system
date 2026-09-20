@@ -35,7 +35,8 @@ export default function LoginPage() {
           shop_name: data.user.shop_name,
           branch: data.user.branch,
           role: data.user.role,
-          profile_image: data.user.profile_image
+          profile_image: data.user.profile_image,
+          pin_enabled: data.user.pin_enabled
         }));
 
         if (data.pinRequired || data.hasPin) {
