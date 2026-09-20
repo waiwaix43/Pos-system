@@ -1175,6 +1175,36 @@ app.get('/api/settings', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });
 
+app.get('/api/staff-roles', async (req, res) => {
+    const email = req.query.email;
+    if (!email) {
+        return res.status(400).json({ error: 'ต้องระบุอีเมลผู้ใช้' });
+    }
+
+    try {
+        const { data: currentUser, error: userError } = await db.from('staff')
+            .select('shop_id, role')
+            .eq('email', email)
+            .single();
+
+        if (userError || !currentUser) {
+            return res.status(404).json({ error: 'ไม่พบข้อมูลพนักงาน' });
+        }
+
+        const { data: staffList, error: staffError } = await db.from('staff')
+            .select('role')
+            .eq('shop_id', currentUser.shop_id)
+            .order('id', { ascending: true });
+
+        if (staffError) throw staffError;
+
+        const roles = Array.from(new Set((staffList || []).map((staff) => staff.role).filter(Boolean)));
+        return res.json(roles);
+    } catch (error) {
+        return res.status(500).json({ error: error.message || 'ไม่สามารถโหลดสิทธิ์พนักงานได้' });
+    }
+});
+
 app.put('/api/settings', async (req, res) => {
     try {
         const { error } = await db.from('shop_settings').upsert({ shop_id: req.body.shop_id, settings_data: req.body.data });
