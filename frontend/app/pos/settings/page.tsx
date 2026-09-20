@@ -632,7 +632,7 @@ export default function SettingsPage() {
             <button className="py-5 px-6 text-left font-medium border-b border-[#666666] transition-colors bg-[#666666] border-l-4 border-l-white">การตั้งค่า</button>
           </nav>
         </div>
-        <button onClick={() => { localStorage.removeItem("userContext"); router.push('/pin'); }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">กลับสู่หน้า PIN</button>
+        <button onClick={() => { localStorage.removeItem("userContext"); router.push('/'); }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">ออกจากระบบ</button>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
