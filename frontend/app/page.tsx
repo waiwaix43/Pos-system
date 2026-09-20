@@ -38,7 +38,7 @@ export default function LoginPage() {
           profile_image: data.user.profile_image
         }));
 
-        if (data.hasPin) {
+        if (data.pinRequired || data.hasPin) {
           router.push("/pin");
         } else {
           router.push("/pos");
