@@ -485,7 +485,11 @@ export default function ShiftsPage() {
           <button onClick={() => router.push('/pos/settings')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">การตั้งค่า</button>
         </nav>
         </div>
-        <button onClick={() => { localStorage.removeItem("userContext"); router.push('/pin'); }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">กลับสู่หน้า PIN</button>
+        <button onClick={() => {
+          const savedUser = JSON.parse(localStorage.getItem("userContext") || "null");
+          localStorage.removeItem("userContext");
+          router.push(savedUser?.pin_enabled === false ? '/' : '/pin');
+        }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">{JSON.parse(localStorage.getItem("userContext") || "null")?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN'}</button>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
