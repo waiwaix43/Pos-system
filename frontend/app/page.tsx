@@ -24,7 +24,9 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await response.json();
+
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json") ? await response.json() : { error: "เซิร์ฟเวอร์ตอบกลับแบบไม่ถูกต้อง" };
 
       if (response.ok) {
         localStorage.setItem("userContext", JSON.stringify({
