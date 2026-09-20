@@ -16,6 +16,14 @@ export default function PinPage() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
+  const parseJsonResponse = async (response: Response) => {
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      return null;
+    }
+    return response.json();
+  };
+
   // ดึงข้อมูล User และ รายชื่อ Role ทั้งหมดของร้าน
   useEffect(() => {
     try {
@@ -26,8 +34,14 @@ export default function PinPage() {
 
         if (parsedUser && parsedUser.email) {
           fetch(`${apiUrl}/api/settings?shop_id=${encodeURIComponent(parsedUser.shop_id)}`)
-            .then((res) => res.ok ? res.json() : null)
-            .then((settings) => {
+            .then(async (res) => {
+              const settings = await parseJsonResponse(res);
+              if (!settings) {
+                setUser(parsedUser);
+                setSelectedRole(parsedUser.role || "");
+                return;
+              }
+
               const userPinMap = settings?.pin_settings && typeof settings.pin_settings === "object" && !Array.isArray(settings.pin_settings)
                 ? settings.pin_settings
                 : {};
@@ -50,15 +64,7 @@ export default function PinPage() {
 
               fetch(`${apiUrl}/api/staff-roles?email=${encodeURIComponent(parsedUser.email)}`)
                 .then(async (res) => {
-                  if (!res.ok) return null;
-                  
-                  const contentType = res.headers.get("content-type");
-                  if (contentType && contentType.includes("application/json")) {
-                    return res.json();
-                  }
-                  return null;
-                })
-                .then((data) => {
+                  const data = await parseJsonResponse(res);
                   if (Array.isArray(data) && data.length > 0) {
                     setAvailableRoles(data);
                     if (!data.includes(parsedUser.role)) {
@@ -81,15 +87,7 @@ export default function PinPage() {
 
           fetch(`${apiUrl}/api/staff-roles?email=${encodeURIComponent(parsedUser.email)}`)
             .then(async (res) => {
-              if (!res.ok) return null;
-              
-              const contentType = res.headers.get("content-type");
-              if (contentType && contentType.includes("application/json")) {
-                return res.json();
-              }
-              return null;
-            })
-            .then((data) => {
+              const data = await parseJsonResponse(res);
               if (Array.isArray(data) && data.length > 0) {
                 setAvailableRoles(data);
                 if (!data.includes(parsedUser.role)) {
@@ -158,18 +156,14 @@ export default function PinPage() {
         }),
       });
 
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.indexOf("application/json") !== -1) {
-        const data = await response.json();
-        
-        if (data.success) {
-          if (data.user) {
-            localStorage.setItem("userContext", JSON.stringify(data.user));
-          }
-          setTimeout(() => router.push("/pos"), 150);
-        } else {
-          handlePinError(data.message || "รหัส PIN ไม่ถูกต้อง");
+      const data = await parseJsonResponse(response);
+      if (data && data.success) {
+        if (data.user) {
+          localStorage.setItem("userContext", JSON.stringify(data.user));
         }
+        setTimeout(() => router.push("/pos"), 150);
+      } else if (data) {
+        handlePinError(data.message || data.error || "รหัส PIN ไม่ถูกต้อง");
       } else {
         throw new Error("Server returned non-JSON response");
       }
