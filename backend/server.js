@@ -64,6 +64,7 @@ app.post('/api/register', async (req, res) => {
             allow_negative_stock: false, auto_deduct_stock: true, allow_price_override: true, allow_discounts: true,
             require_reason_delete_item: true, require_reason_cancel_bill: true, auto_print_receipt: true, enable_e_receipt: false,
             receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "ขอบคุณที่ใช้บริการ",
+            pin_enabled: Array.isArray(roles) && roles.length > 0,
             payment_cash_enabled: true, payment_qr_enabled: true, payment_transfer_enabled: false, payment_credit_enabled: false, payment_debit_enabled: false,
             alert_low_stock: true, low_stock_threshold: 10, vat_enabled: false, vat_rate: 7, prices_include_vat: true,
             notify_low_stock: true, notify_out_of_stock: true, notify_refund: true, notify_cancel_bill: true, notify_stock_adjust: true,
@@ -95,9 +96,17 @@ app.post('/api/login', async (req, res) => {
 
         if (!validPassword) return res.status(401).json({ error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
         if (user.status === 'inactive') return res.status(401).json({ error: 'บัญชีนี้ถูกระงับการใช้งาน' });
-            
+
+        const { data: shopSettingsData } = await db.from('shop_settings').select('settings_data').eq('shop_id', user.shop_id).single();
+        const savedSettings = shopSettingsData?.settings_data ? (typeof shopSettingsData.settings_data === 'string' ? JSON.parse(shopSettingsData.settings_data) : shopSettingsData.settings_data) : {};
+        const pinEnabled = savedSettings.pin_enabled !== undefined ? Boolean(savedSettings.pin_enabled) : true;
+        const hasPin = Boolean(user.pin) && pinEnabled;
+
         res.json({ 
-            success: true, hasPin: (user.pin !== null && user.pin !== ""), 
+            success: true,
+            hasPin,
+            pinRequired: hasPin,
+            pinEnabled,
             user: { id: user.id, email: user.email, name: user.name, role: user.role, pin: user.pin, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } 
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1128,6 +1137,7 @@ const defaultSettings = {
     allow_negative_stock: false, auto_deduct_stock: true, allow_price_override: true, allow_discounts: true,
     require_reason_delete_item: true, require_reason_cancel_bill: true, auto_print_receipt: true, enable_e_receipt: false,
     receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "ขอบคุณที่ใช้บริการ",
+    pin_enabled: true,
     payment_cash_enabled: true, payment_qr_enabled: true, payment_transfer_enabled: false, payment_credit_enabled: false, payment_debit_enabled: false,
     alert_low_stock: true, low_stock_threshold: 10, vat_enabled: false, vat_rate: 7, prices_include_vat: true,
     notify_low_stock: true, notify_out_of_stock: true, notify_refund: true, notify_cancel_bill: true, notify_stock_adjust: true,
