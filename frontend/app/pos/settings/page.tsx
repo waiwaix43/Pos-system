@@ -213,13 +213,23 @@ export default function SettingsPage() {
     setIsLoading(true);
     setErrorMsg("");
     try {
-      // โหลด Settings
+      const storedUser = JSON.parse(localStorage.getItem("userContext") || "null");
+      const currentUserId = user?.id ?? storedUser?.id;
+
       const res = await fetch(`http://localhost:5000/api/settings?shop_id=${shopId}`);
       if (!res.ok) throw new Error(`เกิดข้อผิดพลาดในการโหลดข้อมูล (Status: ${res.status})`);
       const data = await res.json();
+      const userPinMap = data.pin_settings && typeof data.pin_settings === 'object' && !Array.isArray(data.pin_settings)
+        ? data.pin_settings
+        : {};
+      const currentUserPinEnabled = currentUserId !== undefined && userPinMap[String(currentUserId)] !== undefined
+        ? Boolean(userPinMap[String(currentUserId)])
+        : data.pin_enabled !== undefined ? Boolean(data.pin_enabled) : true;
+
       const normalizedSettings: ShopSettings = {
         ...DEFAULT_SETTINGS,
         ...data,
+        pin_enabled: currentUserPinEnabled,
         shop_id: Number(data.shop_id ?? shopId)
       };
       setOriginalSettings(normalizedSettings);
@@ -445,21 +455,52 @@ export default function SettingsPage() {
     }
   };
 
+  const handleToggleUserPin = async (enabled: boolean) => {
+    if (!user) return;
+    setIsSaving(true);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/users/${user.id}/pin-setting`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shop_id: user.shop_id, pin_enabled: enabled })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'ไม่สามารถบันทึกสถานะ PIN ได้');
+
+      const storedUser = JSON.parse(localStorage.getItem('userContext') || 'null');
+      if (storedUser) {
+        localStorage.setItem('userContext', JSON.stringify({ ...storedUser, pin_enabled: enabled }));
+      }
+      setUser(prev => prev ? { ...prev, pin_enabled: enabled } : prev);
+      setCurrentSettings(prev => prev ? { ...prev, pin_enabled: enabled } : prev);
+      setOriginalSettings(prev => prev ? { ...prev, pin_enabled: enabled } : prev);
+      setHasUnsavedChanges(false);
+      showToast(enabled ? 'เปิดใช้งาน PIN สำหรับ ID นี้แล้ว' : 'ปิดใช้งาน PIN สำหรับ ID นี้แล้ว', 'success');
+    } catch (error: any) {
+      showToast(error.message || 'ไม่สามารถบันทึกสถานะ PIN ได้', 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleUpdateSecurity = async (type: 'password' | 'pin') => {
-    const hasIncompleteInput = type === 'password'
+    const isPasswordType = type === 'password';
+    const hasIncompleteInput = isPasswordType
       ? !securityForm.oldPass || !securityForm.newPass || !securityForm.confirmPass
       : !securityForm.oldPin || !securityForm.newPin || !securityForm.confirmPin;
 
     if (hasIncompleteInput) {
       resetSecurityDraft();
-      return showToast(type === 'password' ? "กรุณากรอกรหัสผ่านให้ครบทุกช่อง" : "กรุณากรอกรหัส PIN ให้ครบทุกช่อง", "error");
+      return showToast(isPasswordType ? "กรุณากรอกรหัสผ่านให้ครบทุกช่อง" : "กรุณากรอกรหัส PIN ให้ครบทุกช่อง", "error");
     }
 
-    if (type === 'password' && securityForm.newPass !== securityForm.confirmPass) {
+    if (isPasswordType && securityForm.newPass !== securityForm.confirmPass) {
       resetSecurityDraft();
       return showToast("รหัสผ่านใหม่ไม่ตรงกัน", "error");
     }
-    if (type === 'pin' && securityForm.newPin !== securityForm.confirmPin) {
+    if (!isPasswordType && securityForm.newPin !== securityForm.confirmPin) {
       resetSecurityDraft();
       return showToast("รหัส PIN ใหม่ไม่ตรงกัน", "error");
     }
@@ -468,8 +509,8 @@ export default function SettingsPage() {
     try {
       const endpoint = type === 'password' ? '/api/users/change-password' : '/api/users/change-pin';
       const payload = type === 'password' 
-        ? { email: user?.email, oldPass: securityForm.oldPass, newPass: securityForm.newPass }
-        : { email: user?.email, oldPin: securityForm.oldPin, newPin: securityForm.newPin };
+        ? { email: user?.email, oldPass: securityForm.oldPass, newPass: securityForm.newPass, confirmPass: securityForm.confirmPass }
+        : { email: user?.email, oldPin: securityForm.oldPin, newPin: securityForm.newPin, confirmPin: securityForm.confirmPin };
 
       const res = await fetch(`http://localhost:5000${endpoint}`, {
         method: "PUT",
@@ -660,28 +701,26 @@ export default function SettingsPage() {
             ) : (
               <div className="bg-white rounded-[24px] border border-gray-200 shadow-sm flex flex-col min-h-full">
                   
-                  {activeTab !== 'security' && (
-                    <div className="bg-gray-50 border-b border-gray-100 px-8 py-5 flex justify-between items-center rounded-t-[24px] shrink-0">
-                      <h3 className="text-[18px] font-bold text-gray-800">
-                        {TABS.find(t => t.id === activeTab)?.name}
-                      </h3>
-                      {!isEditing ? (
-                        <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 shadow-sm transition-all">
-                           <Edit3 className="w-4 h-4" /> แก้ไขข้อมูล
-                        </button>
-                      ) : (
-                        <div className="flex gap-3">
-                           <button onClick={handleCancelEdit} disabled={isSaving} className="flex items-center gap-2 px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 transition-all">
-                             <X className="w-4 h-4" /> ยกเลิก
-                           </button>
-                           <button onClick={handleSaveSettings} disabled={isSaving} className="flex items-center gap-2 px-6 py-2 bg-[#7a5c4e] text-white rounded-xl font-bold text-[15px] hover:bg-[#684c3f] shadow-sm disabled:opacity-50 transition-all">
-                             {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                             {isSaving ? "กำลังบันทึก..." : "บันทึกการเปลี่ยนแปลง"}
-                           </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div className="bg-gray-50 border-b border-gray-100 px-8 py-5 flex justify-between items-center rounded-t-[24px] shrink-0">
+                    <h3 className="text-[18px] font-bold text-gray-800">
+                      {TABS.find(t => t.id === activeTab)?.name}
+                    </h3>
+                    {!isEditing ? (
+                      <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 shadow-sm transition-all">
+                         <Edit3 className="w-4 h-4" /> แก้ไขข้อมูล
+                      </button>
+                    ) : (
+                      <div className="flex gap-3">
+                         <button onClick={handleCancelEdit} disabled={isSaving} className="flex items-center gap-2 px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 transition-all">
+                           <X className="w-4 h-4" /> ยกเลิก
+                         </button>
+                         <button onClick={handleSaveSettings} disabled={isSaving} className="flex items-center gap-2 px-6 py-2 bg-[#7a5c4e] text-white rounded-xl font-bold text-[15px] hover:bg-[#684c3f] shadow-sm disabled:opacity-50 transition-all">
+                           {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                           {isSaving ? "กำลังบันทึก..." : "บันทึกการเปลี่ยนแปลง"}
+                         </button>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="p-8 flex-1">
 
@@ -1001,7 +1040,7 @@ export default function SettingsPage() {
                                   <p className="text-[12px] text-gray-500 mt-1">เมื่อเปิดใช้งาน ผู้ใช้จะต้องกรอก PIN ก่อนเข้าสู่หน้า POS</p>
                                </div>
                                <label className={`relative inline-flex items-center ${!isEditing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-                                  <input type="checkbox" disabled={!isEditing} className="peer sr-only" checked={Boolean(currentSettings?.pin_enabled)} onChange={(e) => handleChange('pin_enabled', e.target.checked)} />
+                                  <input type="checkbox" disabled={!isEditing || isSaving} className="peer sr-only" checked={Boolean(currentSettings?.pin_enabled)} onChange={(e) => { if (isEditing) handleToggleUserPin(e.target.checked); }} />
                                   <div className="h-7 w-12 rounded-full bg-gray-200 transition-colors peer-checked:bg-[#7a5c4e]"></div>
                                   <div className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></div>
                                </label>
@@ -1017,7 +1056,7 @@ export default function SettingsPage() {
                                <input type="password" maxLength={6} disabled={!isEditing} placeholder="PIN ใหม่" value={securityForm.newPin} onChange={(e) => setSecurityForm({...securityForm, newPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
                                <input type="password" maxLength={6} disabled={!isEditing} placeholder="ยืนยัน PIN ใหม่" value={securityForm.confirmPin} onChange={(e) => setSecurityForm({...securityForm, confirmPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
                             </div>
-                            <button onClick={() => handleUpdateSecurity('pin')} disabled={!isEditing || !securityForm.oldPin || !securityForm.newPin || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต PIN</button>
+                            <button onClick={() => handleUpdateSecurity('pin')} disabled={!isEditing || !securityForm.oldPin || !securityForm.newPin || !securityForm.confirmPin || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต PIN</button>
                          </div>
                       </div>
                     )}
@@ -1035,7 +1074,7 @@ export default function SettingsPage() {
                                <input type="password" disabled={!isEditing} placeholder="รหัสใหม่" value={securityForm.newPass} onChange={(e) => setSecurityForm({...securityForm, newPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
                                <input type="password" disabled={!isEditing} placeholder="ยืนยันรหัสใหม่" value={securityForm.confirmPass} onChange={(e) => setSecurityForm({...securityForm, confirmPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
                             </div>
-                            <button onClick={() => handleUpdateSecurity('password')} disabled={!isEditing || !securityForm.oldPass || !securityForm.newPass || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต Password</button>
+                            <button onClick={() => handleUpdateSecurity('password')} disabled={!isEditing || !securityForm.oldPass || !securityForm.newPass || !securityForm.confirmPass || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต Password</button>
                          </div>
                       </div>
                     )}
