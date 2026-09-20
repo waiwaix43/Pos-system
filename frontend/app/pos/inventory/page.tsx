@@ -116,16 +116,15 @@ export default function InventoryPage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const activeTypeValue = filterType === 'all' ? (activeTab === "วัตถุดิบ" ? "raw_material" : "packaging") : filterType;
-  const activeFilterTypeLabel = filterType === 'all' ? (activeTab === "วัตถุดิบ" ? "วัตถุดิบ" : "บรรจุภัณฑ์") : (filterType === 'raw_material' ? 'วัตถุดิบ' : 'บรรจุภัณฑ์');
+  const activeTypeValue = activeTab === "วัตถุดิบ" ? "raw_material" : "packaging";
+  const activeFilterTypeLabel = activeTab === "วัตถุดิบ" ? 'วัตถุดิบ' : 'บรรจุภัณฑ์';
 
   const subcategoryOptions = useMemo(() => {
     const filteredByType = inventoryItems.filter(item => {
-      if (filterType === 'all') {
-        return item.type === 'raw_material' || item.type === 'packaging' || (!item.type);
-      }
-      return item.type === filterType || (!item.type && filterType === 'raw_material');
+      const matchesActiveTab = item.type === activeTypeValue || (!item.type && activeTypeValue === 'raw_material');
+      return matchesActiveTab;
     });
+
     const relevantCategoryIds = new Set(filteredByType
       .map(item => item.category_id)
       .filter((id) => id !== null && id !== undefined && id !== ''));
@@ -133,23 +132,21 @@ export default function InventoryPage() {
     const dynamicCategories = inventoryCategories.filter((cat) => {
       const categoryId = String(cat.id);
       const localType = categoryTypeMap[categoryId];
-      return relevantCategoryIds.has(categoryId) || (filterType !== 'all' && localType === filterType) || (!relevantCategoryIds.has(categoryId) && !localType);
+      return relevantCategoryIds.has(categoryId) || localType === activeTypeValue || (!relevantCategoryIds.has(categoryId) && !localType);
     });
 
     return [
-      { id: 'all', name: 'หมวดย่อยทั้งหมด', count: filteredByType.length },
+      { id: 'all', name: 'สินค้าทั้งหมด', count: filteredByType.length },
       ...dynamicCategories.map((cat) => ({
         id: String(cat.id),
         name: cat.name,
         count: inventoryItems.filter((item) => {
-          const sameType = filterType === 'all'
-            ? (item.type === 'raw_material' || item.type === 'packaging' || (!item.type))
-            : (item.type === filterType || (!item.type && filterType === 'raw_material'));
+          const sameType = item.type === activeTypeValue || (!item.type && activeTypeValue === 'raw_material');
           return sameType && String(item.category_id) === String(cat.id);
         }).length
       }))
     ];
-  }, [inventoryCategories, inventoryItems, filterType, categoryTypeMap]);
+  }, [inventoryCategories, inventoryItems, activeTypeValue, categoryTypeMap]);
 
   const categoryCountMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -254,31 +251,23 @@ export default function InventoryPage() {
     setActiveTab('วัตถุดิบ');
   };
 
-  // Derived counts for Main Navigation
   const countRaw = inventoryItems.filter(i => !i.type || i.type === 'raw_material').length;
   const countPkg = inventoryItems.filter(i => i.type === 'packaging').length;
 
   const selectTypeTab = (tab: string) => {
+    const nextType = tab === 'วัตถุดิบ' ? 'raw_material' : 'packaging';
     setActiveTab(tab);
     setFilterSubcategory('all');
-    setFilterType(tab === 'วัตถุดิบ' ? 'raw_material' : 'packaging');
+    setFilterType(nextType);
   };
 
-  // Compute Displayed Items based on active tab, search, and filters
-  let displayedItems: any[] = [];
-  if (filterType === 'all') {
-    displayedItems = inventoryItems.filter(i => {
-      const matchesType = (!i.type || i.type === 'raw_material' || i.type === 'packaging');
-      const matchesSearch = (i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesType && matchesSearch;
-    });
-  } else {
-    displayedItems = inventoryItems.filter(i => {
-      const matchesType = i.type === filterType || (!i.type && filterType === 'raw_material');
-      const matchesSearch = (i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesType && matchesSearch;
-    });
-  }
+  const effectiveType = filterType === 'all' ? activeTypeValue : filterType;
+
+  let displayedItems: any[] = inventoryItems.filter(i => {
+    const matchesType = i.type === effectiveType || (!i.type && effectiveType === 'raw_material');
+    const matchesSearch = (i.name?.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesType && matchesSearch;
+  });
 
   if (filterSubcategory !== 'all') {
     displayedItems = displayedItems.filter((item) => String(item.category_id) === String(filterSubcategory));
@@ -575,11 +564,14 @@ export default function InventoryPage() {
             ].map(tab => (
               <div 
                 key={tab.id} 
-                onClick={() => { 
-                  setActiveTab(tab.id); 
-                  setSearchQuery(""); 
-                  setFilterStatus("all"); 
-                  setFilterStock("all"); 
+                onClick={() => {
+                  const nextType = tab.id === 'วัตถุดิบ' ? 'raw_material' : 'packaging';
+                  setActiveTab(tab.id);
+                  setFilterType(nextType);
+                  setFilterSubcategory('all');
+                  setSearchQuery("");
+                  setFilterStatus("all");
+                  setFilterStock("all");
                 }}
                 className={`p-5 rounded-[20px] border-2 cursor-pointer transition-all flex flex-col justify-between ${
                   activeTab === tab.id 
@@ -612,24 +604,9 @@ export default function InventoryPage() {
                 </div>
 
                 <select
-                  value={filterType}
-                  onChange={(e) => {
-                    const nextType = e.target.value;
-                    setFilterType(nextType);
-                    setFilterSubcategory('all');
-                    setActiveTab(nextType === 'raw_material' ? 'วัตถุดิบ' : nextType === 'packaging' ? 'บรรจุภัณฑ์' : activeTab);
-                  }}
-                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
-                >
-                  <option value="all">ประเภททั้งหมด</option>
-                  <option value="raw_material">วัตถุดิบ</option>
-                  <option value="packaging">บรรจุภัณฑ์</option>
-                </select>
-
-                <select
                   value={filterSubcategory}
                   onChange={(e) => setFilterSubcategory(e.target.value)}
-                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
                 >
                   {subcategoryOptions.map((option) => (
                     <option key={option.id} value={option.id}>{option.name} {option.count > 0 ? `(${option.count})` : ''}</option>
@@ -639,7 +616,7 @@ export default function InventoryPage() {
                 <select 
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
-                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
                 >
                   <option value="all">สถานะทั้งหมด</option>
                   <option value="active">เปิดใช้งาน</option>
@@ -649,7 +626,7 @@ export default function InventoryPage() {
                 <select 
                   value={filterStock}
                   onChange={(e) => setFilterStock(e.target.value)}
-                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+                  className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
                 >
                   <option value="all">สต็อกทั้งหมด</option>
                   <option value="low">ใกล้หมดสต็อก</option>
@@ -678,26 +655,6 @@ export default function InventoryPage() {
                 <button onClick={() => changeViewMode("grid")} className={`p-2 border-l border-gray-200 transition-colors ${viewMode === 'grid' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid className="w-4 h-4" /></button>
               </div>
             </div>
-
-            {activeFilterChips.length > 0 && (
-              <div className="px-6 py-3 border-b border-gray-100 bg-white flex flex-wrap items-center gap-2">
-                <span className="text-[12px] font-bold text-gray-500">กำลังกรอง:</span>
-                {activeFilterChips.map((chip) => (
-                  <button
-                    key={chip.key}
-                    type="button"
-                    onClick={() => {
-                      if (chip.key === 'subcategory') setFilterSubcategory('all');
-                      if (chip.key === 'status') setFilterStatus('all');
-                      if (chip.key === 'stock') setFilterStock('all');
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full bg-[#7a5c4e]/10 text-[#7a5c4e] px-3 py-1 text-[12px] font-bold border border-[#7a5c4e]/20"
-                  >
-                    {chip.label} <X className="w-3 h-3" />
-                  </button>
-                ))}
-              </div>
-            )}
 
             {loading ? (
               <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
