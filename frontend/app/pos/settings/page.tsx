@@ -705,7 +705,7 @@ export default function SettingsPage() {
                     <h3 className="text-[18px] font-bold text-gray-800">
                       {TABS.find(t => t.id === activeTab)?.name}
                     </h3>
-                    {!isEditing ? (
+                    {!isEditing && !hasUnsavedChanges ? (
                       <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-6 py-2 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 shadow-sm transition-all">
                          <Edit3 className="w-4 h-4" /> แก้ไขข้อมูล
                       </button>
@@ -716,7 +716,7 @@ export default function SettingsPage() {
                          </button>
                          <button onClick={handleSaveSettings} disabled={isSaving} className="flex items-center gap-2 px-6 py-2 bg-[#7a5c4e] text-white rounded-xl font-bold text-[15px] hover:bg-[#684c3f] shadow-sm disabled:opacity-50 transition-all">
                            {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                           {isSaving ? "กำลังบันทึก..." : "บันทึกการเปลี่ยนแปลง"}
+                           {isSaving ? "กำลังบันทึก..." : hasUnsavedChanges ? "ยืนยันการเปลี่ยนแปลง" : "บันทึกการเปลี่ยนแปลง"}
                          </button>
                       </div>
                     )}
