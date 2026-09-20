@@ -25,18 +25,52 @@ export default function PinPage() {
         const parsedUser = JSON.parse(savedUser);
 
         if (parsedUser && parsedUser.email) {
-          setUser(parsedUser);
-          setSelectedRole(parsedUser.role || "");
-
           fetch(`${apiUrl}/api/settings?shop_id=${encodeURIComponent(parsedUser.shop_id)}`)
             .then((res) => res.ok ? res.json() : null)
             .then((settings) => {
+              if (settings?.pin_enabled === false) {
+                router.push("/pos");
+                return;
+              }
+
+              setUser(parsedUser);
+              setSelectedRole(parsedUser.role || "");
+
               if (settings?.logo) {
                 setUser((currentUser: any) => currentUser ? { ...currentUser, profile_image: settings.logo } : currentUser);
                 setImageError(false);
               }
+
+              fetch(`${apiUrl}/api/staff-roles?email=${encodeURIComponent(parsedUser.email)}`)
+                .then(async (res) => {
+                  if (!res.ok) return null;
+                  
+                  const contentType = res.headers.get("content-type");
+                  if (contentType && contentType.includes("application/json")) {
+                    return res.json();
+                  }
+                  return null;
+                })
+                .then((data) => {
+                  if (Array.isArray(data) && data.length > 0) {
+                    setAvailableRoles(data);
+                    if (!data.includes(parsedUser.role)) {
+                      setSelectedRole(data[0]);
+                    }
+                  } else if (parsedUser.role) {
+                    setAvailableRoles([parsedUser.role]);
+                  }
+                })
+                .catch((err) => {
+                  console.warn("ไม่สามารถดึงข้อมูล Role ได้:", err);
+                  if (parsedUser.role) setAvailableRoles([parsedUser.role]);
+                });
             })
-            .catch((err) => console.warn("ไม่สามารถโหลดโลโก้ร้านได้:", err));
+            .catch((err) => {
+              console.warn("ไม่สามารถโหลดการตั้งค่า PIN ได้:", err);
+              setUser(parsedUser);
+              setSelectedRole(parsedUser.role || "");
+            });
 
           fetch(`${apiUrl}/api/staff-roles?email=${encodeURIComponent(parsedUser.email)}`)
             .then(async (res) => {
