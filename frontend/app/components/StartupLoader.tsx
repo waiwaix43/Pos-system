@@ -80,7 +80,7 @@ export default function StartupLoader({ children }: { children: React.ReactNode 
         }
       `}} />
 
-      {appState !== 'booting' && children}
+      {children}
 
       {appState !== 'ready' && (
         <div 
