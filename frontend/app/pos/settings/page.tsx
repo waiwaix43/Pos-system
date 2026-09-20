@@ -77,6 +77,7 @@ interface ShopSettings {
   require_reason_cancel_bill: boolean;
   auto_print_receipt: boolean;
   enable_e_receipt: boolean;
+  pin_enabled: boolean;
   receipt_show_logo: boolean;
   receipt_prefix: string;
   receipt_start_number: string;
@@ -120,6 +121,7 @@ const DEFAULT_SETTINGS: ShopSettings = {
   require_reason_cancel_bill: true,
   auto_print_receipt: true,
   enable_e_receipt: false,
+  pin_enabled: true,
   receipt_show_logo: false,
   receipt_prefix: "INV-",
   receipt_start_number: "10001",
@@ -376,11 +378,16 @@ export default function SettingsPage() {
     setShowUnsavedModal(false);
   };
 
+  const resetSecurityDraft = () => {
+    setSecurityForm({ oldPass: "", newPass: "", confirmPass: "", oldPin: "", newPin: "", confirmPin: "" });
+  };
+
   const handleCancelEdit = () => {
     setCurrentSettings(JSON.parse(JSON.stringify(originalSettings)));
     setPaymentMethods(JSON.parse(JSON.stringify(originalPaymentMethods)));
     setLogoPreview(originalSettings?.logo || null);
     setLogoFile(null);
+    resetSecurityDraft();
     setIsEditing(false);
     setHasUnsavedChanges(false);
   };
@@ -439,10 +446,21 @@ export default function SettingsPage() {
   };
 
   const handleUpdateSecurity = async (type: 'password' | 'pin') => {
+    const hasIncompleteInput = type === 'password'
+      ? !securityForm.oldPass || !securityForm.newPass || !securityForm.confirmPass
+      : !securityForm.oldPin || !securityForm.newPin || !securityForm.confirmPin;
+
+    if (hasIncompleteInput) {
+      resetSecurityDraft();
+      return showToast(type === 'password' ? "กรุณากรอกรหัสผ่านให้ครบทุกช่อง" : "กรุณากรอกรหัส PIN ให้ครบทุกช่อง", "error");
+    }
+
     if (type === 'password' && securityForm.newPass !== securityForm.confirmPass) {
+      resetSecurityDraft();
       return showToast("รหัสผ่านใหม่ไม่ตรงกัน", "error");
     }
     if (type === 'pin' && securityForm.newPin !== securityForm.confirmPin) {
+      resetSecurityDraft();
       return showToast("รหัส PIN ใหม่ไม่ตรงกัน", "error");
     }
 
@@ -463,8 +481,9 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
 
       showToast(`เปลี่ยน${type === 'password' ? 'รหัสผ่าน' : 'รหัส PIN'}เรียบร้อยแล้ว`, "success");
-      setSecurityForm({ oldPass: "", newPass: "", confirmPass: "", oldPin: "", newPin: "", confirmPin: "" });
+      resetSecurityDraft();
     } catch (error: any) {
+      resetSecurityDraft();
       showToast(error.message, "error");
     } finally {
       setIsSaving(false);
@@ -484,6 +503,7 @@ export default function SettingsPage() {
     { id: "inventory", name: "สินค้าและคลังสินค้า", icon: Package, allowed: hasAccess },
     { id: "tax", name: "ภาษี", icon: FileText, allowed: isOwner },
     { id: "notifications", name: "การแจ้งเตือน", icon: Bell, allowed: hasAccess },
+    { id: "pin", name: "PIN", icon: ShieldCheck, allowed: true },
     { id: "security", name: "ความปลอดภัย", icon: ShieldCheck, allowed: true },
     { id: "hardware", name: "อุปกรณ์ POS", icon: MonitorSmartphone, allowed: hasAccess },
     { id: "system", name: "ระบบ", icon: Settings, allowed: isOwner },
@@ -968,6 +988,40 @@ export default function SettingsPage() {
                       </div>
                     )}
 
+                    {/* PIN */}
+                    {activeTab === 'pin' && (
+                      <div className="space-y-6 max-w-3xl">
+                         <div className="bg-gray-50 border-b border-gray-100 px-8 py-5 flex justify-between items-center rounded-[24px] mb-6">
+                            <h3 className="text-[18px] font-bold text-gray-800">ตั้งค่า PIN</h3>
+                         </div>
+                         <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm space-y-4">
+                            <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-gray-200 bg-gray-50">
+                               <div>
+                                  <h4 className="font-bold text-[15px] text-gray-800">เปิดใช้งานระบบ PIN</h4>
+                                  <p className="text-[12px] text-gray-500 mt-1">เมื่อเปิดใช้งาน ผู้ใช้จะต้องกรอก PIN ก่อนเข้าสู่หน้า POS</p>
+                               </div>
+                               <label className={`relative inline-flex items-center ${!isEditing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                                  <input type="checkbox" disabled={!isEditing} className="peer sr-only" checked={Boolean(currentSettings?.pin_enabled)} onChange={(e) => handleChange('pin_enabled', e.target.checked)} />
+                                  <div className="h-7 w-12 rounded-full bg-gray-200 transition-colors peer-checked:bg-[#7a5c4e]"></div>
+                                  <div className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></div>
+                               </label>
+                            </div>
+                            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-[14px] text-gray-600">
+                              หากปิดระบบ PIN แล้ว การ login จะเข้าสู่หน้า POS ได้ทันที โดยไม่ต้องกรอกรหัส PIN
+                            </div>
+                         </div>
+                         <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm space-y-4">
+                            <h4 className="font-bold text-[15px] text-gray-800">เปลี่ยน PIN ประจำตัว</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                               <input type="password" maxLength={6} disabled={!isEditing} placeholder="PIN เดิม" value={securityForm.oldPin} onChange={(e) => setSecurityForm({...securityForm, oldPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
+                               <input type="password" maxLength={6} disabled={!isEditing} placeholder="PIN ใหม่" value={securityForm.newPin} onChange={(e) => setSecurityForm({...securityForm, newPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
+                               <input type="password" maxLength={6} disabled={!isEditing} placeholder="ยืนยัน PIN ใหม่" value={securityForm.confirmPin} onChange={(e) => setSecurityForm({...securityForm, confirmPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
+                            </div>
+                            <button onClick={() => handleUpdateSecurity('pin')} disabled={!isEditing || !securityForm.oldPin || !securityForm.newPin || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต PIN</button>
+                         </div>
+                      </div>
+                    )}
+
                     {/* ความปลอดภัย */}
                     {activeTab === 'security' && (
                       <div className="space-y-6 max-w-3xl">
@@ -977,20 +1031,11 @@ export default function SettingsPage() {
                          <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm space-y-4">
                             <h4 className="font-bold text-[15px] text-gray-800">เปลี่ยน Password (รหัสผ่านเข้าสู่ระบบ)</h4>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                               <input type="password" placeholder="รหัสปัจจุบัน" value={securityForm.oldPass} onChange={(e) => setSecurityForm({...securityForm, oldPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e]" />
-                               <input type="password" placeholder="รหัสใหม่" value={securityForm.newPass} onChange={(e) => setSecurityForm({...securityForm, newPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e]" />
-                               <input type="password" placeholder="ยืนยันรหัสใหม่" value={securityForm.confirmPass} onChange={(e) => setSecurityForm({...securityForm, confirmPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e]" />
+                               <input type="password" disabled={!isEditing} placeholder="รหัสปัจจุบัน" value={securityForm.oldPass} onChange={(e) => setSecurityForm({...securityForm, oldPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
+                               <input type="password" disabled={!isEditing} placeholder="รหัสใหม่" value={securityForm.newPass} onChange={(e) => setSecurityForm({...securityForm, newPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
+                               <input type="password" disabled={!isEditing} placeholder="ยืนยันรหัสใหม่" value={securityForm.confirmPass} onChange={(e) => setSecurityForm({...securityForm, confirmPass: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
                             </div>
-                            <button onClick={() => handleUpdateSecurity('password')} disabled={!securityForm.oldPass || !securityForm.newPass || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต Password</button>
-                         </div>
-                         <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm space-y-4">
-                            <h4 className="font-bold text-[15px] text-gray-800">เปลี่ยน PIN ประจำตัว</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                               <input type="password" maxLength={6} placeholder="PIN เดิม" value={securityForm.oldPin} onChange={(e) => setSecurityForm({...securityForm, oldPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e]" />
-                               <input type="password" maxLength={6} placeholder="PIN ใหม่" value={securityForm.newPin} onChange={(e) => setSecurityForm({...securityForm, newPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e]" />
-                               <input type="password" maxLength={6} placeholder="ยืนยัน PIN ใหม่" value={securityForm.confirmPin} onChange={(e) => setSecurityForm({...securityForm, confirmPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e]" />
-                            </div>
-                            <button onClick={() => handleUpdateSecurity('pin')} disabled={!securityForm.oldPin || !securityForm.newPin || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต PIN</button>
+                            <button onClick={() => handleUpdateSecurity('password')} disabled={!isEditing || !securityForm.oldPass || !securityForm.newPass || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต Password</button>
                          </div>
                       </div>
                     )}
