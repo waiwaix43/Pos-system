@@ -28,7 +28,14 @@ export default function PinPage() {
           fetch(`${apiUrl}/api/settings?shop_id=${encodeURIComponent(parsedUser.shop_id)}`)
             .then((res) => res.ok ? res.json() : null)
             .then((settings) => {
-              if (settings?.pin_enabled === false) {
+              const userPinMap = settings?.pin_settings && typeof settings.pin_settings === "object" && !Array.isArray(settings.pin_settings)
+                ? settings.pin_settings
+                : {};
+              const userPinSetting = userPinMap[String(parsedUser.id)] !== undefined
+                ? userPinMap[String(parsedUser.id)]
+                : settings?.pin_enabled;
+
+              if (userPinSetting === false || parsedUser.pin_enabled === false) {
                 router.push("/pos");
                 return;
               }
