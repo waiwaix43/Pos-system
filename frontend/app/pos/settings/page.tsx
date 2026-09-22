@@ -183,7 +183,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const init = async () => {
-      const savedUser = JSON.parse(localStorage.getItem("userContext") || "null");
+      const savedUser = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("userContext") || "null") : null;
       if (!savedUser) {
         router.push("/pin");
         return;
@@ -213,7 +213,7 @@ export default function SettingsPage() {
     setIsLoading(true);
     setErrorMsg("");
     try {
-      const storedUser = JSON.parse(localStorage.getItem("userContext") || "null");
+      const storedUser = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("userContext") || "null") : null;
       const currentUserId = user?.id ?? storedUser?.id;
 
       const res = await fetch(`http://localhost:5000/api/settings?shop_id=${shopId}`);
@@ -469,8 +469,8 @@ export default function SettingsPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'ไม่สามารถบันทึกสถานะ PIN ได้');
 
-      const storedUser = JSON.parse(localStorage.getItem('userContext') || 'null');
-      if (storedUser) {
+      const storedUser = typeof window !== "undefined" ? JSON.parse(localStorage.getItem('userContext') || 'null') : null;
+      if (storedUser && typeof window !== "undefined") {
         localStorage.setItem('userContext', JSON.stringify({ ...storedUser, pin_enabled: enabled }));
       }
       setUser(prev => prev ? { ...prev, pin_enabled: enabled } : prev);
