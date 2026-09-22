@@ -27,6 +27,17 @@ interface Staff {
   created_at: string;
 }
 
+const getStoredUser = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("userContext");
+    if (!raw || raw === "undefined" || raw === "null") return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 export default function EmployeeManagementPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -75,7 +86,7 @@ export default function EmployeeManagementPage() {
   };
 
   useEffect(() => {
-    const savedUser = JSON.parse(localStorage.getItem("userContext") || "null");
+    const savedUser = getStoredUser();
     if (!savedUser) {
       router.push("/pin");
       return;
@@ -324,10 +335,10 @@ export default function EmployeeManagementPage() {
           </nav>
         </div>
         <button onClick={() => {
-          const savedUser = JSON.parse(localStorage.getItem("userContext") || "null");
-          localStorage.removeItem("userContext");
+          const savedUser = getStoredUser();
+          if (typeof window !== "undefined") localStorage.removeItem("userContext");
           router.push(savedUser?.pin_enabled === false ? '/' : '/pin');
-        }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">{JSON.parse(localStorage.getItem("userContext") || "null")?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN'}</button>
+        }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">{typeof window !== "undefined" ? (getStoredUser()?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN') : 'กลับสู่หน้า PIN'}</button>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
