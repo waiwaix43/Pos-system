@@ -328,17 +328,26 @@ export default function EmployeeManagementPage() {
             <button onClick={() => router.push('/pos/history')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">ประวัติใบเสร็จ</button>
             <button onClick={() => router.push('/pos/inventory')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สินค้าคงคลัง</button>
             <button onClick={() => router.push('/pos/shifts')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รอบการขาย</button>
-            <button onClick={() => router.push('/pos/menu')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">เมนูและโปรโมชั่น</button>
-            <button onClick={() => router.push('/pos/reports')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รายงาน</button>
-            <button onClick={() => router.push('/pos/employees')} className="py-5 px-6 text-left font-medium border-b border-[#666666] transition-colors bg-[#666666] border-l-4 border-l-white">พนักงาน</button>
+            {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
+          <button onClick={() => router.push('/pos/menu')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">เมนูและโปรโมชั่น</button>
+          )}
+            {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
+          <button onClick={() => router.push('/pos/reports')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รายงาน</button>
+          )}
+            {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
+          <button onClick={() => router.push('/pos/employees')} className="py-5 px-6 text-left font-medium border-b border-[#666666] transition-colors bg-[#666666] border-l-4 border-l-white">พนักงาน</button>
+          )}
             <button onClick={() => router.push('/pos/settings')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">การตั้งค่า</button>
           </nav>
         </div>
         <button onClick={() => {
-          const savedUser = getStoredUser();
-          if (typeof window !== "undefined") localStorage.removeItem("userContext");
-          router.push(savedUser?.pin_enabled === false ? '/' : '/pin');
-        }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">{typeof window !== "undefined" ? (getStoredUser()?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN') : 'กลับสู่หน้า PIN'}</button>
+        if (user?.pin_enabled === false) {
+          localStorage.removeItem("userContext");
+          router.push('/');
+        } else {
+          router.push('/pin');
+        }
+      }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">{user?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN'}</button>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">

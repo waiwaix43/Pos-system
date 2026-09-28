@@ -329,21 +329,28 @@ export default function POSPage() {
           <button onClick={() => router.push('/pos/history')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">ประวัติใบเสร็จ</button>
           <button onClick={() => router.push('/pos/inventory')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สินค้าคงคลัง</button>
           <button onClick={() => router.push('/pos/shifts')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รอบการขาย</button>
+          {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
           <button onClick={() => router.push('/pos/menu')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">เมนูและโปรโมชั่น</button>
+          )}
+          {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
           <button onClick={() => router.push('/pos/reports')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รายงาน</button>
+          )}
+          {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
           <button onClick={() => router.push('/pos/employees')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">พนักงาน</button>
+          )}
           <button onClick={() => router.push('/pos/settings')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">การตั้งค่า</button>
         </nav>
       </div>
       <button onClick={() => {
-        if (typeof window !== "undefined") {
-          const savedUser = JSON.parse(localStorage.getItem("userContext") || "null");
+        if (user?.pin_enabled === false) {
           localStorage.removeItem("userContext");
-          router.push(savedUser?.pin_enabled === false ? '/' : '/pin');
+          router.push('/');
         } else {
           router.push('/pin');
         }
-      }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">{typeof window !== "undefined" ? (JSON.parse(localStorage.getItem("userContext") || "null")?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN') : 'กลับสู่หน้า PIN'}</button>
+      }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">
+        {user?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN'}
+      </button>
     </div>
 
       {isShiftChecking ? (

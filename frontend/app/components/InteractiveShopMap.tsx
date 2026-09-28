@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { LocateFixed } from "lucide-react";
 
 interface InteractiveShopMapProps {
   latitude?: number;
@@ -39,10 +40,27 @@ export default function InteractiveShopMap({ latitude, longitude, editable, onLo
 
       leafletRef.current = leaflet;
       const initialCenter: [number, number] = hasLocation ? [latitude as number, longitude as number] : DEFAULT_CENTER;
-      const map = leaflet.map(containerRef.current).setView(initialCenter, hasLocation ? 16 : 6);
+      
+      const mapOptions = editable ? {} : {
+        dragging: false,
+        touchZoom: false,
+        doubleClickZoom: false,
+        scrollWheelZoom: false,
+        boxZoom: false,
+        keyboard: false,
+        zoomControl: false
+      };
+
+      const map = leaflet.map(containerRef.current, mapOptions).setView(initialCenter, hasLocation ? 16 : 6);
+      
+      if (!editable && map.tap) {
+        map.tap.disable();
+      }
+
       leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap contributors"
       }).addTo(map);
+      
       if (hasLocation) {
         markerRef.current = createShopMarker(leaflet, initialCenter).addTo(map);
       }
@@ -79,5 +97,32 @@ export default function InteractiveShopMap({ latitude, longitude, editable, onLo
     map.setView(position, Math.max(map.getZoom(), 16));
   }, [hasLocation, latitude, longitude]);
 
-  return <div ref={containerRef} className="h-[280px] w-full" aria-label={editable ? "คลิกแผนที่เพื่อเลือกตำแหน่งร้าน" : "แผนที่ตั้งร้าน"} />;
+  const handleCenterToPin = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (mapRef.current && hasLocation) {
+      mapRef.current.setView([latitude as number, longitude as number], Math.max(mapRef.current.getZoom(), 16));
+    }
+  };
+
+  return (
+    <div className="relative h-[280px] w-full group">
+      <div 
+        ref={containerRef} 
+        className="h-full w-full z-0" 
+        style={{ cursor: editable ? 'pointer' : 'default' }}
+        aria-label={editable ? "คลิกแผนที่เพื่อเลือกตำแหน่งร้าน" : "แผนที่ตั้งร้าน"} 
+      />
+      {hasLocation && (
+        <button
+          type="button"
+          onClick={handleCenterToPin}
+          className="absolute bottom-4 right-4 z-[400] bg-white text-[#7a5c4e] p-2.5 rounded-xl shadow-md hover:bg-gray-50 border border-gray-200 transition-colors flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-[#7a5c4e]"
+          title="กลับไปยังตำแหน่งหมุด"
+        >
+          <LocateFixed className="w-5 h-5" />
+        </button>
+      )}
+    </div>
+  );
 }
