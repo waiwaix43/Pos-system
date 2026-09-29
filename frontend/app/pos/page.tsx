@@ -105,7 +105,7 @@ export default function POSPage() {
             
           // โหลด Option Groups ทั้งหมด
           safeFetchJson(`http://localhost:5000/api/options?shop_id=${currentShopId}`)
-            .then(res => { if (Array.isArray(res)) setAllOptions(res); });
+            .then(res => { if (Array.isArray(res)) setAllOptions(res.filter((o: any) => o.status === 'active' || !o.status)); });
         }
       })
       .finally(() => setIsShiftChecking(false));
@@ -115,7 +115,7 @@ export default function POSPage() {
     if (!user?.shop_id || !selectedCategory || !activeShift || view !== 'pos') return;
     safeFetchJson(`http://localhost:5000/api/products?shop_id=${user.shop_id}&category_id=${selectedCategory}`)
       .then(data => {
-        if (Array.isArray(data)) setProducts(data);
+        if (Array.isArray(data)) setProducts(data.filter((p: any) => p.status === 'active' || !p.status));
       });
   }, [selectedCategory, user, activeShift, view]);
 

@@ -20,10 +20,10 @@
 | **Staff** | staff@happypostest.local | `4567` |
 
 ## ☕ ตัวอย่างข้อมูล (Sample Data IDs)
-- **Products:** สร้างข้อมูลแล้ว 12 รายการ (เช่น Americano, Latte, Matcha)
-- **Inventory/Raw Materials:** สร้างข้อมูลแล้ว 13 รายการ (เช่น Coffee Beans `RAW-TEST-001`, Fresh Milk)
+- **Products:** สร้างข้อมูลแล้ว 42 รายการ (ครบทุกหมวดหมู่ Coffee, Tea, Non-Coffee, Cocoa, Smoothie, Soda, Bakery, Cake)
+- **Inventory/Raw Materials:** สร้างข้อมูลแล้ว 35 รายการ (เช่น วัตถุดิบ, ไซรัปต่างๆ, แก้ว, หลอด, กล่อง)
 - **Suppliers:** 5 รายการ
-- **Recipes:** ผูกสูตรกาแฟตัดสต็อกอัตโนมัติเรียบร้อยแล้วสำหรับ Americano, Latte และ Matcha
+- **Recipes:** ผูกสูตรกาแฟ เครื่องดื่ม และเบเกอรี่ตัดสต็อกอัตโนมัติครบทั้ง 42 รายการ
 - **Promotions:** 2 รายการ (ส่วนลด 10% และ 15 บาท)
 - **Sales Round (Shifts):** มีรอบที่ปิดไปแล้ว 1 รอบเมื่อวาน และรอบที่เปิดอยู่ (Active) สำหรับวันนี้
 - **Orders & Receipts:** บิลจำลองจำนวน 35 ใบ (DEMO-10001 ถึง DEMO-10035) โดยมีการหักสต็อกและคำนวณเงินแล้ว

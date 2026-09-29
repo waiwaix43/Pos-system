@@ -44,6 +44,7 @@ interface UserProfile {
   role: string;
   shop_id: number;
   branch: string;
+  pin_enabled?: boolean;
 }
 
 interface Category {

@@ -53,8 +53,8 @@ export default function InteractiveShopMap({ latitude, longitude, editable, onLo
 
       const map = leaflet.map(containerRef.current, mapOptions).setView(initialCenter, hasLocation ? 16 : 6);
       
-      if (!editable && map.tap) {
-        map.tap.disable();
+      if (!editable && (map as any).tap) {
+        (map as any).tap.disable();
       }
 
       leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {

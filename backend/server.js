@@ -251,7 +251,7 @@ app.post('/api/verify-manager-pin', async (req, res) => {
 app.get('/api/categories', async (req, res) => {
     try {
         const { shop_id } = req.query;
-        const { data, error } = await db.from('categories').select('*').eq('shop_id', shop_id).order('id', { ascending: false });
+        const { data, error } = await db.from('categories').select('*').eq('shop_id', shop_id).order('sort_order', { ascending: true }).order('id', { ascending: false });
         if (error) throw error;
         return res.status(200).json(data || []);
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -273,9 +273,21 @@ app.put('/api/categories/:id', async (req, res) => {
 app.delete('/api/categories/:id', async (req, res) => {
     try {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'Missing shop_id' });
         const { error } = await db.from('categories').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/categories/reorder', async (req, res) => {
+    try {
+        const { shop_id, ordered_ids } = req.body;
+        if (!shop_id || !ordered_ids || !Array.isArray(ordered_ids)) return res.status(400).json({ error: 'Invalid data' });
+        
+        for (let i = 0; i < ordered_ids.length; i++) {
+            await db.from('categories').update({ sort_order: i }).eq('id', ordered_ids[i]).eq('shop_id', shop_id);
+        }
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1936,3 +1948,5 @@ app.patch('/api/notifications/read-all', async (req, res) => {
         return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านการแจ้งเตือนทั้งหมดได้' });
     }
 });
+
+

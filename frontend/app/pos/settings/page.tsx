@@ -47,6 +47,7 @@ interface UserProfile {
   role: string;
   shop_id: number;
   branch: string;
+  pin_enabled?: boolean;
   profile_image?: string;
   status: "active" | "inactive";
 }
