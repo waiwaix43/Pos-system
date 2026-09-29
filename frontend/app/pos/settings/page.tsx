@@ -1030,9 +1030,7 @@ export default function SettingsPage() {
                          </div>
                                                   <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm">
                             <div className="flex items-center gap-3 mb-6">
-                               <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-[#7a5c4e]">
-                                 <ShieldCheck size={20} />
-                               </div>
+                               
                                <div>
                                  <h4 className="font-bold text-[16px] text-gray-800">เปลี่ยนรหัส PIN</h4>
                                  <p className="text-[13px] text-gray-500">ใช้รหัสผ่านบัญชีเพื่อยืนยันการเปลี่ยนรหัส PIN เพื่อความปลอดภัย</p>
