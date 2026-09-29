@@ -1012,7 +1012,7 @@ export default function SettingsPage() {
                          <div className="bg-gray-50 border-b border-gray-100 px-8 py-5 flex justify-between items-center rounded-[24px] mb-6">
                             <h3 className="text-[18px] font-bold text-gray-800">ตั้งค่า PIN</h3>
                          </div>
-                         <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm space-y-4">
+                         <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm space-y-8">
                             <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-gray-200 bg-gray-50">
                                <div>
                                   <h4 className="font-bold text-[15px] text-gray-800">เปิดใช้งานระบบ PIN</h4>
@@ -1025,8 +1025,8 @@ export default function SettingsPage() {
                                </label>
                             </div>
                             
-                         </div>
-                                                  <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm">
+                            <div className="pt-2 border-t border-gray-100"></div>
+                            
                             <div className="flex items-center gap-3 mb-6">
                                
                                <div>
