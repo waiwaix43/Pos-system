@@ -166,8 +166,8 @@ app.post('/api/reset-pin', async (req, res) => {
 });
 
 app.put('/api/users/change-password', async (req, res) => {
-    const { email, oldPass, newPass, confirmPass } = req.body;
-    if (!email || !oldPass || !newPass || !confirmPass) {
+    const { id, email, oldPass, newPass, confirmPass } = req.body;
+    if ((!id && !email) || !oldPass || !newPass || !confirmPass) {
         return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบทุกช่อง" });
     }
     if (String(newPass).length < 6) {
@@ -177,7 +177,11 @@ app.put('/api/users/change-password', async (req, res) => {
         return res.status(400).json({ error: "รหัสผ่านใหม่กับยืนยันรหัสผ่านไม่ตรงกัน" });
     }
     try {
-        const { data: user, error } = await db.from('staff').select('id, password').eq('email', email).single();
+        let query = db.from('staff').select('id, password');
+        if (id) query = query.eq('id', id);
+        else query = query.eq('email', email);
+
+        const { data: user, error } = await query.single();
         if (error || !user) return res.status(404).json({ error: "ไม่พบข้อมูลผู้ใช้งาน" });
 
         const validPassword = user.password?.startsWith('$2a$') || user.password?.startsWith('$2b$')
@@ -185,16 +189,16 @@ app.put('/api/users/change-password', async (req, res) => {
             : String(oldPass) === user.password;
         if (!validPassword) return res.status(401).json({ error: "รหัสผ่านเดิมไม่ถูกต้อง" });
 
-        const hashedPassword = await bcrypt.hash(String(newPass), await bcrypt.genSalt(10));
-        const { error: updateError } = await db.from('staff').update({ password: hashedPassword }).eq('id', user.id);
+        const hashedPass = await bcrypt.hash(String(newPass), await bcrypt.genSalt(10));
+        const { error: updateError } = await db.from('staff').update({ password: hashedPass }).eq('id', user.id);
         if (updateError) throw updateError;
         res.json({ success: true, message: "เปลี่ยนรหัสผ่านเรียบร้อยแล้ว" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/users/change-pin', async (req, res) => {
-    const { email, oldPin, newPin, confirmPin } = req.body;
-    if (!email || !oldPin || !newPin || !confirmPin) {
+    const { id, email, password, newPin, confirmPin } = req.body;
+    if ((!id && !email) || !password || !newPin || !confirmPin) {
         return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบทุกช่อง" });
     }
     if (!/^\d{4}$/.test(String(newPin))) {
@@ -204,13 +208,17 @@ app.put('/api/users/change-pin', async (req, res) => {
         return res.status(400).json({ error: "รหัส PIN ใหม่กับยืนยัน PIN ไม่ตรงกัน" });
     }
     try {
-        const { data: user, error } = await db.from('staff').select('id, pin').eq('email', email).single();
+        let query = db.from('staff').select('id, password');
+        if (id) query = query.eq('id', id);
+        else query = query.eq('email', email);
+        
+        const { data: user, error } = await query.single();
         if (error || !user) return res.status(404).json({ error: "ไม่พบข้อมูลผู้ใช้งาน" });
 
-        const validPin = user.pin?.startsWith('$2a$') || user.pin?.startsWith('$2b$')
-            ? await bcrypt.compare(String(oldPin), user.pin)
-            : String(oldPin) === user.pin;
-        if (!validPin) return res.status(401).json({ error: "รหัส PIN เดิมไม่ถูกต้อง" });
+        const validPassword = user.password?.startsWith('$2a$') || user.password?.startsWith('$2b$')
+            ? await bcrypt.compare(String(password), user.password)
+            : String(password) === user.password;
+        if (!validPassword) return res.status(401).json({ error: "รหัสผ่านไม่ถูกต้อง" });
 
         const hashedPin = await bcrypt.hash(String(newPin), await bcrypt.genSalt(10));
         const { error: updateError } = await db.from('staff').update({ pin: hashedPin }).eq('id', user.id);

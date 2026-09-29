@@ -493,7 +493,7 @@ export default function SettingsPage() {
 
     if (hasIncompleteInput) {
       resetSecurityDraft();
-      return showToast(isPasswordType ? "กรุณากรอกรหัสผ่านให้ครบทุกช่อง" : "กรุณากรอกรหัส PIN ให้ครบทุกช่อง", "error");
+      return showToast(isPasswordType ? "กรุณากรอกข้อมูลให้ครบถ้วน" : "กรุณากรอก PIN ให้ครบถ้วน", "error");
     }
 
     if (isPasswordType && securityForm.newPass !== securityForm.confirmPass) {
@@ -504,13 +504,17 @@ export default function SettingsPage() {
       resetSecurityDraft();
       return showToast("รหัส PIN ใหม่ไม่ตรงกัน", "error");
     }
+    if (!isPasswordType && (securityForm.newPin.length !== 4 || !/^\d{4}$/.test(securityForm.newPin))) {
+      resetSecurityDraft();
+      return showToast("กรุณากรอก PIN ใหม่เป็นตัวเลข 4 หลัก", "error");
+    }
 
     setIsSaving(true);
     try {
       const endpoint = type === 'password' ? '/api/users/change-password' : '/api/users/change-pin';
       const payload = type === 'password' 
-        ? { email: user?.email, oldPass: securityForm.oldPass, newPass: securityForm.newPass, confirmPass: securityForm.confirmPass }
-        : { email: user?.email, oldPin: securityForm.oldPin, newPin: securityForm.newPin, confirmPin: securityForm.confirmPin };
+        ? { id: user?.id, email: user?.email, oldPass: securityForm.oldPass, newPass: securityForm.newPass, confirmPass: securityForm.confirmPass }
+        : { id: user?.id, email: user?.email, password: securityForm.oldPin, newPin: securityForm.newPin, confirmPin: securityForm.confirmPin };
 
       const res = await fetch(`http://localhost:5000${endpoint}`, {
         method: "PUT",
@@ -1024,14 +1028,38 @@ export default function SettingsPage() {
                               หากปิดระบบ PIN แล้ว การ login จะเข้าสู่หน้า POS ได้ทันที โดยไม่ต้องกรอกรหัส PIN
                             </div>
                          </div>
-                         <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm space-y-4">
-                            <h4 className="font-bold text-[15px] text-gray-800">เปลี่ยน PIN ประจำตัว</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                               <input type="password" maxLength={6} disabled={!isEditing} placeholder="PIN เดิม" value={securityForm.oldPin} onChange={(e) => setSecurityForm({...securityForm, oldPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
-                               <input type="password" maxLength={6} disabled={!isEditing} placeholder="PIN ใหม่" value={securityForm.newPin} onChange={(e) => setSecurityForm({...securityForm, newPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
-                               <input type="password" maxLength={6} disabled={!isEditing} placeholder="ยืนยัน PIN ใหม่" value={securityForm.confirmPin} onChange={(e) => setSecurityForm({...securityForm, confirmPin: e.target.value})} className="px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400" />
+                                                  <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm">
+                            <div className="flex items-center gap-3 mb-6">
+                               <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-[#7a5c4e]">
+                                 <ShieldCheck size={20} />
+                               </div>
+                               <div>
+                                 <h4 className="font-bold text-[16px] text-gray-800">เปลี่ยนรหัส PIN</h4>
+                                 <p className="text-[13px] text-gray-500">ใช้รหัสผ่านบัญชีเพื่อยืนยันการเปลี่ยนรหัส PIN เพื่อความปลอดภัย</p>
+                               </div>
                             </div>
-                            <button onClick={() => handleUpdateSecurity('pin')} disabled={!isEditing || !securityForm.oldPin || !securityForm.newPin || !securityForm.confirmPin || isSaving} className="px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[15px] hover:bg-gray-50 disabled:opacity-50 mt-2 transition-colors">อัปเดต PIN</button>
+                            
+                            <div className="space-y-5 max-w-lg">
+                               <div className="space-y-1.5">
+                                  <label className="text-[13px] font-semibold text-gray-700">รหัสผ่านบัญชี (Password)</label>
+                                  <input type="password" disabled={!isEditing} placeholder="กรอกรหัสผ่านเพื่อยืนยันตัวตน" value={securityForm.oldPin} onChange={(e) => setSecurityForm({...securityForm, oldPin: e.target.value})} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[15px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400 transition-colors" />
+                               </div>
+                               
+                               <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-1.5">
+                                     <label className="text-[13px] font-semibold text-gray-700">PIN ใหม่</label>
+                                     <input type="password" maxLength={4} disabled={!isEditing} placeholder="ตัวเลข 4 หลัก" value={securityForm.newPin} onChange={(e) => setSecurityForm({...securityForm, newPin: e.target.value})} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono tracking-[0.2em] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400 transition-colors" />
+                                  </div>
+                                  <div className="space-y-1.5">
+                                     <label className="text-[13px] font-semibold text-gray-700">ยืนยัน PIN ใหม่</label>
+                                     <input type="password" maxLength={4} disabled={!isEditing} placeholder="ยืนยันอีกครั้ง" value={securityForm.confirmPin} onChange={(e) => setSecurityForm({...securityForm, confirmPin: e.target.value})} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-[15px] text-center font-mono tracking-[0.2em] outline-none focus:border-[#7a5c4e] disabled:bg-gray-50 disabled:text-gray-400 transition-colors" />
+                                  </div>
+                               </div>
+                        
+                               <button onClick={() => handleUpdateSecurity('pin')} disabled={!isEditing || !securityForm.oldPin || !securityForm.newPin || !securityForm.confirmPin || isSaving} className="px-6 py-3.5 bg-white border border-gray-300 text-gray-800 rounded-xl font-bold text-[15px] hover:bg-gray-50 hover:text-gray-900 hover:border-gray-400 disabled:opacity-50 mt-4 transition-all shadow-sm active:scale-[0.98] w-full sm:w-auto">
+                                 อัปเดต PIN
+                               </button>
+                            </div>
                          </div>
                       </div>
                     )}
