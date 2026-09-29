@@ -758,7 +758,7 @@ export default function MenuPromotionsPage() {
                             <div className="flex-1 flex flex-col justify-between">
                               <div>
                                 <h4 className="font-bold text-[15px] text-gray-800 line-clamp-2 leading-tight">{item.name}</h4>
-                                <p className="text-[12px] text-gray-400 mt-1">{item.category_name || "-"}</p>
+                                <p className="text-[12px] text-gray-400 mt-1">{categories.find(c => c.id === item.category_id)?.name || item.category_name || "-"}</p>
                               </div>
                               <p className="text-[16px] font-black text-[#7a5c4e] mt-2">฿{item.price?.toLocaleString()}</p>
                             </div>
@@ -824,7 +824,7 @@ export default function MenuPromotionsPage() {
                               
                               <td className="px-4 py-3 font-bold text-[14px] text-gray-800">{item.name}</td>
                               
-                              {activeTab === "products" && <td className="px-4 py-3 text-[14px] text-gray-500">{item.category_name || "-"}</td>}
+                              {activeTab === "products" && <td className="px-4 py-3 text-[14px] text-gray-500">{categories.find(c => c.id === item.category_id)?.name || item.category_name || "-"}</td>}
                               {activeTab === "products" && <td className="px-4 py-3 text-[14px] font-bold text-[#7a5c4e] text-right">฿{item.price?.toLocaleString()}</td>}
                               
                               {activeTab === "categories" && <td className="px-4 py-3 text-[14px] text-gray-500 text-right">{item.item_count || 0} รายการ</td>}

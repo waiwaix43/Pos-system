@@ -700,10 +700,10 @@ export default function SettingsPage() {
           </div>
 
           {/* Setting Panel */}
-          <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="min-w-0 flex-1 flex flex-col overflow-hidden">
             {errorMsg ? (
                <div className="flex items-center justify-center h-full">
-                 <div className="bg-white p-8 rounded-[24px] border border-gray-200 shadow-sm flex flex-col items-center max-w-sm text-center">
+                 <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center max-w-sm text-center">
                     <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
                     <h3 className="text-xl font-bold text-gray-800 mb-2">เกิดข้อผิดพลาด</h3>
                     <p className="text-gray-500 mb-6">{errorMsg}</p>
@@ -718,9 +718,9 @@ export default function SettingsPage() {
                  </div>
                </div>
             ) : (
-              <div className="bg-white rounded-[24px] border border-gray-200 shadow-sm flex flex-col min-h-full">
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col h-full overflow-hidden">
                   
-                  <div className="bg-gray-50 border-b border-gray-100 px-8 py-5 flex justify-between items-center rounded-t-[24px] shrink-0">
+                  <div className="bg-gray-50 border-b border-gray-100 px-8 py-5 flex justify-between items-center shrink-0">
                     <h3 className="text-[18px] font-bold text-gray-800">
                       {TABS.find(t => t.id === activeTab)?.name}
                     </h3>
@@ -741,7 +741,7 @@ export default function SettingsPage() {
                     )}
                   </div>
 
-                  <div className="p-8 flex-1">
+                  <div className="p-8 flex-1 overflow-y-auto overflow-x-hidden">
 
                     {/* ข้อมูลร้าน */}
                     {activeTab === 'shop' && (

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useRef } from "react";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 import { useRouter } from "next/navigation";
@@ -476,11 +476,16 @@ export default function POSPage() {
             <div className="flex-1 flex flex-col min-w-0">
               <div className="h-[90px] bg-[#f5f6f8] flex items-center z-10 shrink-0 w-full px-6 gap-6 border-b border-gray-200 shadow-sm">
                 <div className="flex-1 flex items-center overflow-hidden">
-                  <div className="flex w-full gap-3 overflow-x-auto no-scrollbar items-center">
+                  <div 
+                    className="flex w-full gap-3 overflow-x-auto items-center pb-2 pt-2 custom-scrollbar"
+                    onWheel={(e) => {
+                      e.currentTarget.scrollLeft += e.deltaY;
+                    }}
+                  >
                     <button onClick={() => setSelectedCategory("promo")} className={`shrink-0 px-6 py-2.5 rounded-full text-[15px] font-bold border-2 ${selectedCategory === "promo" ? "bg-[#e74c3c] text-white border-[#e74c3c]" : "bg-white text-[#e74c3c] border-[#e74c3c]"}`}>โปรโมชั่น</button>
                     <div className="w-[2px] h-8 bg-gray-300 rounded-full mx-1 shrink-0"></div>
                     {categories.map((cat) => (
-                      <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`px-7 py-2.5 rounded-full text-[15px] font-medium border ${selectedCategory === cat.id ? "bg-[#4d4d4d] text-white" : "bg-white text-gray-600 border-gray-200"}`}>{cat.name}</button>
+                      <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`shrink-0 whitespace-nowrap px-7 py-2.5 rounded-full text-[15px] font-medium border ${selectedCategory === cat.id ? "bg-[#4d4d4d] text-white" : "bg-white text-gray-600 border-gray-200"}`}>{cat.name}</button>
                     ))}
                   </div>
                 </div>

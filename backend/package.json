@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "db:seed": "node seed.js",
+    "db:reset": "node seed.js --reset && node seed.js",
+    "db:validate": "node validate.js"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +19,7 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "pg": "^8.23.0"
   }
 }
