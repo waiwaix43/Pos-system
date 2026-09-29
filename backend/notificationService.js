@@ -7,6 +7,22 @@ const getState = (quantity, minimum) => {
 };
 
 const createNotification = async ({ shopId, type, priority, title, message, entityType, entityId, actionTarget, metadata = {}, userId = null }) => {
+    // Check shop settings first
+    let allowNotify = true;
+    try {
+        const { data: settingsRow } = await db.from('shop_settings').select('settings_data').eq('shop_id', shopId).single();
+        if (settingsRow && settingsRow.settings_data) {
+            const settings = typeof settingsRow.settings_data === 'string' ? JSON.parse(settingsRow.settings_data) : settingsRow.settings_data;
+            if (type === 'STOCK_LOW' && settings.notify_low_stock === false) allowNotify = false;
+            if (type === 'STOCK_OUT' && settings.notify_out_of_stock === false) allowNotify = false;
+            if (type === 'REFUND' && settings.notify_refund === false) allowNotify = false;
+            if (type === 'CANCEL_BILL' && settings.notify_cancel_bill === false) allowNotify = false;
+            if (type === 'STOCK_ADJUST' && settings.notify_stock_adjust === false) allowNotify = false;
+        }
+    } catch (e) {}
+
+    if (!allowNotify) return null;
+
     const eventState = metadata.eventState || type;
     const dedupeKey = `${type}:${entityType || 'system'}:${entityId || '0'}:${eventState}`;
     const { data: existing, error: lookupError } = await db.from('notifications')
@@ -48,8 +64,8 @@ const syncInventoryNotification = async ({ shopId, itemId, userId = null }) => {
         userId,
         type: isOut ? 'STOCK_OUT' : 'STOCK_LOW',
         priority: isOut ? 'CRITICAL' : 'WARNING',
-        title: isOut ? 'วัตถุดิบหมด' : 'วัตถุดิบใกล้หมด',
-        message: isOut ? `${item.name} หมดแล้ว` : `${item.name} เหลือ ${item.quantity} ${item.unit || 'หน่วย'} ต่ำกว่าขั้นต่ำ ${minimum} ${item.unit || 'หน่วย'}`,
+        title: isOut ? 'สินค้าหมด' : 'สินค้าใกล้หมด',
+        message: isOut ? `${item.name} หมดสต็อกแล้ว` : `${item.name} เหลือ ${item.quantity} ${item.unit || 'หน่วย'} (ขั้นต่ำคือ ${minimum} ${item.unit || 'หน่วย'})`,
         entityType: 'inventory_item',
         entityId: item.id,
         actionTarget: `/pos/inventory?item_id=${item.id}`,

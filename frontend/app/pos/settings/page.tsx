@@ -541,12 +541,12 @@ export default function SettingsPage() {
     { id: "sales", name: "การขาย", icon: TrendingUp, allowed: hasAccess },
     { id: "receipt", name: "ใบเสร็จ", icon: Receipt, allowed: hasAccess },
     { id: "payment", name: "การชำระเงิน", icon: CreditCard, allowed: hasAccess },
-    { id: "inventory", name: "สินค้าและคลังสินค้า", icon: Package, allowed: hasAccess },
+
     { id: "tax", name: "ภาษี", icon: FileText, allowed: isOwner },
     { id: "notifications", name: "การแจ้งเตือน", icon: Bell, allowed: hasAccess },
     { id: "pin", name: "PIN", icon: ShieldCheck, allowed: true },
     { id: "security", name: "ความปลอดภัย", icon: ShieldCheck, allowed: true },
-    { id: "hardware", name: "อุปกรณ์ POS", icon: MonitorSmartphone, allowed: hasAccess },
+
     { id: "system", name: "ระบบ", icon: Settings, allowed: isOwner },
   ];
 
@@ -840,7 +840,7 @@ export default function SettingsPage() {
 
                     {/* ใบเสร็จ */}
                     {activeTab === 'receipt' && (
-                       <div className="grid grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(320px,1fr)_420px]">
+                       <div className="space-y-6 max-w-3xl">
                          <div className="space-y-5">
                             <div>
                                <label className="block text-[15px] font-bold text-gray-700 mb-2">ชื่อร้านบนใบเสร็จ</label>
@@ -865,17 +865,9 @@ export default function SettingsPage() {
                                <textarea disabled={!isEditing} value={currentSettings.receipt_footer} onChange={(e) => handleChange('receipt_footer', e.target.value)} rows={3} className="w-full px-4 py-3 border border-gray-200 rounded-xl disabled:bg-gray-50 text-[15px] outline-none focus:border-[#7a5c4e]" />
                             </div>
                          </div>
-                         {/* Receipt Preview */}
-                         <div className="min-w-0 rounded-[20px] border border-gray-200 bg-gray-50 p-5 xl:sticky xl:top-4">
-                           <div className="mb-4 flex items-center justify-between">
-                             <div>
-                               <p className="text-[16px] font-bold text-gray-800">ตัวอย่างใบเสร็จ</p>
-                               <p className="mt-1 text-[12px] text-gray-500">แสดงผลเหมือนใบเสร็จจากประวัติ</p>
-                             </div>
-                             <button type="button" onClick={() => setShowReceiptPreview(true)} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-[12px] font-bold text-gray-700 hover:bg-gray-100">ดูเต็มจอ</button>
-                           </div>
-                           <div className="max-h-[560px] overflow-x-hidden overflow-y-auto rounded-xl">{receiptPreview}</div>
-                         </div>
+                         <button type="button" onClick={() => setShowReceiptPreview(true)} className="w-full rounded-[16px] border border-gray-300 bg-white px-4 py-4 text-[15px] font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-center shadow-sm">
+                           ดูตัวอย่างใบเสร็จ
+                         </button>
                       </div>
                     )}
 
@@ -918,22 +910,6 @@ export default function SettingsPage() {
                             </div>
                           ))}
                         </div>
-                      </div>
-                    )}
-
-                    {/* สินค้าและคลังสินค้า */}
-                    {activeTab === 'inventory' && (
-                      <div className="space-y-6 max-w-3xl">
-                         <div className="flex items-center justify-between p-4 rounded-[16px] border border-gray-200">
-                           <span className="font-bold text-[15px] text-gray-800">แจ้งเตือนสินค้าใกล้หมด (Low Stock Alert)</span>
-                           <input type="checkbox" disabled={!isEditing} checked={currentSettings.alert_low_stock} onChange={(e) => handleChange('alert_low_stock', e.target.checked)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
-                         </div>
-                         {currentSettings.alert_low_stock && (
-                            <div className="p-6 bg-gray-50 rounded-[16px] border border-gray-200">
-                               <label className="block text-[15px] font-bold text-gray-700 mb-2">จำนวน Stock ขั้นต่ำที่ต้องการแจ้งเตือน</label>
-                               <input type="number" disabled={!isEditing} value={currentSettings.low_stock_threshold} onChange={(e) => handleChange('low_stock_threshold', Number(e.target.value))} className="w-48 px-4 py-3 border border-gray-200 rounded-xl disabled:bg-gray-100 text-[15px] font-bold outline-none focus:border-[#7a5c4e]" />
-                            </div>
-                         )}
                       </div>
                     )}
 
@@ -986,46 +962,28 @@ export default function SettingsPage() {
                       </div>
                     )}
 
-                    {/* อุปกรณ์ POS */}
-                    {activeTab === 'hardware' && (
-                      <div className="grid grid-cols-1 gap-6 max-w-3xl">
-                         <div>
-                          <label className="block text-[15px] font-bold text-gray-700 mb-2">เครื่องพิมพ์ใบเสร็จ (Receipt Printer)</label>
-                          <select disabled={!isEditing} value={currentSettings.hardware_printer_type} onChange={(e) => handleChange('hardware_printer_type', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer">
-                             <option value="none">ไม่เชื่อมต่อ</option>
-                             <option value="usb_58mm">USB Printer (58mm)</option>
-                             <option value="usb_80mm">USB Printer (80mm)</option>
-                          </select>
-                         </div>
-                         <div className="flex items-center justify-between p-4 rounded-[16px] border border-gray-200">
-                           <span className="font-bold text-[15px] text-gray-800">ลิ้นชักเก็บเงิน (Cash Drawer)</span>
-                           <input type="checkbox" disabled={!isEditing} checked={currentSettings.hardware_cash_drawer} onChange={(e) => handleChange('hardware_cash_drawer', e.target.checked)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
-                         </div>
-                         <div className="flex items-center justify-between p-4 rounded-[16px] border border-gray-200">
-                           <span className="font-bold text-[15px] text-gray-800">เครื่องสแกนบาร์โค้ด (Barcode Scanner)</span>
-                           <input type="checkbox" disabled={!isEditing} checked={currentSettings.hardware_barcode_scanner} onChange={(e) => handleChange('hardware_barcode_scanner', e.target.checked)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
-                         </div>
-                      </div>
-                    )}
 
-                    {/* ระบบ (กำหนดให้เข้ากับไทย 100%) */}
+                    {/* ระบบ */}
                     {activeTab === 'system' && (
                       <div className="grid grid-cols-2 gap-6 max-w-3xl">
-                        <div className="col-span-2 mb-2 text-[14px] text-gray-500 bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-start gap-2">
-                           <AlertCircle className="w-5 h-5 text-blue-500 shrink-0" />
-                           <p>การตั้งค่าระบบพื้นฐานถูกผูกกับมาตรฐานการใช้งานในประเทศไทยโดยอัตโนมัติ เพื่อให้ระบบหลังบ้านคำนวณรายได้และภาษีได้ตรงกันทั้งหมด</p>
-                        </div>
                         <div>
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">ภาษา (Language)</label>
-                          <input type="text" disabled value="ภาษาไทย" className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-[15px]" />
+                          <select disabled={!isEditing} value={currentSettings.language || 'th'} onChange={(e) => handleChange('language', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer focus:border-[#7a5c4e]">
+                            <option value="th">ภาษาไทย (TH)</option>
+                          </select>
                         </div>
                         <div>
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">สกุลเงิน (Currency)</label>
-                          <input type="text" disabled value="THB (บาท)" className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-[15px]" />
+                          <select disabled={!isEditing} value={currentSettings.currency || 'THB'} onChange={(e) => handleChange('currency', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer focus:border-[#7a5c4e]">
+                            <option value="THB">THB (บาท)</option>
+                            <option value="USD">USD (Dollar)</option>
+                            <option value="EUR">EUR (Euro)</option>
+                            <option value="JPY">JPY (Yen)</option>
+                          </select>
                         </div>
                         <div>
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">เขตเวลา (Timezone)</label>
-                          <select disabled={!isEditing} value={currentSettings.timezone} onChange={(e) => handleChange('timezone', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer">
+                          <select disabled={!isEditing} value={currentSettings.timezone || 'auto'} onChange={(e) => handleChange('timezone', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer focus:border-[#7a5c4e]">
                             <option value="auto">ใช้เขตเวลาของเครื่อง</option>
                             <option value="Asia/Bangkok">Asia/Bangkok (GMT+7)</option>
                             <option value="Asia/Tokyo">Asia/Tokyo (GMT+9)</option>
@@ -1035,8 +993,10 @@ export default function SettingsPage() {
                         </div>
                         <div>
                           <label className="block text-[15px] font-bold text-gray-700 mb-2">รูปแบบวันที่</label>
-                          <select disabled={!isEditing} value={currentSettings.date_format} onChange={(e) => handleChange('date_format', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer">
+                          <select disabled={!isEditing} value={currentSettings.date_format || 'DD/MM/YYYY'} onChange={(e) => handleChange('date_format', e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none disabled:bg-gray-50 text-[15px] cursor-pointer focus:border-[#7a5c4e]">
                              <option value="DD/MM/YYYY">DD/MM/YYYY (เช่น 14/08/2026)</option>
+                             <option value="MM/DD/YYYY">MM/DD/YYYY (เช่น 08/14/2026)</option>
+                             <option value="YYYY-MM-DD">YYYY-MM-DD (เช่น 2026-08-14)</option>
                           </select>
                         </div>
                       </div>
@@ -1102,14 +1062,18 @@ export default function SettingsPage() {
       </div>
 
       {showReceiptPreview && (
-        <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowReceiptPreview(false)}>
-          <div className="w-full max-w-[560px] max-h-[90vh] overflow-x-hidden overflow-y-auto rounded-[24px] bg-gray-100 p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-[20px] font-bold text-gray-800">ตัวอย่างใบเสร็จ</h3>
-              <button type="button" onClick={() => setShowReceiptPreview(false)} className="w-9 h-9 rounded-full bg-white text-gray-500 hover:bg-gray-200 flex items-center justify-center" aria-label="ปิดตัวอย่างใบเสร็จ">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        <div 
+          className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" 
+          onClick={() => setShowReceiptPreview(false)}
+        >
+          <style>{`
+            .hide-scroll::-webkit-scrollbar { display: none; }
+            .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+          `}</style>
+          <div 
+            className="w-full max-w-[420px] max-h-[95vh] overflow-y-auto hide-scroll" 
+            onClick={(event) => event.stopPropagation()}
+          >
             {receiptPreview}
           </div>
         </div>

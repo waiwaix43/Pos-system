@@ -1,5 +1,6 @@
-"use client";
+﻿"use client";
 import { useState, useEffect, useRef } from "react";
+import { formatCurrency, formatDate } from "../../utils/formatters";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../components/NotificationBell";
 import { Search, Plus, Trash2, ArrowLeft, X, AlertCircle } from "lucide-react"; 
@@ -149,12 +150,7 @@ export default function POSPage() {
       
       const initialSelections: any = {};
       productOpts.forEach(group => {
-         // Auto-select รายการแรก สำหรับตัวเลือกแบบ single
-         if (group.type === 'single' && group.items && group.items.length > 0) {
-             initialSelections[group.id] = [group.items[0]];
-         } else {
-             initialSelections[group.id] = [];
-         }
+         initialSelections[group.id] = [];
       });
 
       setCurrentProductOptions(productOpts);
@@ -179,6 +175,19 @@ export default function POSPage() {
   };
 
   const addToCart = () => {
+    const missingRequired = currentProductOptions.find(group => {
+      if (group.is_required) {
+        const selected = selectedDynamicOptions[group.id] || [];
+        return selected.length === 0;
+      }
+      return false;
+    });
+
+    if (missingRequired) {
+      alert(`กรุณาเลือก: ${missingRequired.name}`);
+      return;
+    }
+
     let optionsPrice = 0;
     let optionsTextArr: string[] = [];
 
@@ -257,6 +266,96 @@ export default function POSPage() {
   const changeAmount = Math.max(0, displayPaidAmount - totalPrice);
   const remainingAmount = Math.max(0, totalPrice - displayPaidAmount);
 
+  
+    const printReceipt = (billNo: string) => {
+        const printWindow = document.createElement("iframe");
+        printWindow.style.position = "absolute";
+        printWindow.style.top = "-1000px";
+        document.body.appendChild(printWindow);
+        const doc = printWindow.contentWindow?.document;
+        if (!doc) return;
+
+        const cartSubtotal = cart.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+        const vatAmountStr = shopSettings?.vat_enabled ? formatCurrency(vatAmount, shopSettings?.currency || 'THB') : "0.00";
+
+        const logoHtml = shopSettings?.receipt_show_logo && shopSettings?.logo 
+            ? `<img src="${shopSettings.logo}" style="height: 64px; width: 64px; object-fit: contain; margin: 0 auto 10px; display: block;" />` 
+            : '';
+
+        const cartItemsHtml = cart.map(item => `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <div>
+                <div style="font-weight: 500;">${item.name}</div>
+                <div style="font-size: 12px; color: #666;">${item.quantity} x ${formatCurrency(item.price, shopSettings?.currency)}</div>
+                ${item.optionsText ? `<div style="font-size: 11px; color: #888;">${item.optionsText}</div>` : ''}
+              </div>
+              <span style="font-weight: bold;">${formatCurrency(item.price * item.quantity, shopSettings?.currency)}</span>
+            </div>
+        `).join('');
+
+        let html = `
+          <html>
+          <head>
+            <style>
+              @page { margin: 0; }
+              body { 
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+                font-size: 13px; color: #333; width: 80mm; margin: 0 auto; padding: 10px; box-sizing: border-box;
+              }
+            </style>
+          </head>
+          <body>
+            <div style="text-align: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
+              ${logoHtml}
+              <div style="font-size: 20px; font-weight: 900; margin-bottom: 4px;">${shopSettings?.shop_name || '-'}</div>
+              <div style="color: #666; font-size: 12px;">สาขา: ${shopSettings?.branch_name || '-'}</div>
+              <div style="color: #666; font-size: 12px; margin-top: 8px;">${shopSettings?.address || '-'}</div>
+              <div style="color: #666; font-size: 12px;">โทร: ${shopSettings?.phone || '-'}</div>
+              <div style="color: #666; font-size: 12px;">Tax ID: ${shopSettings?.tax_id || '-'}</div>
+            </div>
+
+            <div style="background-color: #f9fafb; border-radius: 12px; padding: 15px; margin-bottom: 20px; font-size: 12px;">
+              <div style="display: flex; justify-content: space-between;"><span style="color: #666;">เลขที่ใบเสร็จ</span><strong>${billNo}</strong></div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="color: #666;">วันที่</span><span>${formatDate(new Date(), shopSettings?.date_format, shopSettings?.timezone)}</span></div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="color: #666;">ประเภท</span><span>${orderType}</span></div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="color: #666;">สถานะ</span><span style="color: #16a34a; font-weight: bold;">สำเร็จ</span></div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+              <h4 style="font-size: 15px; font-weight: bold; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 12px; margin-top: 0;">รายการสินค้า</h4>
+              ${cartItemsHtml}
+            </div>
+
+            <div style="border-top: 1px dashed #ccc; padding-top: 15px; font-size: 13px;">
+              <div style="display: flex; justify-content: space-between;"><span style="color: #666;">ยอดรวมก่อนส่วนลด</span><span>${formatCurrency(cartSubtotal, shopSettings?.currency)}</span></div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="color: #666;">ส่วนลดทั้งหมด</span><span style="color: #ef4444;">- ${formatCurrency(0, shopSettings?.currency)}</span></div>
+              ${shopSettings?.vat_enabled ? `<div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="color: #666;">ภาษีมูลค่าเพิ่ม (${shopSettings.vat_rate}%)</span><span>${vatAmountStr}</span></div>` : ''}
+              <div style="display: flex; justify-content: space-between; margin-top: 16px; font-size: 18px; font-weight: 900;"><span>ยอดสุทธิ</span><span style="color: #7a5c4e;">${formatCurrency(totalPrice, shopSettings?.currency)}</span></div>
+            </div>
+
+            <div style="background-color: #f9fafb; border-radius: 12px; padding: 15px; margin-top: 20px; font-size: 12px;">
+              <h4 style="font-weight: bold; margin-bottom: 8px; margin-top: 0;">ข้อมูลการชำระเงิน</h4>
+              <div style="display: flex; justify-content: space-between;"><span style="color: #666;">ช่องทาง</span><span>${paymentMethod}</span></div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="color: #666;">ยอดรับเงิน</span><span>${formatCurrency(displayPaidAmount, shopSettings?.currency)}</span></div>
+              <div style="display: flex; justify-content: space-between; margin-top: 8px;"><span style="color: #666;">เงินทอน</span><span>${formatCurrency(changeAmount, shopSettings?.currency)}</span></div>
+            </div>
+
+            ${shopSettings?.receipt_footer ? `<div style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px; text-align: center; font-size: 12px; color: #666; white-space: pre-wrap;">${shopSettings.receipt_footer}</div>` : ''}
+          </body>
+          </html>
+        `;
+
+        doc.open();
+        doc.write(html);
+        doc.close();
+
+        setTimeout(() => {
+            printWindow.contentWindow?.focus();
+            printWindow.contentWindow?.print();
+            setTimeout(() => { document.body.removeChild(printWindow); }, 1500);
+        }, 1200);
+    };
+
   const confirmPayment = async () => {
     if (paymentSubmissionRef.current) return;
     if (!activeShift) return alert("ไม่พบรอบการขายที่ใช้งานอยู่");
@@ -295,6 +394,9 @@ export default function POSPage() {
       if (response.ok && data.success) {
         setBillNumber(data.billNumber || "");
         setView('success');
+        if (shopSettings?.auto_print_receipt) {
+            printReceipt(data.billNumber || "");
+        }
       } else {
         alert("เกิดข้อผิดพลาด: " + (data.error || "Unknown Error"));
         if (data.error && data.error.includes("รอบการขายนี้ถูกปิดแล้ว")) router.push('/pos/shifts');
@@ -434,7 +536,7 @@ export default function POSPage() {
                               {item.optionsText && <span className="text-[12px] text-gray-500">{item.optionsText}</span>}
                               {item.note && <span className="text-[12px] text-orange-500">หมายเหตุ: {item.note}</span>}
                             </div>
-                            <span className="text-[15px] font-bold text-gray-800">{(item.price * item.quantity).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            <span className="text-[15px] font-bold text-gray-800">{formatCurrency((item.price * item.quantity), shopSettings?.currency || 'THB')}</span>
                           </div>
                           <button onClick={() => removeItemFromCart(item.cartId)} className="absolute right-3 top-3 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Trash2 className="w-5 h-5" />
@@ -446,7 +548,7 @@ export default function POSPage() {
                     {shopSettings?.vat_enabled && cart.length > 0 && (
                       <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-between text-[13px] text-gray-600">
                         <span>{shopSettings.prices_include_vat ? 'รวม VAT ในราคาแล้ว' : 'ภาษีมูลค่าเพิ่ม (' + shopSettings.vat_rate + '%)'}</span>
-                        <span>{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        <span>{formatCurrency(vatAmount, shopSettings?.currency || 'THB')}</span>
                       </div>
                     )}
                   </div>
@@ -455,7 +557,7 @@ export default function POSPage() {
                     <button disabled={!shopSettings?.allow_discounts} className="flex-1 py-3 bg-white border border-gray-200 rounded-xl font-bold shadow-sm disabled:opacity-50 disabled:bg-gray-100">โปรโมชั่น</button>
                   </div>
                   <button onClick={() => { if (cart.length === 0) return alert('กรุณาเลือกสินค้าก่อน'); setView('payment'); }} className="w-full py-4 bg-[#7a5c4e] text-white rounded-xl text-[18px] font-bold hover:bg-[#684c3f] shadow-md transition-all">
-                    ชำระเงิน {totalPrice > 0 ? totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "0.00"}
+                    ชำระเงิน {totalPrice > 0 ? formatCurrency(totalPrice, shopSettings?.currency || 'THB') : "0.00"}
                   </button>
                 </div>
               </div>
@@ -480,7 +582,7 @@ export default function POSPage() {
                       <input type="number" min="0" step="0.01" value={itemPrice} onChange={(e) => setItemPrice(e.target.value)} className="w-28 rounded-lg border border-gray-300 px-2 py-1 text-right text-[18px] font-bold text-black outline-none focus:border-[#7a5c4e]" />
                     </label>
                   ) : (
-                    <span className="font-bold text-black">{Number(selectedProduct.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="font-bold text-black">{formatCurrency(Number(selectedProduct.price), shopSettings?.currency || 'THB')}</span>
                   )}
                   <div className="flex items-center gap-3">
                     <span className="text-[14px] text-gray-500">จำนวน:</span>
@@ -541,8 +643,8 @@ export default function POSPage() {
                 <h2 className="text-2xl font-bold mb-6 text-black border-b pb-4">ชำระเงินสำเร็จ</h2>
                 <div className="w-24 h-24 bg-[#4CAF50] rounded-full flex items-center justify-center mx-auto mb-6 shadow-md"><svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"></path></svg></div>
                 <p className="text-gray-600 mb-1 text-sm">ช่องทางการชำระ: {paymentMethod}</p>
-                {shopSettings?.vat_enabled && <p className="text-gray-500 mb-1 text-sm">VAT {Number(shopSettings.vat_rate || 0)}%: {vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>}
-                <p className="text-[18px] font-bold mb-8 text-black">ยอดรวม: {totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                {shopSettings?.vat_enabled && <p className="text-gray-500 mb-1 text-sm">VAT {Number(shopSettings.vat_rate || 0)}%: {formatCurrency(vatAmount, shopSettings?.currency || 'THB')}</p>}
+                <p className="text-[18px] font-bold mb-8 text-black">ยอดรวม: {formatCurrency(totalPrice, shopSettings?.currency || 'THB')}</p>
                 <button onClick={finishTransaction} className="w-full bg-[#7a5c4e] text-white py-3.5 rounded-full font-bold hover:bg-[#684c3f] transition-all">ชำระเงินสำเร็จ</button>
               </div>
             </div>
@@ -554,11 +656,11 @@ export default function POSPage() {
                 <button onClick={() => setView('pos')} className="text-xl font-bold text-gray-800 text-left w-fit flex items-center gap-2 hover:text-gray-500"><ArrowLeft className="w-5 h-5"/> ชำระเงิน</button>
                 <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-sm space-y-4">
                   <div className="flex justify-between font-bold text-lg border-b pb-3"><span>บิล: {billNumber}</span><span className="font-normal text-gray-500">{orderType}</span></div>
-                  <div className="flex justify-between text-gray-500 font-medium"><span>ยอดสินค้าก่อน VAT:</span><span>{cartSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
-                  {shopSettings?.vat_enabled && <div className="flex justify-between text-gray-500 font-medium"><span>VAT {Number(shopSettings.vat_rate || 0)}%:</span><span>{vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>}
-                  <div className="flex justify-between text-gray-800 font-bold"><span>ยอดรวม:</span><span>{totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
-                  <div className="flex justify-between text-gray-500 font-medium"><span>ชำระแล้ว:</span><span>{displayPaidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
-                  <div className="flex justify-between text-2xl font-bold border-t pt-4 text-black"><span>ค้างชำระ:</span><span>{remainingAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+                  <div className="flex justify-between text-gray-500 font-medium"><span>ยอดสินค้าก่อน VAT:</span><span>{formatCurrency(cartSubtotal, shopSettings?.currency || 'THB')}</span></div>
+                  {shopSettings?.vat_enabled && <div className="flex justify-between text-gray-500 font-medium"><span>VAT {Number(shopSettings.vat_rate || 0)}%:</span><span>{formatCurrency(vatAmount, shopSettings?.currency || 'THB')}</span></div>}
+                  <div className="flex justify-between text-gray-800 font-bold"><span>ยอดรวม:</span><span>{formatCurrency(totalPrice, shopSettings?.currency || 'THB')}</span></div>
+                  <div className="flex justify-between text-gray-500 font-medium"><span>ชำระแล้ว:</span><span>{formatCurrency(displayPaidAmount, shopSettings?.currency || 'THB')}</span></div>
+                  <div className="flex justify-between text-2xl font-bold border-t pt-4 text-black"><span>ค้างชำระ:</span><span>{formatCurrency(remainingAmount, shopSettings?.currency || 'THB')}</span></div>
                 </div>
                 <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-sm flex-1 overflow-y-auto">
                   <h3 className="text-gray-500 text-sm font-bold mb-4 border-b pb-2">รายการเมนู ({cart.length})</h3>
@@ -569,7 +671,7 @@ export default function POSPage() {
                         {item.optionsText && <span className="text-[12px] text-gray-500">{item.optionsText}</span>}
                         {item.note && <span className="text-[12px] text-orange-500">หมายเหตุ: {item.note}</span>}
                       </div>
-                      <span className="font-bold text-[15px]">{(item.price * item.quantity).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold text-[15px]">{formatCurrency((item.price * item.quantity), shopSettings?.currency || 'THB')}</span>
                     </div>
                   ))}
                 </div>
@@ -585,8 +687,8 @@ export default function POSPage() {
                 </div>
 
                 <div className="bg-[#d6d6d6] p-6 rounded-[20px] mb-8 space-y-3">
-                  <div className="flex justify-between items-center text-gray-500 font-bold"><span>ชำระแล้ว</span><span className="text-3xl font-bold text-black">{displayPaidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
-                  <div className="flex justify-between items-center text-gray-500 font-bold border-t border-gray-300 pt-3"><span>เงินทอน</span><span className="text-3xl font-bold text-black">{changeAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
+                  <div className="flex justify-between items-center text-gray-500 font-bold"><span>ชำระแล้ว</span><span className="text-3xl font-bold text-black">{formatCurrency(displayPaidAmount, shopSettings?.currency || 'THB')}</span></div>
+                  <div className="flex justify-between items-center text-gray-500 font-bold border-t border-gray-300 pt-3"><span>เงินทอน</span><span className="text-3xl font-bold text-black">{formatCurrency(changeAmount, shopSettings?.currency || 'THB')}</span></div>
                 </div>
                 
                 {isCash ? (
@@ -621,3 +723,6 @@ export default function POSPage() {
     </div>
   );
 }
+
+
+

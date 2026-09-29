@@ -3,7 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const db = require('./db'); // Supabase client
 const bcrypt = require('bcryptjs');
-const { syncInventoryNotification, createNotification } = require('./notificationService');
+const { syncInventoryNotification } = require('./notificationService');
 
 const app = express();
 app.use(cors()); 
@@ -728,16 +728,6 @@ app.post('/api/orders/:id/void', async (req, res) => {
         await db.from('order_items').update({ price: 0, addon_price: 0 }).eq('order_id', orderId);
         await db.from('orders').update({ total_amount: 0, received_amount: 0, change_amount: 0, status: 'cancelled' }).eq('id', orderId);
 
-        if (settings && settings.settings_data) {
-            const sData = typeof settings.settings_data === 'string' ? JSON.parse(settings.settings_data) : settings.settings_data;
-            if (sData.notify_cancel_bill !== false) {
-                await createNotification({ shopId: shop_id, type: 'CANCEL_BILL', priority: 'WARNING', title: 'ยกเลิกบิล', message: `บิล ${order.bill_number} ถูกยกเลิก`, entityType: 'order', entityId: orderId, userId: req.body.staff_id || null });
-            }
-            if (sData.notify_refund !== false && items && items.length > 0) {
-                await createNotification({ shopId: shop_id, type: 'REFUND', priority: 'INFO', title: 'คืนสินค้า', message: `คืนสินค้าจากบิล ${order.bill_number}`, entityType: 'order', entityId: orderId, userId: req.body.staff_id || null });
-            }
-        }
-
         if (order.shift_id) {
             const { data: allOrders } = await db.from('orders').select('total_amount').eq('shift_id', order.shift_id).neq('status', 'cancelled');
             const newTotalSales = allOrders ? allOrders.reduce((sum, o) => sum + Number(o.total_amount), 0) : 0;
@@ -1135,13 +1125,6 @@ app.post('/api/inventory/adjust', async (req, res) => {
         }]);
         if (moveErr) throw moveErr;
         await syncInventoryNotification({ shopId: shop_id, itemId: item_id, userId: user_id || null });
-        const { data: settingsRow } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-        if (settingsRow && settingsRow.settings_data) {
-            const sData = typeof settingsRow.settings_data === 'string' ? JSON.parse(settingsRow.settings_data) : settingsRow.settings_data;
-            if (sData.notify_stock_adjust !== false) {
-                await createNotification({ shopId: shop_id, type: 'STOCK_ADJUST', priority: 'INFO', title: 'ปรับสต็อก', message: `ปรับสต็อก ${item.name} (${amount > 0 ? '+' : ''}${amount})`, entityType: 'inventory_item', entityId: item_id, userId: user_id || null });
-            }
-        }
         res.json({ success: true, message: "ปรับปรุง Stock สำเร็จ", new_stock: newQty });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
