@@ -1024,9 +1024,7 @@ export default function SettingsPage() {
                                   <div className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></div>
                                </label>
                             </div>
-                            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-[14px] text-gray-600">
-                              หากปิดระบบ PIN แล้ว การ login จะเข้าสู่หน้า POS ได้ทันที โดยไม่ต้องกรอกรหัส PIN
-                            </div>
+                            
                          </div>
                                                   <div className="p-8 bg-white rounded-[24px] border border-gray-200 shadow-sm">
                             <div className="flex items-center gap-3 mb-6">
