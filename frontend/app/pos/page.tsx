@@ -12,6 +12,9 @@ export default function POSPage() {
   const [activeShift, setActiveShift] = useState<any>(null);
   const [isShiftChecking, setIsShiftChecking] = useState(true);
   const [view, setView] = useState<'pos' | 'payment' | 'success'>('pos');
+  
+  const [heldOrders, setHeldOrders] = useState<any[]>([]);
+  const [showHeldOrders, setShowHeldOrders] = useState(false);
 
   const [categories, setCategories] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -39,6 +42,7 @@ export default function POSPage() {
   // ==========================================
   // Helper: ฟังก์ชันป้องกัน Error JSON เวลา API ล่ม/หาไม่เจอ
   // ==========================================
+
   const safeFetchJson = async (url: string, options?: any) => {
     try {
       const res = await fetch(url, options);
@@ -58,6 +62,49 @@ export default function POSPage() {
   const fetchNextBillNumber = async (shopId: number, shiftId: number) => {
     const data = await safeFetchJson(`http://localhost:5000/api/next-bill-number?shop_id=${shopId}&shift_id=${shiftId}`);
     if (data) setBillNumber(data.billCode || "");
+  };
+
+  useEffect(() => {
+    const savedHeld = localStorage.getItem('heldOrders');
+    if (savedHeld) {
+      try {
+        setHeldOrders(JSON.parse(savedHeld));
+      } catch(e) {}
+    }
+  }, []);
+
+  const handleHoldOrder = () => {
+    if (cart.length === 0) return alert('ไม่มีรายการให้พักบิล');
+    const newHeld = {
+      id: Date.now().toString(),
+      time: new Date().toISOString(),
+      cart,
+      orderType
+    };
+    const updated = [...heldOrders, newHeld];
+    setHeldOrders(updated);
+    localStorage.setItem('heldOrders', JSON.stringify(updated));
+    setCart([]);
+  };
+
+  const handleRestoreOrder = (heldOrder: any) => {
+    if (cart.length > 0) {
+      if (!confirm('บิลปัจจุบันจะถูกลบและแทนที่ด้วยบิลที่พักไว้ ต้องการดำเนินการต่อหรือไม่?')) return;
+    }
+    setCart(heldOrder.cart);
+    setOrderType(heldOrder.orderType);
+    
+    const updated = heldOrders.filter(h => h.id !== heldOrder.id);
+    setHeldOrders(updated);
+    localStorage.setItem('heldOrders', JSON.stringify(updated));
+    setShowHeldOrders(false);
+  };
+
+  const handleRemoveHeldOrder = (id: string) => {
+    if (!confirm('ต้องการลบบิลที่พักไว้นี้หรือไม่?')) return;
+    const updated = heldOrders.filter(h => h.id !== id);
+    setHeldOrders(updated);
+    localStorage.setItem('heldOrders', JSON.stringify(updated));
   };
 
   useEffect(() => {
@@ -98,8 +145,9 @@ export default function POSPage() {
           safeFetchJson(`http://localhost:5000/api/categories?shop_id=${currentShopId}`)
             .then(res => {
               if (Array.isArray(res)) {
-                setCategories(res);
-                if (res.length > 0) setSelectedCategory(res[0].id);
+                const activeCategories = res.filter((c: any) => c.status === 'active' || !c.status);
+                setCategories(activeCategories);
+                if (activeCategories.length > 0) setSelectedCategory(activeCategories[0].id);
               }
             });
             
@@ -432,7 +480,7 @@ export default function POSPage() {
           <button onClick={() => router.push('/pos/inventory')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สินค้าคงคลัง</button>
           <button onClick={() => router.push('/pos/shifts')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รอบการขาย</button>
           {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
-          <button onClick={() => router.push('/pos/menu')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">เมนูและโปรโมชั่น</button>
+          <button onClick={() => router.push('/pos/menu')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">จัดการเมนู</button>
           )}
           {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
           <button onClick={() => router.push('/pos/reports')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รายงาน</button>
@@ -482,8 +530,6 @@ export default function POSPage() {
                       e.currentTarget.scrollLeft += e.deltaY;
                     }}
                   >
-                    <button onClick={() => setSelectedCategory("promo")} className={`shrink-0 px-6 py-2.5 rounded-full text-[15px] font-bold border-2 ${selectedCategory === "promo" ? "bg-[#e74c3c] text-white border-[#e74c3c]" : "bg-white text-[#e74c3c] border-[#e74c3c]"}`}>โปรโมชั่น</button>
-                    <div className="w-[2px] h-8 bg-gray-300 rounded-full mx-1 shrink-0"></div>
                     {categories.map((cat) => (
                       <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`shrink-0 whitespace-nowrap px-7 py-2.5 rounded-full text-[15px] font-medium border ${selectedCategory === cat.id ? "bg-[#4d4d4d] text-white" : "bg-white text-gray-600 border-gray-200"}`}>{cat.name}</button>
                     ))}
@@ -558,8 +604,11 @@ export default function POSPage() {
                     )}
                   </div>
                   <div className="flex gap-3 mb-3">
-                    <button className="flex-1 py-3 bg-white border border-gray-200 rounded-xl font-bold shadow-sm">สั่งค้างไว้</button>
-                    <button disabled={!shopSettings?.allow_discounts} className="flex-1 py-3 bg-white border border-gray-200 rounded-xl font-bold shadow-sm disabled:opacity-50 disabled:bg-gray-100">โปรโมชั่น</button>
+                    <button onClick={handleHoldOrder} className="flex-1 py-3 bg-white border border-gray-200 rounded-xl font-bold shadow-sm hover:bg-gray-50 text-gray-700 transition-colors">สั่งค้างไว้</button>
+                    <button onClick={() => setShowHeldOrders(true)} className="flex-1 py-3 bg-white border border-gray-200 rounded-xl font-bold shadow-sm hover:bg-gray-50 text-gray-700 transition-colors relative">
+                        บิลที่พักไว้
+                        {heldOrders.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs border-2 border-white">{heldOrders.length}</span>}
+                    </button>
                   </div>
                   <button onClick={() => { if (cart.length === 0) return alert('กรุณาเลือกสินค้าก่อน'); setView('payment'); }} className="w-full py-4 bg-[#7a5c4e] text-white rounded-xl text-[18px] font-bold hover:bg-[#684c3f] shadow-md transition-all">
                     ชำระเงิน {totalPrice > 0 ? formatCurrency(totalPrice, shopSettings?.currency || 'THB') : "0.00"}
@@ -720,6 +769,37 @@ export default function POSPage() {
                 <button onClick={confirmPayment} disabled={paymentMethods.length === 0 || isSubmittingPayment} className={`w-full py-5 rounded-2xl mt-6 text-[20px] font-bold transition-all ${displayPaidAmount >= totalPrice && !isSubmittingPayment ? "bg-[#7a5c4e] text-white hover:bg-[#684c3f]" : "bg-gray-300 text-gray-500"}`}>
                   {isSubmittingPayment ? "กำลังบันทึกการชำระ..." : "ยืนยันการชำระ"}
                 </button>
+              </div>
+            </div>
+          )}
+          {showHeldOrders && (
+            <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
+              <div className="bg-white rounded-[24px] w-full max-w-2xl p-6 relative shadow-2xl animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-gray-100">
+                  <h3 className="text-[20px] font-bold text-gray-800">บิลที่พักไว้ ({heldOrders.length})</h3>
+                  <button onClick={() => setShowHeldOrders(false)} className="text-gray-400 hover:text-black">
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                  {heldOrders.length === 0 ? (
+                    <div className="text-center text-gray-500 py-12">ไม่มีบิลที่พักไว้</div>
+                  ) : (
+                    heldOrders.map(order => (
+                      <div key={order.id} className="border border-gray-200 rounded-xl p-4 flex justify-between items-center bg-gray-50 hover:bg-white transition-colors">
+                        <div className="flex flex-col gap-1">
+                          <span className="font-bold text-gray-800 text-[16px]">เวลา: {formatDate(new Date(order.time), shopSettings?.date_format, shopSettings?.timezone)}</span>
+                          <span className="text-[14px] text-gray-500">{order.cart.length} รายการ • {order.orderType}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[18px] font-bold text-[#7a5c4e] mr-4">{formatCurrency(order.cart.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0), shopSettings?.currency)}</span>
+                          <button onClick={() => handleRestoreOrder(order)} className="px-5 py-2 bg-[#7a5c4e] text-white font-bold rounded-lg hover:bg-[#684c3f]">ดำเนินการต่อ</button>
+                          <button onClick={() => handleRemoveHeldOrder(order.id)} className="p-2 text-red-500 bg-red-50 rounded-lg hover:bg-red-100"><Trash2 className="w-5 h-5" /></button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           )}

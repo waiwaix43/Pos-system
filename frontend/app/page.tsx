@@ -35,6 +35,7 @@ export default function LoginPage() {
           name: data.user.name,
           email: data.user.email,
           shop_name: data.user.shop_name,
+          token: data.token,
           branch: data.user.branch,
           role: data.user.role,
           profile_image: data.user.profile_image,

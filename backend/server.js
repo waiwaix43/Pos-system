@@ -1,12 +1,15 @@
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_pos_key_2026';
 require('dotenv').config();
 const db = require('./db'); // Supabase client
 const bcrypt = require('bcryptjs');
 const { syncInventoryNotification, createNotification } = require('./notificationService');
 
 const app = express();
-app.use(cors()); 
+app.use(cors());
+app.options(/.*/, cors()); 
 app.use(express.json({ limit: '10mb' })); 
 
 // ==========================================
@@ -112,14 +115,33 @@ app.post('/api/login', async (req, res) => {
             hasPin: shouldRequirePinForUser,
             pinRequired: shouldRequirePinForUser,
             pinEnabled,
+            token: jwt.sign({ id: user.id, shop_id: user.shop_id, role: user.role }, JWT_SECRET, { expiresIn: '12h' }),
             user: { id: user.id, email: user.email, name: user.name, role: user.role, pin: user.pin, pin_enabled: pinEnabled, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } 
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
 // --- 3. API ตรวจสอบ & รีเซ็ต PIN ---
 // ==========================================
+
+const authenticateToken = (req, res, next) => {
+    if (req.method === 'OPTIONS') return next();
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (token == null) return res.status(401).json({ error: 'Unauthorized' });
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Token expired' });
+        req.user = user;
+        next();
+    });
+};
+app.use('/api', (req, res, next) => {
+    const publicPaths = ['/login', '/register', '/verify-pin', '/verify-manager-pin', '/reset-pin', '/settings', '/staff-roles', '/forgot-password'];
+    if (publicPaths.some(p => req.path === p || req.path.startsWith(p + '?') || req.path.startsWith(p + '/'))) return next();
+    authenticateToken(req, res, next);
+});
+
 app.post('/api/verify-pin', async (req, res) => {
     const { email, role, pin } = req.body; 
     try {
@@ -135,9 +157,9 @@ app.post('/api/verify-pin', async (req, res) => {
         }
         
         if (validPin) {
-            res.json({ success: true, user: { id: user.id, email: user.email, name: user.name, role: user.role, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } });
+            res.json({ success: true, token: jwt.sign({ id: user.id, shop_id: user.shop_id, role: user.role }, JWT_SECRET, { expiresIn: '12h' }), user: { id: user.id, email: user.email, name: user.name, role: user.role, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } });
         } else { res.status(401).json({ success: false, error: "รหัส PIN ไม่ถูกต้อง" }); }
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/reset-pin', async (req, res) => {
@@ -162,7 +184,7 @@ app.post('/api/reset-pin', async (req, res) => {
         if (updateErr) throw updateErr;
 
         res.json({ success: true, message: "ตั้งรหัส PIN ใหม่เรียบร้อยแล้ว" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/users/change-password', async (req, res) => {
@@ -193,7 +215,7 @@ app.put('/api/users/change-password', async (req, res) => {
         const { error: updateError } = await db.from('staff').update({ password: hashedPass }).eq('id', user.id);
         if (updateError) throw updateError;
         res.json({ success: true, message: "เปลี่ยนรหัสผ่านเรียบร้อยแล้ว" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/users/change-pin', async (req, res) => {
@@ -224,7 +246,7 @@ app.put('/api/users/change-pin', async (req, res) => {
         const { error: updateError } = await db.from('staff').update({ pin: hashedPin }).eq('id', user.id);
         if (updateError) throw updateError;
         res.json({ success: true, message: "เปลี่ยนรหัส PIN เรียบร้อยแล้ว" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/verify-manager-pin', async (req, res) => {
@@ -242,7 +264,7 @@ app.post('/api/verify-manager-pin', async (req, res) => {
             }
         }
         res.json({ success: validUser });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -254,13 +276,13 @@ app.get('/api/categories', async (req, res) => {
         const { data, error } = await db.from('categories').select('*').eq('shop_id', shop_id).order('sort_order', { ascending: true }).order('id', { ascending: false });
         if (error) throw error;
         return res.status(200).json(data || []);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.post('/api/categories', async (req, res) => {
     try {
         const { error } = await db.from('categories').insert([{ shop_id: req.body.shop_id, name: req.body.name, status: req.body.status || 'active' }]);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.put('/api/categories/:id', async (req, res) => {
     try {
@@ -268,7 +290,7 @@ app.put('/api/categories/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('categories').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.delete('/api/categories/:id', async (req, res) => {
     try {
@@ -276,7 +298,7 @@ app.delete('/api/categories/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'Missing shop_id' });
         const { error } = await db.from('categories').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/categories/reorder', async (req, res) => {
@@ -288,7 +310,7 @@ app.put('/api/categories/reorder', async (req, res) => {
             await db.from('categories').update({ sort_order: i }).eq('id', ordered_ids[i]).eq('shop_id', shop_id);
         }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -302,14 +324,14 @@ app.get('/api/products', async (req, res) => {
         const { data, error } = await query.order('id', { ascending: false });
         if (error) throw error;
         return res.status(200).json(data || []);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.post('/api/products', async (req, res) => {
     const { shop_id, category_id, name, price, status, image_url } = req.body;
     try {
         const { error } = await db.from('products').insert([{ shop_id, category_id, name, price, status: status || 'active', image_url }]);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.put('/api/products/:id', async (req, res) => {
     try {
@@ -317,7 +339,7 @@ app.put('/api/products/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('products').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.delete('/api/products/:id', async (req, res) => {
     try {
@@ -325,7 +347,7 @@ app.delete('/api/products/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('products').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -351,7 +373,7 @@ app.get('/api/options', async (req, res) => {
             items: items.filter(i => i.option_group_id === g.id)
         }));
         res.json(result);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/options', async (req, res) => {
@@ -370,7 +392,7 @@ app.post('/api/options', async (req, res) => {
             if (itemsErr) throw itemsErr;
         }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/options/:id', async (req, res) => {
@@ -394,7 +416,7 @@ app.put('/api/options/:id', async (req, res) => {
             if (itemsErr) throw itemsErr;
         }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/options/:id', async (req, res) => {
@@ -404,7 +426,7 @@ app.delete('/api/options/:id', async (req, res) => {
         const { error } = await db.from('option_groups').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; 
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/product_options', async (req, res) => {
@@ -416,7 +438,7 @@ app.get('/api/product_options', async (req, res) => {
         const { data, error } = await query;
         if (error) throw error; 
         res.json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/product_options', async (req, res) => {
@@ -442,7 +464,7 @@ app.post('/api/product_options', async (req, res) => {
         await db.from('products').update({ has_options: hasOptions }).eq('id', product_id).eq('shop_id', shop_id);
 
         res.json({ success: true, message: "ผูกตัวเลือกเรียบร้อยแล้ว" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -463,7 +485,7 @@ app.get('/api/recipes', async (req, res) => {
         const { data, error } = await query;
         if (error) throw error;
         res.json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/products/:productId/recipe', async (req, res) => {
@@ -519,7 +541,7 @@ app.post('/api/recipes', async (req, res) => {
         const { error } = await db.from('recipes').insert([{ product_id, inventory_item_id, quantity, unit }]);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/recipes/:id', async (req, res) => {
@@ -528,7 +550,7 @@ app.delete('/api/recipes/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('recipes').delete().eq('id', req.params.id).eq('product_id', req.body.product_id || '').not('product_id', 'is', null);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -547,7 +569,7 @@ app.get('/api/next-bill-number', async (req, res) => {
         const nextNumber = Number.isNaN(startNumber) ? (count || 0) + 1 : startNumber + (count || 0);
         const padding = Number.isNaN(startNumber) ? 4 : String(settings.receipt_start_number).length;
         res.json({ billCode: `${prefix}${String(nextNumber).padStart(padding, '0')}` });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/orders', async (req, res) => {
@@ -659,14 +681,14 @@ app.post('/api/orders', async (req, res) => {
             }
         }
         res.status(201).json({ success: true, message: "ชำระเงินสำเร็จ", billNumber });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/orders', async (req, res) => {
     try {
         const { data, error } = await db.from('orders').select('*').eq('shop_id', req.query.shop_id).order('created_at', { ascending: false });
         if (error) throw error; res.json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/orders/single/:id', async (req, res) => {
@@ -676,7 +698,7 @@ app.get('/api/orders/single/:id', async (req, res) => {
         const { data, error } = await query.single();
         if (error || !data) return res.status(404).json({ error: "ไม่พบข้อมูลบิล" });
         res.json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/orders/:id/items', async (req, res) => {
@@ -689,7 +711,7 @@ app.get('/api/orders/:id/items', async (req, res) => {
         query = query.eq('order_id', req.params.id);
         const { data, error } = await query;
         if (error) throw error; res.json((data || []).map(item => ({ ...item, name: item.products?.name })));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/orders/:id/void', async (req, res) => {
@@ -775,14 +797,14 @@ app.get('/api/shifts/active', async (req, res) => {
         const { data, error } = await db.from('shifts').select('*').eq('shop_id', req.query.shop_id).eq('status', 'OPEN').single();
         if (error && error.code !== 'PGRST116') throw error; 
         res.json({ shift: data || null });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/shifts', async (req, res) => {
     try {
         const { data, error } = await db.from('shifts').select('*, staff(role, email)').eq('shop_id', req.query.shop_id).order('opened_at', { ascending: false });
         if (error) throw error; res.json({ shifts: data.map(shift => ({ ...shift, staff_name: shift.staff ? `${shift.staff.role}` : 'พนักงาน' })) });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/shifts/open', async (req, res) => {
@@ -792,7 +814,7 @@ app.post('/api/shifts/open', async (req, res) => {
         if (existing) return res.status(400).json({ message: "มีรอบการขายเปิดอยู่แล้ว กรุณาปิดรอบเดิมก่อน" });
         const { data, error } = await db.from('shifts').insert([{ shop_id, staff_id, opening_cash: Number(opening_cash) || 0, status: 'OPEN', opened_at: new Date().toISOString() }]).select().single();
         if (error) throw error; res.json({ success: true, shift: data });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/shifts/close', async (req, res) => {
@@ -806,7 +828,7 @@ app.post('/api/shifts/close', async (req, res) => {
         await db.from('shifts').update({ total_sales: totalSales }).eq('id', shift_id);
         
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/shifts/expense', async (req, res) => {
@@ -884,7 +906,7 @@ app.get('/api/shifts/:id/summary', async (req, res) => {
             },
             soldProducts
         });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -928,7 +950,7 @@ app.get('/api/inventory/categories', async (req, res) => {
             type: c.type || 'raw_material',
             item_count: items.filter(i => i.category_id === c.id).length
         })));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/inventory/categories', async (req, res) => {
@@ -959,7 +981,7 @@ app.post('/api/inventory/categories', async (req, res) => {
             }
             throw err;
         }
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/inventory/categories/:id', async (req, res) => {
@@ -998,7 +1020,7 @@ app.put('/api/inventory/categories/:id', async (req, res) => {
             }
             throw err;
         }
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/inventory/categories/:id', async (req, res) => {
@@ -1018,7 +1040,7 @@ app.delete('/api/inventory/categories/:id', async (req, res) => {
         const { error } = await db.from('inventory_categories').delete().eq('id', categoryId).eq('shop_id', shopId);
         if (error) throw error;
         res.json({ success: true, message: 'ลบหมวดย่อยสำเร็จ และย้ายรายการที่ใช้หมวดนี้ออกแล้ว' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/inventory/items', async (req, res) => {
@@ -1030,7 +1052,7 @@ app.get('/api/inventory/items', async (req, res) => {
         const { data, error } = await query;
         if (error) throw error;
         res.json(data.map(item => presentInventoryItem({ ...item, category_name: item.inventory_categories?.name })));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/inventory/items', async (req, res) => {
@@ -1077,7 +1099,7 @@ app.post('/api/inventory/items', async (req, res) => {
             if (movementError) throw movementError;
         }
         res.json({ success: true, message: "เพิ่มรายการเข้าคลังสำเร็จ" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/inventory/items/:id', async (req, res) => {
@@ -1123,7 +1145,7 @@ app.put('/api/inventory/items/:id', async (req, res) => {
         const { error } = await db.from('inventory_items').update(updates).eq('id', req.params.id).eq('shop_id', shop_id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/inventory/items/:id', async (req, res) => {
@@ -1132,7 +1154,7 @@ app.delete('/api/inventory/items/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('inventory_items').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/inventory/adjust', async (req, res) => {
@@ -1163,7 +1185,7 @@ app.post('/api/inventory/adjust', async (req, res) => {
             }
         }
         res.json({ success: true, message: "ปรับปรุง Stock สำเร็จ", new_stock: newQty });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/inventory/:id', async (req, res) => {
@@ -1172,7 +1194,7 @@ app.get('/api/inventory/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { data, error } = await db.from('inventory_items').select('*').eq('id', req.params.id).eq('shop_id', shopId).single();
         if (error) throw error; res.json({ ...presentInventoryItem(data), stock: data.quantity, minStock: data.min_threshold || 10, sku: data.sku || `SKU-${data.id}`, movements: [] });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/stock-movements', async (req, res) => {
@@ -1180,7 +1202,7 @@ app.get('/api/stock-movements', async (req, res) => {
         const { shop_id } = req.query;
         const { data, error } = await db.from('stock_movements').select('*').eq('shop_id', shop_id).order('created_at', { ascending: false });
         if (error) throw error; res.json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -1300,7 +1322,7 @@ app.get('/api/payment-methods', async (req, res) => {
             return res.json(seeded.data || []);
         }
         return res.json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/payment-methods', async (req, res) => {
@@ -1313,7 +1335,7 @@ app.post('/api/payment-methods', async (req, res) => {
         }]).select('*').single();
         if (error) throw error;
         res.status(201).json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/payment-methods/:id', async (req, res) => {
@@ -1321,7 +1343,7 @@ app.delete('/api/payment-methods/:id', async (req, res) => {
         const { error } = await db.from('payment_methods').delete().eq('id', req.params.id).eq('shop_id', req.query.shop_id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/payment-methods', async (req, res) => {
@@ -1333,7 +1355,7 @@ app.put('/api/payment-methods', async (req, res) => {
         const failed = results.find(result => result.error);
         if (failed?.error) throw failed.error;
         res.json({ success: true, message: "อัปเดตช่องทางการชำระเงินเรียบร้อยแล้ว" });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -1343,14 +1365,14 @@ app.get('/api/promotions', async (req, res) => {
     try {
         const { data, error } = await db.from('promotions').select('*').eq('shop_id', req.query.shop_id).order('id', { ascending: false });
         if (error) throw error; res.json(data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/promotions', async (req, res) => {
     try {
         const { error } = await db.from('promotions').insert([req.body]);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/promotions/:id', async (req, res) => {
@@ -1359,7 +1381,7 @@ app.put('/api/promotions/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('promotions').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/promotions/:id', async (req, res) => {
@@ -1368,7 +1390,7 @@ app.delete('/api/promotions/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('promotions').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
@@ -1384,7 +1406,7 @@ app.get('/api/staff', async (req, res) => {
             
         if (error) throw error; 
         res.json((data || []).map(staff => ({ ...staff, image_url: null, created_at: null })));
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/staff', async (req, res) => {
@@ -1403,7 +1425,7 @@ app.post('/api/staff', async (req, res) => {
         }]);
         if (error) throw error;
         res.status(201).json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/staff/:id', async (req, res) => {
@@ -1428,7 +1450,7 @@ app.put('/api/staff/:id', async (req, res) => {
         const { error } = await db.from('staff').update(updateData).eq('id', req.params.id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/staff/:id', async (req, res) => {
@@ -1444,7 +1466,7 @@ app.delete('/api/staff/:id', async (req, res) => {
         const { error } = await db.from('staff').delete().eq('id', req.params.id).eq('shop_id', shop_id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/staff/:id/activity', async (req, res) => {
@@ -1494,7 +1516,7 @@ app.get('/api/staff/:id/activity', async (req, res) => {
         activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         res.json(activities.slice(0, 15)); 
     } catch (err) { 
-        res.status(500).json({ error: err.message }); 
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); 
     }
 });
 
@@ -1562,7 +1584,7 @@ app.get('/api/reports/summary', async (req, res) => {
         const totalItems = items ? items.reduce((sum, i) => sum + Number(i.quantity), 0) : 0;
 
         res.json({ summary: { netSales, totalBills, avgBill, totalItems } });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/sales', async (req, res) => {
@@ -1645,7 +1667,7 @@ app.get('/api/reports/sales', async (req, res) => {
         });
 
         res.json({ chart, granularity });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/payments', async (req, res) => {
@@ -1667,7 +1689,7 @@ app.get('/api/reports/payments', async (req, res) => {
         res.json(Object.keys(grouped).map(k => ({
             "ช่องทาง": k, "จำนวนรายการ": grouped[k].count, "ยอดรวม (฿)": grouped[k].sum.toLocaleString()
         })));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/products', async (req, res) => {
@@ -1693,7 +1715,7 @@ app.get('/api/reports/products', async (req, res) => {
         }));
 
         res.json(topProducts);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/inventory', async (req, res) => {
@@ -1712,7 +1734,7 @@ app.get('/api/reports/inventory', async (req, res) => {
         }));
 
         res.json({ totalItems: inv.length, outOfStock, lowStock, asOf: new Date().toISOString(), table });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/stock-movement', async (req, res) => {
@@ -1746,7 +1768,7 @@ app.get('/api/reports/stock-movement', async (req, res) => {
             "คงเหลือหลังรายการ": m.balance_after ?? '-',
             "รายละเอียด": m.reference_id ? `บิล #${m.reference_id}` : (m.reason || '-')
         })));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/employees', async (req, res) => {
@@ -1768,7 +1790,7 @@ app.get('/api/reports/employees', async (req, res) => {
         res.json(Object.keys(grouped).map(k => ({
             "พนักงาน": k, "จำนวนบิล": grouped[k].bills, "ยอดขาย (฿)": grouped[k].sum.toLocaleString()
         })));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/shifts', async (req, res) => {
@@ -1783,7 +1805,7 @@ app.get('/api/reports/shifts', async (req, res) => {
             "พนักงาน": s.staff?.name || '-', "เวลาเปิดกะ": new Date(s.opened_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }),
             "สถานะ": s.closed_at ? 'ปิดแล้ว' : 'กำลังเปิด', "ยอดขาย": Number(s.total_sales || 0).toLocaleString()
         })));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/profit', async (req, res) => {
@@ -1825,7 +1847,7 @@ app.get('/api/reports/profit', async (req, res) => {
         });
 
         res.json({ revenue, expenses, cogs: cogsAvailable ? cogs : null, cogsAvailable, netProfit: cogsAvailable ? revenue - expenses - cogs : null });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 
 app.get('/api/reports/customers', (req, res) => res.json({ available: false, message: 'ยังไม่มีข้อมูลลูกค้าใน schema ปัจจุบัน' }));
@@ -1841,7 +1863,7 @@ app.get('/api/reports/tax', async (req, res) => {
         const rate = Number(data.vat_rate) || 0;
         const tax = data.prices_include_vat ? total * rate / (100 + rate) : total * rate / 100;
         res.json([{ "อัตราภาษี": `${rate}%`, "ฐานภาษี (฿)": (data.prices_include_vat ? total - tax : total).toLocaleString(), "ภาษี (฿)": tax.toLocaleString() }]);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 app.get('/api/reports/discounts', (req, res) => res.json({ available: false, message: 'ยังไม่มีข้อมูลส่วนลดที่บันทึกใน orders schema ปัจจุบัน' }));
 app.get('/api/reports/returns', (req, res) => res.json({ available: false, message: 'ยังไม่มีตารางหรือสถานะการคืนสินค้าใน schema ปัจจุบัน' }));
@@ -1852,7 +1874,7 @@ app.get('/api/reports/expenses', async (req, res) => {
         const { data, error } = await db.from('shift_expenses').select('amount, reason, created_at').eq('shop_id', shop_id).gt('amount', 0).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false });
         if (error) throw error;
         res.json((data || []).map(expense => ({ "วันที่": new Date(expense.created_at).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }), "รายการ": expense.reason || 'ไม่ระบุ', "จำนวนเงิน (฿)": Number(expense.amount).toLocaleString() })));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในิะบบ' }); }
 });
 app.get('/api/reports/export', (req, res) => res.send("ระบบ Export กำลังอยู่ในช่วงพัฒนา"));
 

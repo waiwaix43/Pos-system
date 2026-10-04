@@ -159,7 +159,7 @@ export default function PinPage() {
       const data = await parseJsonResponse(response);
       if (data && data.success) {
         if (data.user) {
-          localStorage.setItem("userContext", JSON.stringify(data.user));
+          localStorage.setItem("userContext", JSON.stringify({ ...data.user, token: data.token || (JSON.parse(localStorage.getItem("userContext") || "{}")).token }));
         }
         setTimeout(() => router.push("/pos"), 150);
       } else if (data) {

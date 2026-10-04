@@ -986,13 +986,13 @@ export default function ShiftsPage() {
               <div className="flex bg-gray-100 p-1.5 rounded-xl">
                 <button 
                   onClick={() => setExpenseMode('in')} 
-                  className={`flex-1 py-2.5 text-[14px] font-bold rounded-lg transition-all flex justify-center items-center gap-2 ${expenseMode === 'in' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}
+                  className={`flex-1 py-2.5 text-[14px] font-bold rounded-lg transition-all flex justify-center items-center gap-2 ${expenseMode === 'in' ? 'bg-white text-[#7a5c4e] shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}
                 >
                   <ArrowDownCircle className="w-4 h-4" /> นำเงินเข้า
                 </button>
                 <button 
                   onClick={() => setExpenseMode('out')} 
-                  className={`flex-1 py-2.5 text-[14px] font-bold rounded-lg transition-all flex justify-center items-center gap-2 ${expenseMode === 'out' ? 'bg-white text-red-500 shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}
+                  className={`flex-1 py-2.5 text-[14px] font-bold rounded-lg transition-all flex justify-center items-center gap-2 ${expenseMode === 'out' ? 'bg-white text-[#7a5c4e] shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}
                 >
                   <ArrowUpCircle className="w-4 h-4" /> เบิกเงินออก
                 </button>
@@ -1021,7 +1021,7 @@ export default function ShiftsPage() {
 
             <div className="px-8 pb-6 flex gap-3">
               <button onClick={() => setIsExpenseModal(false)} className="flex-1 py-3.5 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50">ยกเลิก</button>
-              <button onClick={handleExpense} disabled={isExpensing} className={`flex-1 py-3.5 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition-all ${expenseMode === 'in' ? 'bg-green-600 hover:bg-green-700 shadow-green-600/20' : 'bg-red-500 hover:bg-red-600 shadow-red-500/20'} disabled:opacity-50`}>
+              <button onClick={handleExpense} disabled={isExpensing} className={`flex-1 py-3.5 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition-all bg-[#7a5c4e] hover:bg-[#684c3f] shadow-[#7a5c4e]/20 disabled:opacity-50`}>
                 {isExpensing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} ยืนยันบันทึก
               </button>
             </div>

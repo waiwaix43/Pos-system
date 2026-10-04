@@ -461,7 +461,6 @@ export default function MenuPromotionsPage() {
     { id: "categories", name: "หมวดหมู่สินค้า", icon: ListTree },
     { id: "products", name: "รายการสินค้า", icon: Package },
     { id: "options", name: "ตัวเลือกสินค้า", icon: Settings2 },
-    { id: "promotions", name: "โปรโมชั่น", icon: Tag },
   ];
 
   const getFilteredData = () => {

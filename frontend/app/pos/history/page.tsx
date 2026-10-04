@@ -97,7 +97,8 @@ export default function HistoryPage() {
     fetch(`http://localhost:5000/api/payment-methods?shop_id=${savedUser.shop_id}`)
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) setPaymentMethods(data.filter(m => m.is_enabled));
+        if (data.data) data = data.data;
+          if (Array.isArray(data)) setPaymentMethods(data.filter(m => m.is_enabled));
       });
   }, [router]);
 
