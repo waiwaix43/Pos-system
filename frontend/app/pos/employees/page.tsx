@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../components/ToastProvider";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
@@ -39,6 +40,8 @@ const getStoredUser = () => {
 };
 
 export default function EmployeeManagementPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
 
@@ -51,7 +54,7 @@ export default function EmployeeManagementPage() {
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
-  const [toast, setToast] = useState<{ show: boolean; msg: string; type: "success" | "error" }>({ show: false, msg: "", type: "success" });
+  
 
   // Modal & Drawer States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -93,7 +96,7 @@ export default function EmployeeManagementPage() {
     }
     // Block unauthorized access completely at frontend routing level
     if (savedUser.role === "Cashier" || savedUser.role === "พนักงาน") {
-      alert("คุณไม่มีสิทธิ์เข้าถึงหน้านี้");
+      showToast("คุณไม่มีสิทธิ์เข้าถึงหน้านี้", 'error');
       router.push("/pos");
       return;
     }
@@ -101,12 +104,7 @@ export default function EmployeeManagementPage() {
     fetchStaffData(savedUser.shop_id || 1);
   }, [router]);
 
-  const showToast = (msg: string, type: "success" | "error") => {
-    setToast({ show: true, msg, type });
-    setTimeout(() => setToast({ show: false, msg: "", type: "success" }), 4000);
-  };
-
- // ==========================================
+  // ==========================================
   // 2. SUMMARY CALCULATIONS
   // ==========================================
   const totalStaff = staffList.length;
@@ -482,12 +480,7 @@ export default function EmployeeManagementPage() {
         </div>
       </div>
 
-      {/* ===================== TOAST ===================== */}
-      {toast.show && (
-        <div className={`fixed top-10 right-10 px-6 py-4 rounded-xl shadow-lg font-bold text-[15px] text-white transition-all z-[100] animate-in fade-in slide-in-from-top-5 ${toast.type === 'success' ? 'bg-[#7a5c4e]' : 'bg-red-500'}`}>
-          {toast.msg}
-        </div>
-      )}
+      
 
       {/* ===================== MODAL ADD/EDIT ===================== */}
       {isModalOpen && (

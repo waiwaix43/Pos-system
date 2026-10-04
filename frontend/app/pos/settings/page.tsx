@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../components/ToastProvider";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -150,6 +151,7 @@ const DEFAULT_SETTINGS: ShopSettings = {
 };
 
 export default function SettingsPage() {
+  const { showToast } = useToast();
   const router = useRouter();
 
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -158,7 +160,7 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-  const [toast, setToast] = useState<{ show: boolean; msg: string; type: "success" | "error" }>({ show: false, msg: "", type: "success" });
+  
   
   const [isEditing, setIsEditing] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -250,11 +252,6 @@ export default function SettingsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const showToast = (msg: string, type: "success" | "error") => {
-    setToast({ show: true, msg, type });
-    setTimeout(() => setToast({ show: false, msg: "", type: "success" }), 3000);
   };
 
   const handleChange = (key: keyof ShopSettings, value: any) => {
@@ -1104,12 +1101,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Toast Notification */}
-      {toast.show && (
-        <div className={`fixed top-10 right-10 px-6 py-4 rounded-xl shadow-lg font-bold text-[15px] text-white transition-all z-[100] animate-in fade-in slide-in-from-top-5 ${toast.type === 'success' ? 'bg-[#7a5c4e]' : 'bg-red-500'}`}>
-          {toast.msg}
-        </div>
-      )}
+      
 
       {/* Unsaved Changes Modal */}
       {showUnsavedModal && (

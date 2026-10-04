@@ -1,14 +1,17 @@
 "use client";
+import { useToast } from "../components/ToastProvider";
 
 import { useRouter } from "next/navigation";
 
 export default function ForgotPasswordPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
 
   const handleReset = (e: React.FormEvent) => {
     e.preventDefault();
     // จำลองการส่งอีเมล
-    alert("ส่งลิงก์สำหรับรีเซ็ตรหัสผ่านไปที่อีเมลของคุณแล้ว!");
+    showToast("ส่งลิงก์สำหรับรีเซ็ตรหัสผ่านไปที่อีเมลของคุณแล้ว!", 'error');
     router.push("/"); // ส่งเสร็จเด้งกลับหน้า Login
   };
 

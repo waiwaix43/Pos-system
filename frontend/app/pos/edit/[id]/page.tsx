@@ -1,9 +1,12 @@
 "use client";
+import { useToast } from "../../../components/ToastProvider";
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import NotificationBell from "../../../components/NotificationBell";
 
 export default function EditOrderPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const params = useParams() as { id: string };
   const orderId = params.id;
@@ -109,7 +112,7 @@ export default function EditOrderPage() {
   const remainingAmount = Math.max(0, totalPrice - paidAmount);
 
   const confirmEdit = async () => {
-    if (paidAmount < totalPrice && paymentMethod === "เงินสด") return alert("จำนวนเงินไม่เพียงพอ!");
+    if (paidAmount < totalPrice && paymentMethod === "เงินสด") return showToast("จำนวนเงินไม่เพียงพอ!", 'error');
     try {
       const response = await fetch(`http://localhost:5000/api/orders/${orderId}`, {
         method: "PUT",
@@ -119,8 +122,8 @@ export default function EditOrderPage() {
       const data = await response.json();
       if (data.success) {
         setView('success');
-      } else alert("เกิดข้อผิดพลาด: " + data.error);
-    } catch (error) { alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); }
+      } else showToast("เกิดข้อผิดพลาด: " + data.error, 'error');
+    } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); }
   };
 
   return (
@@ -230,7 +233,7 @@ export default function EditOrderPage() {
                   {cart.length === 0 && <div className="flex items-center justify-center h-full text-gray-400">ยังไม่มีรายการสั่งซื้อ</div>}
                 </div>
               </div>
-              <button onClick={() => { if(cart.length === 0) return alert('กรุณาเลือกสินค้าก่อน'); setView('payment'); }} className="w-full py-4 bg-orange-500 text-white rounded-xl text-[18px] font-bold hover:bg-orange-600 shadow-md transition-all">
+              <button onClick={() => { if(cart.length === 0) return showToast('กรุณาเลือกสินค้าก่อน', 'error'); setView('payment'); }} className="w-full py-4 bg-orange-500 text-white rounded-xl text-[18px] font-bold hover:bg-orange-600 shadow-md transition-all">
                 อัปเดตยอดชำระ {totalPrice > 0 ? totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "0.00"}
               </button>
             </div>

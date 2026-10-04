@@ -8,7 +8,8 @@ interface Toast {
   type: ToastType;
 }
 
-const ToastContext = createContext<any>(null);
+export const ToastContext = createContext<any>(null);
+export const useToast = () => useContext(ToastContext);
 
 export default function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -31,8 +32,16 @@ export default function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const showToast = (message: string, type: ToastType = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  };
+
   return (
-    <ToastContext.Provider value={{ setToasts }}>
+    <ToastContext.Provider value={{ setToasts, showToast }}>
       {children}
       <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
         {toasts.map(toast => (

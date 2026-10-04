@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../components/ToastProvider";
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Cropper, { Point, Area } from "react-easy-crop";
@@ -16,6 +17,8 @@ const TERMS_VERSION = "1.0";
 const PRIVACY_VERSION = "1.0";
 
 export default function RegisterPage() {
+  const { showToast } = useToast();
+
     const router = useRouter();
 
     const [currentStep, setCurrentStep] = useState(1);
@@ -231,7 +234,7 @@ export default function RegisterPage() {
             setIsCropModalOpen(false);
             setTempImageSrc(null);
         } catch (e) {
-            alert("เกิดข้อผิดพลาดในการตัดรูปภาพ");
+            showToast("เกิดข้อผิดพลาดในการตัดรูปภาพ", 'error');
         }
     };
 

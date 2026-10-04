@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../components/ToastProvider";
 import { useState, useEffect, useRef } from "react";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 import { useRouter } from "next/navigation";
@@ -6,6 +7,8 @@ import NotificationBell from "../components/NotificationBell";
 import { Search, Plus, Trash2, ArrowLeft, X, AlertCircle } from "lucide-react"; 
 
 export default function POSPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [shopSettings, setShopSettings] = useState<any>(null);
@@ -74,7 +77,7 @@ export default function POSPage() {
   }, []);
 
   const handleHoldOrder = () => {
-    if (cart.length === 0) return alert('ไม่มีรายการให้พักบิล');
+    if (cart.length === 0) return showToast('ไม่มีรายการให้พักบิล', 'error');
     const newHeld = {
       id: Date.now().toString(),
       time: new Date().toISOString(),
@@ -118,7 +121,7 @@ export default function POSPage() {
     const currentShopId = savedUser.shop_id;
 
     if (!currentShopId) {
-      alert("ไม่พบข้อมูลร้านของบัญชีนี้");
+      showToast("ไม่พบข้อมูลร้านของบัญชีนี้", 'error');
       router.push("/pin");
       return;
     }
@@ -232,7 +235,7 @@ export default function POSPage() {
     });
 
     if (missingRequired) {
-      alert(`กรุณาเลือก: ${missingRequired.name}`);
+      showToast(`กรุณาเลือก: ${missingRequired.name}`, 'error');
       return;
     }
 
@@ -406,9 +409,9 @@ export default function POSPage() {
 
   const confirmPayment = async () => {
     if (paymentSubmissionRef.current) return;
-    if (!activeShift) return alert("ไม่พบรอบการขายที่ใช้งานอยู่");
+    if (!activeShift) return showToast("ไม่พบรอบการขายที่ใช้งานอยู่", 'error');
     if (displayPaidAmount < totalPrice && isCash) {
-        return alert("จำนวนเงินไม่เพียงพอ!");
+        return showToast("จำนวนเงินไม่เพียงพอ!", 'error');
     }
 
     paymentSubmissionRef.current = true;
@@ -446,11 +449,11 @@ export default function POSPage() {
             printReceipt(data.billNumber || "");
         }
       } else {
-        alert("เกิดข้อผิดพลาด: " + (data.error || "Unknown Error"));
+        showToast("เกิดข้อผิดพลาด: " + (data.error || "Unknown Error"), 'error');
         if (data.error && data.error.includes("รอบการขายนี้ถูกปิดแล้ว")) router.push('/pos/shifts');
       }
     } catch (error) { 
-        alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); 
+        showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); 
     } finally {
       paymentSubmissionRef.current = false;
       setIsSubmittingPayment(false);
@@ -610,7 +613,7 @@ export default function POSPage() {
                         {heldOrders.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs border-2 border-white">{heldOrders.length}</span>}
                     </button>
                   </div>
-                  <button onClick={() => { if (cart.length === 0) return alert('กรุณาเลือกสินค้าก่อน'); setView('payment'); }} className="w-full py-4 bg-[#7a5c4e] text-white rounded-xl text-[18px] font-bold hover:bg-[#684c3f] shadow-md transition-all">
+                  <button onClick={() => { if (cart.length === 0) return showToast('กรุณาเลือกสินค้าก่อน', 'error'); setView('payment'); }} className="w-full py-4 bg-[#7a5c4e] text-white rounded-xl text-[18px] font-bold hover:bg-[#684c3f] shadow-md transition-all">
                     ชำระเงิน {totalPrice > 0 ? formatCurrency(totalPrice, shopSettings?.currency || 'THB') : "0.00"}
                   </button>
                 </div>

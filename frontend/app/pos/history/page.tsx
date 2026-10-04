@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../components/ToastProvider";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
@@ -49,6 +50,8 @@ const formatDynamicTime = (dateString: string, timeZone: string) => {
 };
 
 export default function HistoryPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
 
@@ -270,7 +273,7 @@ export default function HistoryPage() {
 
       setSelectedReceipt(detailData);
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setDetailLoading(false);
     }
@@ -279,7 +282,7 @@ export default function HistoryPage() {
   const handlePrint = () => window.print();
 
   const confirmVoidBill = async () => {
-    if (!voidPin || voidPin.length !== 4) return alert("กรุณากรอกรหัส PIN 4 หลักให้ครบถ้วน");
+    if (!voidPin || voidPin.length !== 4) return showToast("กรุณากรอกรหัส PIN 4 หลักให้ครบถ้วน", 'error');
     setIsVoiding(true);
     try {
       const response = await fetch(`http://localhost:5000/api/orders/${voidModal.receiptId}/void`, {
@@ -289,19 +292,19 @@ export default function HistoryPage() {
       });
       const data = await response.json();
       if (data.success) {
-        alert(data.message);
+        showToast(data.message, 'error');
         setVoidModal({ show: false, receiptId: null, receiptNo: "" });
         setVoidPin(""); setVoidReason(""); setSelectedReceipt(null); 
         fetchReceipts(); 
       } else {
-        alert("เกิดข้อผิดพลาด: " + data.error);
+        showToast("เกิดข้อผิดพลาด: " + data.error, 'error');
         setVoidPin("");
       }
-    } catch (err) { alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); } finally { setIsVoiding(false); }
+    } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { setIsVoiding(false); }
   };
 
   const handleAuthEdit = async () => {
-    if (!editPin || editPin.length !== 4) return alert("กรุณากรอกรหัส PIN 4 หลัก");
+    if (!editPin || editPin.length !== 4) return showToast("กรุณากรอกรหัส PIN 4 หลัก", 'error');
     setIsEditing(true);
     try {
       const response = await fetch(`http://localhost:5000/api/verify-manager-pin`, {
@@ -319,10 +322,10 @@ export default function HistoryPage() {
         setEditPin("");
         setEditDataModal(true);
       } else {
-        alert("รหัส PIN ไม่ถูกต้อง หรือไม่มีสิทธิ์แก้ไข");
+        showToast("รหัส PIN ไม่ถูกต้อง หรือไม่มีสิทธิ์แก้ไข", 'error');
         setEditPin("");
       }
-    } catch (err) { alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); } finally { setIsEditing(false); }
+    } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { setIsEditing(false); }
   };
 
   const confirmEditBill = async () => {
@@ -340,14 +343,14 @@ export default function HistoryPage() {
       });
       const data = await response.json();
       if (data.success) {
-        alert(data.message);
+        showToast(data.message, 'error');
         setEditDataModal(false);
         setSelectedReceipt(null);
         fetchReceipts();
       } else {
-        alert("เกิดข้อผิดพลาด: " + data.error);
+        showToast("เกิดข้อผิดพลาด: " + data.error, 'error');
       }
-    } catch (err) { alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); } finally { setIsEditing(false); }
+    } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { setIsEditing(false); }
   };
 
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;

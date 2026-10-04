@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../components/ToastProvider";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
@@ -50,6 +51,8 @@ const formatChartLabel = (date: Date, intervalMinutes: number, timeZone: string)
   : { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
 
 export default function ShiftsPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -307,7 +310,7 @@ export default function ShiftsPage() {
   };
 
   const handleOpenShift = async () => {
-    if (!openingCash || isNaN(Number(openingCash))) return alert("กรุณาระบุเงินสดเริ่มต้นให้ถูกต้อง");
+    if (!openingCash || isNaN(Number(openingCash))) return showToast("กรุณาระบุเงินสดเริ่มต้นให้ถูกต้อง", 'error');
     try {
       const res = await fetch(`http://localhost:5000/api/shifts/open`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -317,9 +320,9 @@ export default function ShiftsPage() {
         setIsOpeningShift(false); setOpeningCash("");
         fetchCurrentShift(user.shop_id);
       } else {
-        const errorData = await res.json(); alert(`เกิดข้อผิดพลาด: ${errorData.message || errorData.error}`);
+        const errorData = await res.json(); showToast(`เกิดข้อผิดพลาด: ${errorData.message || errorData.error}`, 'error');
       }
-    } catch (error) { alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); }
+    } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); }
   };
 
   const openClosingModal = () => {
@@ -329,7 +332,7 @@ export default function ShiftsPage() {
   };
 
   const handleNextCloseStep = () => {
-    if (!actualCash || isNaN(Number(actualCash))) return alert("กรุณาระบุเงินสดที่นับจริง");
+    if (!actualCash || isNaN(Number(actualCash))) return showToast("กรุณาระบุเงินสดที่นับจริง", 'error');
     setCloseStep(2);
   };
 
@@ -359,13 +362,13 @@ export default function ShiftsPage() {
           );
         } catch (printErr) {
           console.error("การสั่งพิมพ์ล้มเหลว:", printErr);
-          alert("บันทึกปิดรอบสำเร็จ แต่ระบบไม่สามารถส่งคำสั่งพิมพ์ไปยังเครื่องปริ้นได้ กรุณาพิมพ์ย้อนหลังจากประวัติรอบการขาย");
+          showToast("บันทึกปิดรอบสำเร็จ แต่ระบบไม่สามารถส่งคำสั่งพิมพ์ไปยังเครื่องปริ้นได้ กรุณาพิมพ์ย้อนหลังจากประวัติรอบการขาย", 'error');
         }
 
         setIsClosingShift(false); setActualCash(""); setCurrentShift(null); setShiftSummary(null); setCloseStep(1);
         fetchShiftHistory(user.shop_id, dateSelection.startDate, currentShopTimezone, dateSelection.endDate);
-      } else { alert("เกิดข้อผิดพลาดในการปิดรอบ"); }
-    } catch (error) { alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); }
+      } else { showToast("เกิดข้อผิดพลาดในการปิดรอบ", 'error'); }
+    } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); }
   };
 
   const handleReprintShift = async (pastShift: any) => {
@@ -383,17 +386,17 @@ export default function ShiftsPage() {
           Number(pastShift.cash_difference || 0)
         );
       } else {
-        alert("ไม่สามารถดึงข้อมูลสรุปรอบการขายย้อนหลังนี้ได้");
+        showToast("ไม่สามารถดึงข้อมูลสรุปรอบการขายย้อนหลังนี้ได้", 'error');
       }
     } catch (error) {
-      alert("การเชื่อมต่อเซิร์ฟเวอร์ล้มเหลว");
+      showToast("การเชื่อมต่อเซิร์ฟเวอร์ล้มเหลว", 'error');
     } finally {
       setPrintingShiftId(null);
     }
   };
 
   const handleExpense = async () => {
-    if (!expenseData.amount || !expenseData.reason || !expenseData.pin) return alert("กรุณากรอกข้อมูลให้ครบถ้วน");
+    if (!expenseData.amount || !expenseData.reason || !expenseData.pin) return showToast("กรุณากรอกข้อมูลให้ครบถ้วน", 'error');
     setIsExpensing(true);
     try {
       const finalAmount = expenseMode === "in" ? -Math.abs(Number(expenseData.amount)) : Math.abs(Number(expenseData.amount));
@@ -411,8 +414,8 @@ export default function ShiftsPage() {
         setExpenseData({ amount: "", reason: "", pin: "" });
         setExpenseMode("out"); 
         fetchShiftSummary(currentShift.id); 
-      } else { alert(data.error); }
-    } catch (error) { alert("เกิดข้อผิดพลาด"); } finally { setIsExpensing(false); }
+      } else { showToast(data.error, 'error'); }
+    } catch (error) { showToast("เกิดข้อผิดพลาด", 'error'); } finally { setIsExpensing(false); }
   };
 
   // ==========================================

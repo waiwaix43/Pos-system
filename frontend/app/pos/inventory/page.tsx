@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../components/ToastProvider";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
@@ -16,6 +17,8 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export default function InventoryPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
 
@@ -36,7 +39,7 @@ export default function InventoryPage() {
   const [categoryForm, setCategoryForm] = useState({ id: null as number | null, name: "", type: "raw_material" });
   const [categoryTypeMap, setCategoryTypeMap] = useState<Record<string, string>>({});
   const [lowStockThreshold, setLowStockThreshold] = useState(0);
-  const [toast, setToast] = useState<{ open: boolean; type: 'success' | 'error'; message: string } | null>(null);
+  
 
   // States: Modals (Add / Edit)
   const [showFormModal, setShowFormModal] = useState(false);
@@ -108,15 +111,7 @@ export default function InventoryPage() {
     }
   }, [user]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  useEffect(() => {
-    if (!toast || !toast.open) return;
-    const timer = window.setTimeout(() => setToast(null), 2500);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  const activeTypeValue = activeTab === "วัตถุดิบ" ? "raw_material" : "packaging";
+  useEffect(() => { fetchData(); }, [fetchData]);const activeTypeValue = activeTab === "วัตถุดิบ" ? "raw_material" : "packaging";
   const activeFilterTypeLabel = activeTab === "วัตถุดิบ" ? 'วัตถุดิบ' : 'บรรจุภัณฑ์';
 
   const subcategoryOptions = useMemo(() => {
@@ -169,7 +164,7 @@ export default function InventoryPage() {
 
   const saveCategory = async () => {
     if (!user?.shop_id || !categoryForm.name.trim()) {
-      setToast({ open: true, type: 'error', message: 'กรุณากรอกชื่อหมวดย่อย' });
+      showToast('กรุณากรอกชื่อหมวดย่อย' , 'error');
       return;
     }
     try {
@@ -208,9 +203,9 @@ export default function InventoryPage() {
       setShowCategoryModal(false);
       setFilterSubcategory('all');
       await fetchData();
-      setToast({ open: true, type: 'success', message: categoryForm.id ? `แก้ไขหมวดย่อย '${normalizedCategory.name}' สำเร็จ` : `เพิ่มหมวดย่อย '${normalizedCategory.name}' สำเร็จ` });
+      showToast(categoryForm.id ? `แก้ไขหมวดย่อย '${normalizedCategory.name}' สำเร็จ` : `เพิ่มหมวดย่อย '${normalizedCategory.name}' สำเร็จ`, 'success');
     } catch (err: any) {
-      setToast({ open: true, type: 'error', message: err.message || 'บันทึกหมวดย่อยไม่สำเร็จ' });
+      showToast(err.message || 'บันทึกหมวดย่อยไม่สำเร็จ' , 'error');
     }
   };
 
@@ -237,9 +232,9 @@ export default function InventoryPage() {
       });
       if (String(filterSubcategory) === String(categoryId)) setFilterSubcategory('all');
       await fetchData();
-      setToast({ open: true, type: 'success', message: `ลบหมวดย่อย '${category.name}' สำเร็จ` });
+      showToast(`ลบหมวดย่อย '${category.name}' สำเร็จ`, 'success');
     } catch (err: any) {
-      setToast({ open: true, type: 'error', message: err.message || 'ลบหมวดย่อยไม่สำเร็จ' });
+      showToast(err.message || 'ลบหมวดย่อยไม่สำเร็จ' , 'error');
     }
   };
 
@@ -295,9 +290,9 @@ export default function InventoryPage() {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      return alert("รองรับไฟล์ JPG, PNG และ WEBP เท่านั้น");
+      return showToast("รองรับไฟล์ JPG, PNG และ WEBP เท่านั้น", 'error');
     }
-    if (file.size > 2 * 1024 * 1024) return alert("ขนาดรูปต้องไม่เกิน 2MB");
+    if (file.size > 2 * 1024 * 1024) return showToast("ขนาดรูปต้องไม่เกิน 2MB", 'error');
 
     setUploadingImage(true);
     try {
@@ -309,7 +304,7 @@ export default function InventoryPage() {
       });
       setFormData((previous: any) => ({ ...previous, image_url: imageDataUrl }));
     } catch (err: any) {
-      alert("อัปโหลดรูปไม่สำเร็จ: " + err.message);
+      showToast("อัปโหลดรูปไม่สำเร็จ: " + err.message, 'error');
     } finally {
       setUploadingImage(false);
     }
@@ -319,9 +314,9 @@ export default function InventoryPage() {
   // SAVE DATA
   // ==========================================
   const handleSaveData = async () => {
-    if (!formData.name) return alert("กรุณากรอกชื่อรายการ");
-    if (!formData.type) return alert("กรุณาเลือกประเภทหลัก");
-    if (!formData.category_id) return alert("กรุณาเลือกหมวดย่อย");
+    if (!formData.name) return showToast("กรุณากรอกชื่อรายการ", 'error');
+    if (!formData.type) return showToast("กรุณาเลือกประเภทหลัก", 'error');
+    if (!formData.category_id) return showToast("กรุณาเลือกหมวดย่อย", 'error');
     setIsSaving(true);
     try {
       let endpoint = `/api/inventory/items${formMode === 'edit' ? `/${formData.id}` : ''}`;
@@ -344,7 +339,7 @@ export default function InventoryPage() {
       setFormData({});
       await fetchData(); 
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -365,7 +360,7 @@ export default function InventoryPage() {
       setSelectedItem(null);
       await fetchData();
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -375,7 +370,7 @@ export default function InventoryPage() {
   // ADJUST STOCK
   // ==========================================
   const handleAdjustStock = async () => {
-    if (!adjustData.qty || isNaN(Number(adjustData.qty))) return alert("กรุณาระบุจำนวนที่ต้องการปรับ");
+    if (!adjustData.qty || isNaN(Number(adjustData.qty))) return showToast("กรุณาระบุจำนวนที่ต้องการปรับ", 'error');
     
     setIsSaving(true);
     try {
@@ -394,12 +389,12 @@ export default function InventoryPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
       
-      alert(data.message);
+      showToast(data.message, 'error');
       setAdjustData({ qty: "", reason: "นับ Stock ประจำวัน", note: "" });
       handleOpenDetail(selectedItem.id); 
       fetchData(); 
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -413,8 +408,8 @@ export default function InventoryPage() {
   const submitStockAdjustment = async () => {
     if (!selectedItem) return;
     const amount = Number(stockForm.amount);
-    if (!Number.isFinite(amount) || amount <= 0) return alert("กรุณาระบุจำนวนที่มากกว่า 0");
-    if (stockDialog.mode === "out" && amount > Number(selectedItem.quantity || 0)) return alert("จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้");
+    if (!Number.isFinite(amount) || amount <= 0) return showToast("กรุณาระบุจำนวนที่มากกว่า 0", 'error');
+    if (stockDialog.mode === "out" && amount > Number(selectedItem.quantity || 0)) return showToast("จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้", 'error');
     setIsSaving(true);
     try {
       const response = await fetch("http://localhost:5000/api/inventory/adjust", {
@@ -436,7 +431,7 @@ export default function InventoryPage() {
       await fetchData();
       await handleOpenDetail(selectedItem.id);
     } catch (error: any) {
-      alert(error.message);
+      showToast(error.message, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -467,7 +462,7 @@ export default function InventoryPage() {
 
       setSelectedItem({...data, type: data.type || 'material', movements: itemMovs});
     } catch (err: any) {
-      alert("โหลดรายละเอียดไม่ได้: " + err.message);
+      showToast("โหลดรายละเอียดไม่ได้: " + err.message, 'error');
     } finally {
       setDetailLoading(false);
     }
@@ -492,14 +487,7 @@ export default function InventoryPage() {
 
   return (
     <>
-      {toast?.open && (
-        <div className="fixed right-5 top-5 z-[220] min-w-[260px] max-w-[340px] rounded-xl border shadow-lg backdrop-blur-sm">
-          <div className={`flex items-center gap-3 rounded-xl px-4 py-3 ${toast.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
-            <span className={`inline-flex h-2.5 w-2.5 rounded-full ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-[13px] font-bold">{toast.message}</span>
-          </div>
-        </div>
-      )}
+      
 
       <div className="flex h-screen bg-[#d6d6d6] font-sans overflow-hidden text-gray-800">
       

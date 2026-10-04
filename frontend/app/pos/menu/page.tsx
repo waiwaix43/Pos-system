@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../components/ToastProvider";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -75,6 +76,8 @@ interface Promotion {
 }
 
 export default function MenuPromotionsPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   
@@ -98,7 +101,7 @@ export default function MenuPromotionsPage() {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [gridSize, setGridSize] = useState<"small" | "medium" | "large">("medium");
 
-  const [toast, setToast] = useState<{ show: boolean; msg: string; type: "success" | "error" }>({ show: false, msg: "", type: "success" });
+  
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -186,18 +189,13 @@ export default function MenuPromotionsPage() {
       return;
     }
     if (savedUser.role === "พนักงาน" || savedUser.role === "Cashier") {
-      alert("คุณไม่มีสิทธิ์เข้าถึงหน้านี้");
+      showToast("คุณไม่มีสิทธิ์เข้าถึงหน้านี้", 'error');
       router.push("/pos");
       return;
     }
     setUser(savedUser);
     fetchAllData(savedUser.shop_id || 1);
   }, [router]);
-
-  const showToast = (msg: string, type: "success" | "error") => {
-    setToast({ show: true, msg, type });
-    setTimeout(() => setToast({ show: false, msg: "", type: "success" }), 4000);
-  };
 
   const handleOpenModal = (item: any = null) => {
     if (!item && activeTab === 'options') {
@@ -887,12 +885,7 @@ export default function MenuPromotionsPage() {
         </div>
       </div>
 
-      {/* ===================== TOAST ===================== */}
-      {toast.show && (
-        <div className={`fixed top-10 right-10 px-6 py-4 rounded-xl shadow-lg font-bold text-[15px] text-white transition-all z-[100] animate-in fade-in slide-in-from-top-5 ${toast.type === 'success' ? 'bg-[#7a5c4e]' : 'bg-red-500'}`}>
-          {toast.msg}
-        </div>
-      )}
+      
 
       {/* ===================== MODAL (ADD / EDIT) ===================== */}
       {isModalOpen && (

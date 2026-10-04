@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from "../../components/ToastProvider";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "../../components/NotificationBell";
@@ -83,6 +84,8 @@ const getInitialReportDateRange = (): DateRangeValue => {
 };
 
 export default function ReportsDashboardPage() {
+  const { showToast } = useToast();
+
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   
@@ -100,7 +103,7 @@ export default function ReportsDashboardPage() {
       return;
     }
     if (savedUser.role === "พนักงาน" || savedUser.role === "Cashier") {
-      alert("คุณไม่มีสิทธิ์เข้าถึงหน้านี้");
+      showToast("คุณไม่มีสิทธิ์เข้าถึงหน้านี้", 'error');
       router.push("/pos");
       return;
     }
