@@ -736,14 +736,14 @@ export default function MenuPromotionsPage() {
                   </div>
 
                   {/* Content Area */}
-                  <div className="flex-1 overflow-y-auto p-4 bg-white">
+                  <div className="flex-1 overflow-y-auto bg-white">
                     {filteredData.length === 0 ? (
                         getEmptyStateContent()
                     ) : activeTab === 'products' && viewMode === 'grid' ? (
-                      <div className={`grid gap-4 ${
+                      <div className={`p-4 grid gap-4 ${
                         gridSize === 'small' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6' : 
-                        gridSize === 'large' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 
-                        'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
+                        gridSize === 'large' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-2' : 
+                        'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4'
                       }`}>
                         {filteredData.map((item: any) => (
                           <div key={item.id} className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 p-4 flex flex-col group">
@@ -783,30 +783,30 @@ export default function MenuPromotionsPage() {
                       </div>
                     ) : (
                       // ---------------- TABLE VIEW ----------------
-                      <table className="w-full text-left border-collapse">
-                        <thead className="bg-white sticky top-0 z-10">
+                      <table className="w-full text-left border-separate border-spacing-0">
+                        <thead className="sticky top-0 z-10">
                           <tr>
-                            {activeTab === "products" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 w-20">รูปภาพ</th>}
+                            {activeTab === "products" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 w-20">รูปภาพ</th>}
                             
                             {activeTab === "options" ? (
-                              <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ชื่อกลุ่มตัวเลือก</th>
+                              <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ชื่อกลุ่มตัวเลือก</th>
                             ) : (
-                              <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ชื่อรายการ</th>
+                              <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ชื่อรายการ</th>
                             )}
                             
-                            {activeTab === "products" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">หมวดหมู่</th>}
-                            {activeTab === "products" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">ราคา</th>}
+                            {activeTab === "products" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">หมวดหมู่</th>}
+                            {activeTab === "products" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">ราคา</th>}
                             
-                            {activeTab === "categories" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">จำนวนสินค้า</th>}
+                            {activeTab === "categories" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">จำนวนสินค้า</th>}
                             
-                            {activeTab === "options" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ประเภท</th>}
-                            {activeTab === "options" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">จำนวนรายการ</th>}
+                            {activeTab === "options" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ประเภท</th>}
+                            {activeTab === "options" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">จำนวนรายการ</th>}
                             
-                            {activeTab === "promotions" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">รูปแบบส่วนลด</th>}
-                            {activeTab === "promotions" && <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ระยะเวลา</th>}
+                            {activeTab === "promotions" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">รูปแบบส่วนลด</th>}
+                            {activeTab === "promotions" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200">ระยะเวลา</th>}
                             
-                            <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-center">สถานะ</th>
-                            <th className="px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">จัดการ</th>
+                            <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-center">สถานะ</th>
+                            <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">จัดการ</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
