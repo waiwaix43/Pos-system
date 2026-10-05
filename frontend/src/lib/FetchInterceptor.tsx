@@ -42,7 +42,10 @@ export default function FetchInterceptor() {
 
         const response = await originalFetch(input, init);
 
-        if (response.status === 401) {
+        const expiredToken = response.status === 403
+          ? (await response.clone().json().catch(() => null))?.error === 'Token expired'
+          : false;
+        if (response.status === 401 || expiredToken) {
           const path = window.location.pathname;
           if (path !== '/pin' && path !== '/' && path !== '/login' && path !== '/register') {
             window.location.href = '/pin';

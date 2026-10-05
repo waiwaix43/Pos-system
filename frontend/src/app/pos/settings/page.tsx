@@ -7,6 +7,7 @@ import NotificationBell from '@/components/shared/NotificationBell';
 import InteractiveShopMap from '@/components/shared/InteractiveShopMap';
 import "leaflet/dist/leaflet.css";
 import { createClient } from "@supabase/supabase-js";
+import jsQR from "jsqr";
 import { 
   Store, 
   TrendingUp, 
@@ -28,7 +29,8 @@ import {
   ArrowUp,
   ArrowDown,
   MapPin,
-  LocateFixed
+  LocateFixed,
+  QrCode
 } from "lucide-react";
 
 // ==========================================
@@ -67,6 +69,13 @@ interface ShopSettings {
   shop_name: string;
   branch_name: string;
   logo: string;
+  qr_image: string;
+  qr_reference_number: string;
+  promptpay_id: string;
+  promptpay_payload: string;
+  bank_name: string;
+  bank_account: string;
+  bank_account_name: string;
   address: string;
   phone: string;
   email: string;
@@ -111,6 +120,13 @@ const DEFAULT_SETTINGS: ShopSettings = {
   shop_name: "ชื่อร้านของคุณ",
   branch_name: "สาขาหลัก",
   logo: "",
+  qr_image: "",
+  qr_reference_number: "",
+  promptpay_id: "",
+  promptpay_payload: "",
+  bank_name: "",
+  bank_account: "",
+  bank_account_name: "",
   address: "ที่อยู่ร้าน",
   phone: "-",
   email: "-",
@@ -178,6 +194,8 @@ export default function SettingsPage() {
 
   // Logo Upload State
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [qrPreview, setQrPreview] = useState<string | null>(null);
+  const [qrFile, setQrFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [isFindingAddress, setIsFindingAddress] = useState(false);
@@ -238,6 +256,7 @@ export default function SettingsPage() {
       setOriginalSettings(normalizedSettings);
       setCurrentSettings(normalizedSettings);
       setLogoPreview(normalizedSettings.logo || null);
+      setQrPreview(normalizedSettings.qr_image || null);
 
       // โหลด Payment Methods
       const payRes = await fetch(`http://localhost:5000/api/payment-methods?shop_id=${shopId}`);
@@ -274,6 +293,61 @@ export default function SettingsPage() {
       setLogoPreview(URL.createObjectURL(file));
       setHasUnsavedChanges(true);
     }
+  };
+
+
+  const handleQrSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setQrFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => setQrPreview(reader.result as string);
+      reader.readAsDataURL(file);
+      setIsEditing(true);
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  const handleQrExtract = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    let image: ImageBitmap | undefined;
+    try {
+      image = await createImageBitmap(file);
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("ไม่สามารถอ่านรูป QR Code ได้");
+
+      context.drawImage(image, 0, 0);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const result = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "attemptBoth"
+      });
+      if (!result) throw new Error("ไม่พบ QR Code ในรูปที่เลือก");
+      if (!result.data.startsWith("000201") || !/6304[0-9A-Fa-f]{4}$/.test(result.data)) {
+        throw new Error("QR Code นี้ไม่ใช่รูปแบบ PromptPay ที่รองรับ");
+      }
+
+      setCurrentSettings(prev => prev ? { ...prev, promptpay_payload: result.data } : prev);
+      setHasUnsavedChanges(true);
+      showToast("อ่านข้อมูล QR Code เรียบร้อยแล้ว กดบันทึกเพื่อใช้งาน", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "ไม่สามารถอ่าน QR Code ได้", "error");
+    } finally {
+      image?.close();
+      input.value = "";
+    }
+  };
+
+  const handleRemoveQr = () => {
+    setQrFile(null);
+    setQrPreview(null);
+    setIsEditing(true);
+    setHasUnsavedChanges(true);
   };
 
   const handleRemoveLogo = () => {
@@ -395,6 +469,8 @@ export default function SettingsPage() {
     setPaymentMethods(JSON.parse(JSON.stringify(originalPaymentMethods)));
     setLogoPreview(originalSettings?.logo || null);
     setLogoFile(null);
+    setQrPreview(originalSettings?.qr_image || null);
+    setQrFile(null);
     resetSecurityDraft();
     setIsEditing(false);
     setHasUnsavedChanges(false);
@@ -418,7 +494,20 @@ export default function SettingsPage() {
         finalLogoUrl = ''; // กรณีผู้ใช้กดลบโลโก้
       }
 
-      const payloadSettings = { ...currentSettings, logo: finalLogoUrl };
+
+      let finalQrUrl = currentSettings.qr_image;
+      if (qrFile) {
+        finalQrUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(qrFile);
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = error => reject(error);
+        });
+      } else if (qrPreview === null) {
+        finalQrUrl = '';
+      }
+      const payloadSettings = { ...currentSettings, logo: finalLogoUrl, qr_image: finalQrUrl };
+
 
       // 2. บันทึกข้อมูลการตั้งค่าไปที่ Backend
       const resSettings = await fetch(`http://localhost:5000/api/settings`, {
@@ -443,6 +532,8 @@ export default function SettingsPage() {
       setOriginalSettings(JSON.parse(JSON.stringify(payloadSettings))); 
       setOriginalPaymentMethods(JSON.parse(JSON.stringify(paymentMethods)));
       setLogoFile(null);
+      setQrPreview(finalQrUrl || null);
+      setQrFile(null);
       setIsEditing(false);
       setHasUnsavedChanges(false);
       showToast("บันทึกการตั้งค่าเรียบร้อยแล้ว", "success");
@@ -880,11 +971,40 @@ export default function SettingsPage() {
                            <AlertCircle className="w-5 h-5 text-blue-500 shrink-0" />
                            <p>กำหนดช่องทางการชำระเงินที่ต้องการแสดงในหน้า POS สามารถเปิด-ปิด และจัดเรียงลำดับได้ ข้อมูลนี้จะถูกบันทึกลงในบิลขายจริง</p>
                         </div>
-                        {isEditing && (
                           <div className="mb-5 rounded-[16px] border border-gray-200 bg-gray-50 p-4">
+                            <p className="mb-3 text-[14px] font-bold text-gray-800">ข้อมูลบัญชีรับเงินของร้าน (สำหรับ QR และโอนเงิน)</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                                <div>
+                                    <label className="block text-[13px] text-gray-600 mb-1">เลขที่อ้างอิงจาก QR ธนาคาร (15 หลัก)</label>
+                                    <input disabled={!isEditing} type="text" value={currentSettings?.qr_reference_number || ''} onChange={(e) => setCurrentSettings({...currentSettings, qr_reference_number: e.target.value})} className="w-full rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-100" placeholder="เช่น 004999..." maxLength={20} />
+                                    <p className="text-[11px] text-gray-500 mt-1">*ดูเลขที่อ้างอิงได้จากรูป QR Code ในแอปธนาคาร (ใต้ชื่อบัญชี)</p>
+                                </div>
+                                <div>
+                                    <label className="block text-[13px] text-gray-600 mb-1">หรือระบุเบอร์พร้อมเพย์</label>
+
+
+                                    <input disabled={!isEditing} type="text" value={currentSettings?.promptpay_id || ''} onChange={(e) => setCurrentSettings({...currentSettings, promptpay_id: e.target.value})} className="w-full rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-100" placeholder="08xxxxxxxx หรือ เลขบัตรประชาชน" />
+                                </div>
+                                <div>
+                                    <label className="block text-[13px] text-gray-600 mb-1">ธนาคาร (สำหรับโอนเงิน)</label>
+                                    <input disabled={!isEditing} type="text" value={currentSettings?.bank_name || ''} onChange={(e) => setCurrentSettings({...currentSettings, bank_name: e.target.value})} className="w-full rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-100" placeholder="เช่น กสิกรไทย" />
+                                </div>
+                                <div>
+                                    <label className="block text-[13px] text-gray-600 mb-1">เลขบัญชีธนาคาร</label>
+                                    <input disabled={!isEditing} type="text" value={currentSettings?.bank_account || ''} onChange={(e) => setCurrentSettings({...currentSettings, bank_account: e.target.value})} className="w-full rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-100" placeholder="xxx-x-xxxxx-x" />
+                                </div>
+                                <div>
+                                    <label className="block text-[13px] text-gray-600 mb-1">ชื่อบัญชี</label>
+                                    <input disabled={!isEditing} type="text" value={currentSettings?.bank_account_name || ''} onChange={(e) => setCurrentSettings({...currentSettings, bank_account_name: e.target.value})} className="w-full rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e] disabled:bg-gray-100" placeholder="นาย ตัวอย่าง ทดสอบ" />
+                                </div>
+                            </div>
+                          </div>
+
+                        <div className="mb-5 rounded-[16px] border border-gray-200 bg-gray-50 p-4">
                             <p className="mb-3 text-[14px] font-bold text-gray-800">เพิ่มช่องทางการชำระเงิน</p>
                             <div className="flex flex-col gap-3 sm:flex-row">
-                              <input value={newPaymentMethod.name} onChange={(event) => setNewPaymentMethod({ ...newPaymentMethod, name: event.target.value })} placeholder="เช่น TrueMoney, GrabPay" className="min-w-0 flex-1 rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e]" />
+                              <input value={newPaymentMethod.name} onChange={(event) => setNewPaymentMethod({ ...newPaymentMethod, name: event.target.value })} placeholder="เช่น คนละครึ่ง, ShopeePay,LinePay" className="min-w-0 flex-1 rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e]" />
                               <select value={newPaymentMethod.type} onChange={(event) => setNewPaymentMethod({ ...newPaymentMethod, type: event.target.value })} className="rounded-xl border border-gray-300 px-4 py-3 text-[14px] outline-none focus:border-[#7a5c4e]">
                                 <option value="OTHER">ทั่วไป</option>
                                 <option value="QR">QR / E-Wallet</option>
@@ -894,7 +1014,6 @@ export default function SettingsPage() {
                               <button type="button" onClick={handleAddPaymentMethod} disabled={isAddingPaymentMethod} className="rounded-xl bg-[#7a5c4e] px-5 py-3 text-[14px] font-bold text-white disabled:opacity-50">เพิ่ม</button>
                             </div>
                           </div>
-                        )}
                         <div className="space-y-3">
                           {paymentMethods.map((method, index) => (
                             <div key={method.id} className={`flex items-center justify-between p-4 rounded-[16px] border ${isEditing ? 'border-gray-300 bg-white' : 'border-gray-100 bg-gray-50 opacity-80'}`}>
@@ -907,7 +1026,7 @@ export default function SettingsPage() {
                               </div>
                               <div className="flex items-center gap-3">
                                 <input type="checkbox" disabled={!isEditing} checked={method.is_enabled} onChange={() => handleTogglePayment(index)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
-                                {isEditing && <button type="button" onClick={() => handleDeletePaymentMethod(method)} className="text-gray-400 hover:text-red-500" title="ลบช่องทาง"><Trash2 className="h-4 w-4" /></button>}
+                                <button type="button" onClick={() => handleDeletePaymentMethod(method)} className="text-gray-400 hover:text-red-500" title="ลบช่องทาง"><Trash2 className="h-4 w-4" /></button>
                               </div>
                             </div>
                           ))}

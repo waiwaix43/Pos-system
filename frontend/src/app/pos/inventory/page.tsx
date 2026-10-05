@@ -441,8 +441,9 @@ export default function InventoryPage() {
     setDetailLoading(true);
     setDrawerTab("detail");
     try {
-      const res = await fetch(`http://localhost:5000/api/inventory/${id}`);
+      const res = await fetch(`http://localhost:5000/api/inventory/${id}?shop_id=${user.shop_id}`);
       const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "Failed to fetch");
       
       let itemMovs = [];
       try {

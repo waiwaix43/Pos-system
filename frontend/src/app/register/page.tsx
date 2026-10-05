@@ -288,6 +288,7 @@ export default function RegisterPage() {
                         name: loginData.user.name,
                         email: loginData.user.email,
                         shop_name: loginData.user.shop_name,
+                        token: loginData.token,
                         branch: loginData.user.branch,
                         role: loginData.user.role,
                         profile_image: loginData.user.profile_image

@@ -136,6 +136,9 @@ const authenticateToken = (req, res, next) => {
         next();
     });
 };
+const paymentRoutes = require('./routes/paymentRoutes');
+app.use('/api/payments', paymentRoutes);
+
 app.use('/api', (req, res, next) => {
     const publicPaths = ['/login', '/register', '/verify-pin', '/verify-manager-pin', '/reset-pin', '/settings', '/staff-roles', '/forgot-password'];
     if (publicPaths.some(p => req.path === p || req.path.startsWith(p + '?') || req.path.startsWith(p + '/'))) return next();
@@ -582,6 +585,13 @@ app.post('/api/orders', async (req, res) => {
         const { count, error: countErr } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shift_id', shift_id);
         if (countErr) throw countErr;
 
+        
+        const isGateway = ['QR', 'PROMPTPAY', 'CREDIT_CARD', 'CARD'].includes(payment_method) || payment_method.includes('QR');
+        const isTransfer = ['TRANSFER', 'โอนเงิน'].includes(payment_method) || payment_method.includes('โอนเงิน');
+        let orderStatus = 'completed';
+        if (isGateway) orderStatus = 'PENDING_PAYMENT';
+        else if (isTransfer) orderStatus = 'PENDING_VERIFICATION';
+
         let receiptSettingsSnapshot = null;
         const { data: shopSettings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
         if (shopSettings?.settings_data) {
@@ -626,7 +636,7 @@ app.post('/api/orders', async (req, res) => {
 
         const { data: orderRes, error: orderErr } = await db.from('orders').insert([{
             bill_number: billNumber, shop_id, staff_id: staff_id || null, shift_id, order_type, total_amount: calculatedTotal,
-            payment_method: payment_method || 'เงินสด', received_amount: received_amount || calculatedTotal, change_amount: change_amount || 0, status: 'completed'
+            payment_method: payment_method || 'เงินสด', received_amount: received_amount || calculatedTotal, change_amount: change_amount || 0, status: orderStatus
         }]).select('id').single();
         if (orderErr) throw orderErr;
 
@@ -658,7 +668,7 @@ app.post('/api/orders', async (req, res) => {
             }
         } catch (e) { }
 
-        if (autoDeduct) {
+        if (autoDeduct && orderStatus === 'completed') {
             for (const item of cart) {
                 const productId = item.id || item.product_id;
                 const { data: recipes } = await db.from('recipes').select('*').eq('product_id', productId);
@@ -680,7 +690,7 @@ app.post('/api/orders', async (req, res) => {
                 }
             }
         }
-        res.status(201).json({ success: true, message: "ชำระเงินสำเร็จ", billNumber });
+        res.status(201).json({ success: true, message: "สร้างออเดอร์สำเร็จ", billNumber, orderId, orderStatus });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 

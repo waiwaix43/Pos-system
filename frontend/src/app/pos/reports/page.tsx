@@ -26,7 +26,6 @@ import {
   BarChart3,
   FileSpreadsheet,
   FileIcon,
-  ListTree,
   Search,
   X
 } from "lucide-react";
@@ -72,7 +71,52 @@ const formatSalesDate = (key: string, granularity: string, timeZone: string) => 
 const formatAxisLabel = (key: string, granularity: string, timeZone: string) => {
   if (granularity === "hour") return key.slice(11, 16);
   const dateKey = granularity === "month" ? `${key}-01` : key;
-  return new Date(`${dateKey}T00:00:00+07:00`).toLocaleDateString("th-TH", { timeZone, day: "numeric", month: "short" });
+  return new Date(`${dateKey}T00:00:00+07:00`).toLocaleDateString("th-TH", { timeZone, day: "numeric", month: "short", year: "2-digit" });
+};
+const getDateKeyInBangkok = (date: string) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(date));
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+const getChartBucketKey = (dateKey: string, granularity: string) => {
+  if (granularity === "month") return dateKey.slice(0, 7);
+  if (granularity === "week") {
+    const date = new Date(`${dateKey}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+    return date.toISOString().slice(0, 10);
+  }
+  return dateKey;
+};
+const getDateKeyRange = (startDate: string, endDate: string, granularity: string) => {
+  if (!startDate || !endDate || startDate > endDate) return [];
+  if (granularity === "month") {
+    const keys: string[] = [];
+    const [startYear, startMonth] = startDate.split("-").map(Number);
+    const [endYear, endMonth] = endDate.split("-").map(Number);
+    for (let year = startYear, month = startMonth; year < endYear || (year === endYear && month <= endMonth);) {
+      keys.push(`${year}-${String(month).padStart(2, "0")}`);
+      month += 1;
+      if (month > 12) {
+        month = 1;
+        year += 1;
+      }
+    }
+    return keys;
+  }
+
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (granularity === "week") start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+  const keys: string[] = [];
+  for (const cursor = start; cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + (granularity === "week" ? 7 : 1))) {
+    keys.push(cursor.toISOString().slice(0, 10));
+  }
+  return keys;
 };
 const getInitialReportDateRange = (): DateRangeValue => {
   if (typeof window === "undefined") return getCurrentMonthToDate();
@@ -94,6 +138,9 @@ export default function ReportsDashboardPage() {
   const [queryParams, setQueryParams] = useState<string>("");
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [selectedSalesBucket, setSelectedSalesBucket] = useState<any | null>(null);
+  const [hoveredSalesBucket, setHoveredSalesBucket] = useState<any | null>(null);
+  const [chartGranularity, setChartGranularity] = useState("day");
+  const [chartMetric, setChartMetric] = useState<"value" | "orderCount" | "itemCount">("value");
   const [reportTimeZone, setReportTimeZone] = useState("Asia/Bangkok");
 
   useEffect(() => {
@@ -131,6 +178,12 @@ export default function ReportsDashboardPage() {
     window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
   }, [dateSelection, user]);
 
+  useEffect(() => {
+    if (!dateSelection.startDate || !dateSelection.endDate) return;
+    const dayCount = Math.max(1, Math.floor((Date.parse(`${dateSelection.endDate}T00:00:00Z`) - Date.parse(`${dateSelection.startDate}T00:00:00Z`)) / 86400000) + 1);
+    setChartGranularity(dayCount <= 14 ? "day" : dayCount <= 180 ? "week" : "month");
+  }, [dateSelection.startDate, dateSelection.endDate]);
+
   // ==========================================
   // Hooks โหลดข้อมูลแยกส่วน (Isolated Fetching)
   // ==========================================
@@ -151,13 +204,58 @@ export default function ReportsDashboardPage() {
 
   // สิทธิ์ Cashier ซ่อนรายงานการเงิน
   const isCashier = user?.role === "Cashier";
-  const salesChart = Array.isArray(salesApi.data?.chart)
+  const sourceSalesChart = Array.isArray(salesApi.data?.chart)
     ? salesApi.data.chart
     : Array.isArray(salesApi.data?.trend)
       ? salesApi.data.trend
       : [];
-  const salesGranularity = salesApi.data?.granularity || "day";
-  const maxSalesValue = Math.max(...salesChart.map((item: any) => Number(item.value ?? item.amount) || 0), 1);
+  const salesChart = (() => {
+    if (sourceSalesChart.length === 0) return [];
+    const grouped = new Map<string, any>();
+    const ensureBucket = (key: string) => {
+      if (!grouped.has(key)) grouped.set(key, { key, label: key, value: 0, orderCount: 0, itemCount: 0, orders: [] });
+      return grouped.get(key);
+    };
+    const hasOrderDetails = sourceSalesChart.every((bucket: any) => Array.isArray(bucket.orders));
+    if (hasOrderDetails) {
+      sourceSalesChart.flatMap((bucket: any) => bucket.orders).forEach((order: any) => {
+        const key = getChartBucketKey(getDateKeyInBangkok(order.createdAt), chartGranularity);
+        const bucket = ensureBucket(key);
+        const amount = Number(order.amount) || 0;
+        const itemCount = Number(order.itemCount) || 0;
+        bucket.value += amount;
+        bucket.orderCount += 1;
+        bucket.itemCount += itemCount;
+        bucket.orders.push(order);
+      });
+    } else {
+      sourceSalesChart.forEach((sourceBucket: any) => {
+        const dateKey = String(sourceBucket.key || sourceBucket.label || "").slice(0, 10);
+        const key = getChartBucketKey(dateKey, chartGranularity);
+        const bucket = ensureBucket(key);
+        bucket.value += Number(sourceBucket.value ?? sourceBucket.amount) || 0;
+        bucket.orderCount += Number(sourceBucket.orderCount) || 0;
+        bucket.itemCount += Number(sourceBucket.itemCount) || 0;
+        bucket.orders.push(...(sourceBucket.orders || []));
+      });
+    }
+    getDateKeyRange(dateSelection.startDate, dateSelection.endDate, chartGranularity).forEach(ensureBucket);
+    return [...grouped.values()].sort((a, b) => a.key.localeCompare(b.key)).map(bucket => ({
+      ...bucket,
+      averageBill: bucket.orderCount > 0 ? bucket.value / bucket.orderCount : 0,
+    }));
+  })();
+  const maxSalesValue = Math.max(...salesChart.map((item: any) => Number(item[chartMetric]) || 0), 0) * 1.2;
+  const summary = summaryApi.data?.summary || summaryApi.data || {};
+  const totalSales = Number(summary.netSales) || 0;
+  const totalBills = Number(summary.totalBills) || 0;
+  const totalItems = Number(summary.totalItems) || 0;
+  const averageBill = Number(summary.avgBill) || 0;
+  const rangeDayCount = dateSelection.startDate && dateSelection.endDate
+    ? Math.max(1, Math.floor((Date.parse(`${dateSelection.endDate}T00:00:00Z`) - Date.parse(`${dateSelection.startDate}T00:00:00Z`)) / 86400000) + 1)
+    : 1;
+  const bestSalesBucket = salesChart.reduce((best: any, bucket: any) => Number(bucket.value) > Number(best?.value || 0) ? bucket : best, null);
+  const dailyAverage = totalSales / rangeDayCount;
 
   const handleExport = (format: string) => {
     window.location.href = `http://localhost:5000/api/reports/export?shop_id=${user?.shop_id}&format=${format}&period=${dateSelection.period}&startDate=${dateSelection.startDate}&endDate=${dateSelection.endDate}`;
@@ -263,30 +361,30 @@ export default function ReportsDashboardPage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#d6d6d6] font-sans overflow-hidden print:bg-white print:h-auto print:overflow-visible">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#f7f6f3] font-sans print:h-auto print:overflow-visible print:bg-white md:flex-row">
 
       {/* 🌟 Main Sidebar (ห้ามเปลี่ยน) 🌟 */}
-      <div className="w-[240px] bg-[#4d4d4d] text-white flex flex-col justify-between shrink-0 shadow-lg z-20 print:hidden">
+      <div className="z-20 flex max-h-[34vh] w-full shrink-0 flex-col justify-between overflow-y-auto bg-[#4d4d4d] text-white shadow-lg print:hidden md:max-h-none md:w-[240px]">
         <div>
-          <div className="h-[90px] flex items-center justify-center gap-3 translate-x-3">
-            <h1 className="text-[36px] font-black italic tracking-widest text-white">POS</h1>
+          <div className="flex h-[54px] items-center justify-center gap-3 md:h-[90px] md:translate-x-3">
+            <h1 className="text-[28px] font-black italic tracking-widest text-white md:text-[36px]">POS</h1>
             <NotificationBell />
           </div>
-          <nav className="sidebar-menu flex flex-col text-[16px]">
-            <button onClick={() => router.push('/pos')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สั่งและชำระเงิน</button>
-            <button onClick={() => router.push('/pos/history')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">ประวัติใบเสร็จ</button>
-            <button onClick={() => router.push('/pos/inventory')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สินค้าคงคลัง</button>
-            <button onClick={() => router.push('/pos/shifts')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รอบการขาย</button>
+          <nav className="sidebar-menu grid grid-cols-2 text-[12px] md:flex md:flex-col md:text-[16px]">
+            <button onClick={() => router.push('/pos')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">สั่งและชำระเงิน</button>
+            <button onClick={() => router.push('/pos/history')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">ประวัติใบเสร็จ</button>
+            <button onClick={() => router.push('/pos/inventory')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">สินค้าคงคลัง</button>
+            <button onClick={() => router.push('/pos/shifts')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">รอบการขาย</button>
             {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
-          <button onClick={() => router.push('/pos/menu')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">เมนูและโปรโมชั่น</button>
+          <button onClick={() => router.push('/pos/menu')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">เมนูและโปรโมชั่น</button>
           )}
             {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
-          <button className="py-5 px-6 text-left font-medium border-b border-[#666666] transition-colors bg-[#666666] border-l-4 border-l-white">รายงาน</button>
+          <button className="border-b border-[#666666] border-l-4 border-l-white bg-[#666666] px-3 py-2 text-left font-medium transition-colors md:px-6 md:py-5">รายงาน</button>
           )}
             {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
-          <button onClick={() => router.push('/pos/employees')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">พนักงาน</button>
+          <button onClick={() => router.push('/pos/employees')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">พนักงาน</button>
           )}
-            <button onClick={() => router.push('/pos/settings')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">การตั้งค่า</button>
+            <button onClick={() => router.push('/pos/settings')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">การตั้งค่า</button>
           </nav>
         </div>
         <button onClick={() => {
@@ -296,30 +394,28 @@ export default function ReportsDashboardPage() {
         } else {
           router.push('/pin');
         }
-      }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">
+      }} className="border-t border-[#666666] px-3 py-2 text-left text-[12px] text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-6 md:text-[16px]">
         {user?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN'}
       </button>
       </div>
 
       {/* ===================== MAIN DASHBOARD CONTENT ===================== */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:overflow-visible">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden print:overflow-visible">
         
-        {/* Header - (ห้ามเปลี่ยนตำแหน่งหลัก) */}
-        <div className="h-[90px] bg-[#f5f6f8] flex items-center justify-between z-10 shrink-0 w-full px-8 border-b border-gray-200 shadow-sm print:hidden">
-          <div>
-            <h2 className="text-[22px] font-bold text-gray-800">รายงาน (Reports)</h2>
-            <p className="text-[13px] text-gray-500 mt-1">ศูนย์กลางวิเคราะห์ธุรกิจ POS</p>
+        <div className="z-10 flex w-full shrink-0 flex-col gap-4 border-b border-gray-200 bg-white px-4 py-4 shadow-sm print:hidden sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+          <div className="min-w-0">
+            <h2 className="text-[20px] font-bold text-gray-900 sm:text-[22px]">แนวโน้มยอดขาย (Sales Analytics)</h2>
+            <p className="mt-1 text-[13px] text-gray-500">ภาพรวมยอดขายและสถิติการขายตามช่วงเวลา</p>
           </div>
           
-          {/* Global Date Filter & Actions */}
-          <div className="flex items-center shrink-0 gap-3">
-            <UnifiedDateRangePicker value={dateSelection} onChange={setDateSelection} />
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3 lg:justify-end">
+            <UnifiedDateRangePicker value={dateSelection} onChange={setDateSelection} className="max-w-full" />
 
             {/* Export Dropdown */}
             <div className="relative">
               <button 
                 onClick={() => setShowExportMenu(!showExportMenu)} 
-                className="h-[48px] px-5 flex items-center justify-center border border-gray-200 rounded-full bg-white hover:bg-gray-50 shadow-sm text-gray-700 font-bold text-[14px] transition-colors gap-2"
+                className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-[14px] font-bold text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
               >
                 <Download className="w-4 h-4" /> Export <ChevronDown className="w-4 h-4 text-gray-400"/>
               </button>
@@ -332,78 +428,160 @@ export default function ReportsDashboardPage() {
               )}
             </div>
 
-            <button onClick={() => window.print()} className="w-[48px] h-[48px] flex items-center justify-center border border-gray-200 rounded-full bg-[#7a5c4e] text-white hover:bg-[#684c3f] shadow-sm transition-colors" title="พิมพ์ Dashboard">
+            <button onClick={() => window.print()} className="flex h-[48px] w-[48px] items-center justify-center rounded-xl border border-[#7a5c4e] bg-[#7a5c4e] text-white shadow-sm transition-colors hover:bg-[#684c3f]" title="พิมพ์ Dashboard" aria-label="พิมพ์ Dashboard">
               <Printer className="w-5 h-5" />
             </button>
           </div>
         </div>
 
         {/* 🌟 DASHBOARD AREA 🌟 */}
-        <div className="flex-1 overflow-y-auto p-6 bg-[#d6d6d6] print:p-0 print:bg-white relative">
-          <div className="w-full flex flex-col gap-6">
+        <div className="relative flex-1 overflow-y-auto overflow-x-hidden bg-[#f7f6f3] p-4 sm:p-6 print:overflow-visible print:bg-white print:p-0">
+          <div className="flex w-full min-w-0 flex-col gap-6">
             
-            {/* 1. KPI CARDS */}
             <SectionWrapper state={summaryApi} title="" hideTitle>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-                  <KPICard title="ยอดขายสุทธิ" value={summaryApi.data?.summary?.netSales || summaryApi.data?.netSales || 0} icon={<DollarSign/>} isCurrency />
-                  <KPICard title="กำไรขั้นต้น" value={profitApi.data?.cogsAvailable ? Number(profitApi.data.revenue) - Number(profitApi.data.cogs) : null} icon={<TrendingUp/>} isCurrency hidden={isCashier} />
-                  <KPICard title="จำนวนบิล" value={summaryApi.data?.summary?.totalBills || summaryApi.data?.totalBills || 0} icon={<FileText/>} />
-                  <KPICard title="ยอดเฉลี่ย / บิล" value={summaryApi.data?.summary?.avgBill || summaryApi.data?.avgBill || 0} icon={<Activity/>} isCurrency />
-               </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <KPICard title="ยอดขายรวม" value={totalSales} icon={<DollarSign />} isCurrency description="ยอดขายสุทธิในช่วงที่เลือก" />
+                <KPICard title="จำนวนบิล" value={totalBills} icon={<FileText />} description="รายการขายที่สำเร็จ" />
+                <KPICard title="สินค้าที่ขาย" value={totalItems} icon={<Package />} description="จำนวนชิ้นจากรายการขาย" unit="ชิ้น" />
+                <KPICard title="ค่าเฉลี่ยต่อบิล" value={averageBill} icon={<Activity />} isCurrency description="ยอดขายรวม ÷ จำนวนบิล" />
+              </div>
             </SectionWrapper>
 
-            {/* 2. SALES & PAYMENTS */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <SectionWrapper state={salesApi} title="แนวโน้มยอดขาย (Sales Analytics)" className="lg:col-span-2 min-h-[300px]" icon={<BarChart3 className="w-5 h-5 text-[#7a5c4e]"/>}>
-                  {salesChart.length > 0 ? (
-                   <div className="mt-4 border-t border-gray-100 pt-4 overflow-x-auto">
-                     <div className="relative h-[250px] min-w-[520px]" style={{ width: `${Math.max(520, salesChart.length * 42)}px` }}>
-                       {[0, 25, 50, 75, 100].map(level => (
-                         <div key={level} className="absolute left-10 right-0 border-t border-dashed border-gray-100" style={{ bottom: `${level}%` }}>
-                           <span className="absolute -left-10 -top-2 text-[10px] text-gray-400">{formatCurrency((maxSalesValue * level) / 100).replace(".00", "")}</span>
-                         </div>
-                       ))}
-                       <div className="absolute inset-x-0 bottom-0 top-0 left-10 flex items-end gap-1.5 px-1">
-                         {salesChart.map((d: any) => {
-                           const amount = Number(d.value ?? d.amount) || 0;
-                           const height = amount > 0 ? Math.max((amount / maxSalesValue) * 100, 4) : 0;
-                           return (
-                            <button key={d.key || d.label} type="button" onClick={() => setSelectedSalesBucket(d)} className="group relative flex h-full min-w-8 flex-1 flex-col items-center justify-end focus:outline-none" aria-label={`ดูรายละเอียด ${formatSalesDate(d.key || d.label, salesGranularity, reportTimeZone)}`}>
-                               <span className="pointer-events-none absolute bottom-[calc(var(--bar-height)+8px)] z-10 hidden w-52 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus:block" style={{ left: "50%", "--bar-height": `${height}%` } as React.CSSProperties}>
-                                 <span className="block text-[12px] font-bold text-gray-800">{formatSalesDate(d.key || d.label, salesGranularity, reportTimeZone)}</span>
-                                 <span className="mt-1 block text-[12px] text-gray-600">ยอดขาย {formatCurrency(amount)}</span>
-                                 {d.orderCount !== undefined && <span className="block text-[12px] text-gray-600">จำนวนบิล {d.orderCount.toLocaleString()} บิล</span>}
-                                 {d.itemCount !== undefined && <span className="block text-[12px] text-gray-600">จำนวนสินค้า {d.itemCount.toLocaleString()} ชิ้น</span>}
-                                 {d.averageBill !== undefined && d.orderCount > 0 && <span className="block text-[12px] text-gray-600">ยอดเฉลี่ย / บิล {formatCurrency(Number(d.averageBill))}</span>}
-                               </span>
-                               <span className="w-full rounded-t-sm bg-[#7a5c4e]/80 transition-colors group-hover:bg-[#7a5c4e]" style={{ height: `${height}%` }} />
-                               <span className="mt-2 w-full overflow-hidden text-ellipsis whitespace-nowrap text-center text-[10px] text-gray-500">{formatAxisLabel(d.key || d.label, salesGranularity, reportTimeZone)}</span>
-                             </button>
-                           );
-                         })}
-                       </div>
-                     </div>
-                   </div>
-                 ) : (
-                    renderGenericTable(salesApi.data)
-                 )}
+            <SectionWrapper state={salesApi} title={`กราฟแนวโน้มยอดขาย${chartGranularity === "day" ? "รายวัน" : chartGranularity === "week" ? "รายสัปดาห์" : "รายเดือน"}`} icon={<BarChart3 className="h-5 w-5 text-[#7a5c4e]" />}>
+              <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+                <p className="text-[13px] text-gray-500">ยอดขายจริงตามรายการที่สำเร็จในช่วงเวลาที่เลือก</p>
+                <div className="flex flex-wrap gap-2">
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-gray-500">
+                    ช่วงกราฟ
+                    <select value={chartGranularity} onChange={event => setChartGranularity(event.target.value)} className="min-h-10 rounded-lg border border-gray-200 bg-white px-3 text-[13px] font-semibold text-gray-700">
+                      <option value="day">รายวัน</option>
+                      <option value="week">รายสัปดาห์</option>
+                      <option value="month">รายเดือน</option>
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-gray-500">
+                    แสดงข้อมูล
+                    <select value={chartMetric} onChange={event => setChartMetric(event.target.value as typeof chartMetric)} className="min-h-10 rounded-lg border border-gray-200 bg-white px-3 text-[13px] font-semibold text-gray-700">
+                      <option value="value">ยอดขาย</option>
+                      <option value="orderCount">จำนวนบิล</option>
+                      <option value="itemCount">จำนวนสินค้าที่ขาย</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              {salesChart.length > 0 ? (
+                <>
+                  <div className="mb-4 min-h-[92px]">
+                    {hoveredSalesBucket && (
+                      <div className="rounded-xl border border-[#e5d7cb] bg-[#f8f4ef] px-4 py-3 text-gray-800 shadow-sm" aria-live="polite">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-[#e8ddd4] pb-2">
+                          <span className="text-[13px] font-bold">{formatSalesDate(hoveredSalesBucket.key, chartGranularity, reportTimeZone)}</span>
+                          <span className="text-[11px] font-medium text-gray-500">รายละเอียดช่วงเวลา</span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <div><span className="block text-[11px] text-gray-500">ยอดขาย</span><span className="text-[13px] font-bold">{formatCurrency(hoveredSalesBucket.value)}</span></div>
+                          <div><span className="block text-[11px] text-gray-500">จำนวนบิล</span><span className="text-[13px] font-bold">{hoveredSalesBucket.orderCount.toLocaleString()} บิล</span></div>
+                          <div><span className="block text-[11px] text-gray-500">จำนวนสินค้า</span><span className="text-[13px] font-bold">{hoveredSalesBucket.itemCount.toLocaleString()} ชิ้น</span></div>
+                          <div><span className="block text-[11px] text-gray-500">เฉลี่ยต่อบิล</span><span className="text-[13px] font-bold">{formatCurrency(hoveredSalesBucket.averageBill)}</span></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative h-[330px] w-full rounded-xl border border-[#e9e3dc] bg-[#fcfbf9] px-2 pb-2 pt-4 sm:px-4">
+                    <div className="pointer-events-none absolute left-[58px] right-3 top-4 h-[220px] sm:left-[76px] sm:right-5">
+                      {[0, 25, 50, 75, 100].map(level => {
+                        const tickValue = maxSalesValue * level / 100;
+                        const tickLabel = chartMetric === "value"
+                          ? formatCurrency(tickValue)
+                          : Math.round(tickValue).toLocaleString();
+                        return (
+                          <div key={level} className="absolute inset-x-0 border-t border-dashed border-[#e5e1dc]" style={{ bottom: `${level}%` }}>
+                            <span className="absolute -left-[54px] -top-[9px] w-[48px] text-right text-[9px] leading-3 text-gray-500 sm:-left-[70px] sm:w-[64px] sm:text-[10px]">{tickLabel}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="absolute left-[58px] right-3 top-4 flex h-[300px] items-stretch sm:left-[76px] sm:right-5">
+                      {salesChart.map((bucket: any) => {
+                        const metricValue = Number(bucket[chartMetric]) || 0;
+                        const height = maxSalesValue > 0 ? Math.max(metricValue / maxSalesValue * 100, metricValue > 0 ? 1 : 0) : 0;
+                        const axisLabel = formatAxisLabel(bucket.key, chartGranularity, reportTimeZone);
+                        return (
+                          <button key={bucket.key} type="button" onClick={() => setSelectedSalesBucket(bucket)} onMouseEnter={() => setHoveredSalesBucket(bucket)} onMouseLeave={() => setHoveredSalesBucket(null)} onFocus={() => setHoveredSalesBucket(bucket)} onBlur={() => setHoveredSalesBucket(null)} className="flex min-w-0 flex-1 flex-col items-center rounded-sm px-px text-center focus-visible:z-10 focus-visible:bg-[#f4eee8] focus-visible:ring-2 focus-visible:ring-[#7a5c4e]" aria-label={`${formatSalesDate(bucket.key, chartGranularity, reportTimeZone)}: ${chartMetric === "value" ? formatCurrency(metricValue) : metricValue.toLocaleString()}`} title={`${formatSalesDate(bucket.key, chartGranularity, reportTimeZone)} · ${chartMetric === "value" ? formatCurrency(metricValue) : metricValue.toLocaleString()}`}>
+                            <span className="flex h-[220px] w-full items-end">
+                              <span className={`w-[60%] max-w-14 rounded-t-lg shadow-[0_3px_8px_rgba(122,92,78,0.12)] transition-[height,background-color,box-shadow] duration-200 ${hoveredSalesBucket?.key === bucket.key ? "bg-[#684c3f] shadow-[0_4px_10px_rgba(104,76,63,0.24)]" : "bg-[#9b806f]"}`} style={{ height: `${height}%` }} />
+                            </span>
+                            <span className="mt-2 w-full whitespace-normal break-words text-[9px] leading-3 text-gray-600 sm:text-[10px]">{axisLabel}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : <EmptyState />}
+            </SectionWrapper>
+
+            <SectionWrapper state={salesApi} title="สรุปยอดขาย" icon={<TrendingUp className="h-5 w-5 text-[#7a5c4e]" />}>
+              {totalBills > 0 ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <SummaryMetric label="ยอดขายสูงสุด" value={formatCurrency(Number(bestSalesBucket?.value) || 0)} />
+                  <SummaryMetric label="วันที่ขายดีที่สุด" value={bestSalesBucket && Number(bestSalesBucket.value) > 0 ? formatSalesDate(bestSalesBucket.key, chartGranularity, reportTimeZone) : "ไม่มีข้อมูลยอดขาย"} />
+                  <SummaryMetric label="จำนวนบิลทั้งหมด" value={`${totalBills.toLocaleString()} บิล`} />
+                  <SummaryMetric label="สินค้าขายทั้งหมด" value={`${totalItems.toLocaleString()} ชิ้น`} />
+                  <SummaryMetric label="ค่าเฉลี่ยต่อบิล" value={formatCurrency(averageBill)} />
+                  <SummaryMetric label="ยอดขายเฉลี่ยต่อวัน" value={formatCurrency(dailyAverage)} />
+                </div>
+              ) : <EmptyState />}
+            </SectionWrapper>
+
+            <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-2">
+              <SectionWrapper state={productsApi} title="สินค้าขายดี" icon={<Package className="h-5 w-5 text-[#7a5c4e]" />}>
+                {Array.isArray(productsApi.data) && productsApi.data.length > 0 ? (
+                  <div className="w-full overflow-x-auto">
+                    <table className="w-full min-w-[480px] border-collapse text-left">
+                      <thead><tr className="border-b border-gray-200 text-[11px] font-bold text-gray-500"><th className="px-3 py-3">อันดับ</th><th className="px-3 py-3">สินค้า</th><th className="px-3 py-3 text-right">จำนวนขาย</th><th className="px-3 py-3 text-right">ยอดขาย</th></tr></thead>
+                      <tbody>{productsApi.data.map((product: any, index: number) => (
+                        <tr key={`${product["ชื่อสินค้า"]}-${index}`} className="border-b border-[#f0ece7] text-[13px] text-gray-700 last:border-0 hover:bg-[#faf8f5]">
+                          <td className="px-3 py-3 font-semibold text-[#7a5c4e]">{index + 1}</td>
+                          <td className="px-3 py-3 font-semibold text-gray-800">{product["ชื่อสินค้า"] || "ไม่ระบุชื่อ"}</td>
+                          <td className="px-3 py-3 text-right whitespace-nowrap">{Number(product["ขายได้ (ชิ้น)"] || 0).toLocaleString()} ชิ้น</td>
+                          <td className="px-3 py-3 text-right font-semibold whitespace-nowrap">{formatCurrency(Number(String(product["ยอดรวม (฿)"] || 0).replace(/,/g, "")) || 0)}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                ) : <EmptyState />}
               </SectionWrapper>
 
-              <SectionWrapper state={paymentsApi} title="ช่องทางการชำระเงิน" className="lg:col-span-1" icon={<CreditCard className="w-5 h-5 text-[#7a5c4e]"/>}>
-                 {renderGenericTable(paymentsApi.data)}
-              </SectionWrapper>
-            </div>
-
-            {/* 3. PRODUCT ANALYTICS */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <SectionWrapper state={productsApi} title="สินค้าขายดี (Top Products)" className="lg:col-span-2" icon={<Package className="w-5 h-5 text-[#7a5c4e]"/>}>
-                 {renderGenericTable(productsApi.data)}
-              </SectionWrapper>
-              
-              <SectionWrapper state={productsApi} title="ยอดขายตามหมวดหมู่" className="lg:col-span-1" icon={<ListTree className="w-5 h-5 text-[#7a5c4e]"/>}>
-                 {productsApi.data?.categories ? renderGenericTable(productsApi.data.categories) : (
-                   <div className="flex items-center justify-center py-10 text-[14px] text-gray-400">ระบุรายละเอียดหมวดหมู่ไม่ได้จากข้อมูลปัจจุบัน</div>
-                 )}
+              <SectionWrapper state={paymentsApi} title="ยอดขายตามช่องทางการชำระเงิน" icon={<CreditCard className="h-5 w-5 text-[#7a5c4e]" />}>
+                {Array.isArray(paymentsApi.data) && paymentsApi.data.length > 0 ? (() => {
+                  const rows = paymentsApi.data.map((payment: any) => ({
+                    method: payment["ช่องทาง"] || "ไม่ระบุ",
+                    count: Number(payment["จำนวนรายการ"]) || 0,
+                    amount: Number(String(payment["ยอดรวม (฿)"] || 0).replace(/,/g, "")) || 0,
+                  }));
+                  const paymentTotal = rows.reduce((sum: number, payment: any) => sum + payment.amount, 0);
+                  return (
+                    <div className="w-full overflow-x-auto">
+                      <table className="w-full min-w-[520px] border-collapse text-left">
+                        <thead><tr className="border-b border-gray-200 text-[11px] font-bold text-gray-500"><th className="px-3 py-3">ช่องทาง</th><th className="px-3 py-3 text-right">จำนวนบิล</th><th className="px-3 py-3 text-right">ยอดขาย</th><th className="px-3 py-3">% ยอดขาย</th></tr></thead>
+                        <tbody>{rows.map((payment: any, index: number) => {
+                          const percent = paymentTotal > 0 ? payment.amount / paymentTotal * 100 : 0;
+                          return (
+                            <tr key={`${payment.method}-${index}`} className="border-b border-[#f0ece7] text-[13px] text-gray-700 last:border-0">
+                              <td className="px-3 py-3 font-semibold text-gray-800">{payment.method}</td>
+                              <td className="px-3 py-3 text-right whitespace-nowrap">{payment.count.toLocaleString()}</td>
+                              <td className="px-3 py-3 text-right font-semibold whitespace-nowrap">{formatCurrency(payment.amount)}</td>
+                              <td className="min-w-[110px] px-3 py-3">
+                                <div className="flex items-center gap-2"><div className="h-2 min-w-10 flex-1 rounded-full bg-[#eee8e2]"><div className="h-2 rounded-full bg-[#7a5c4e]" style={{ width: `${percent}%` }} /></div><span className="w-10 text-right text-[11px] text-gray-500">{percent.toFixed(1)}%</span></div>
+                              </td>
+                            </tr>
+                          );
+                        })}</tbody>
+                      </table>
+                    </div>
+                  );
+                })() : <EmptyState />}
               </SectionWrapper>
             </div>
 
@@ -496,7 +674,7 @@ export default function ReportsDashboardPage() {
             <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
               <div>
                 <h3 className="text-[18px] font-bold text-gray-800">รายละเอียดการขาย</h3>
-                <p className="mt-1 text-[13px] text-gray-500">{formatSalesDate(selectedSalesBucket.key || selectedSalesBucket.label, salesGranularity, reportTimeZone)}</p>
+                <p className="mt-1 text-[13px] text-gray-500">{formatSalesDate(selectedSalesBucket.key || selectedSalesBucket.label, chartGranularity, reportTimeZone)}</p>
               </div>
               <button type="button" onClick={() => setSelectedSalesBucket(null)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="ปิดรายละเอียด"><X className="h-5 w-5" /></button>
             </div>
@@ -528,7 +706,7 @@ export default function ReportsDashboardPage() {
 function SectionWrapper({ state, title, icon, children, className = "", hideTitle = false }: any) {
   if (state.loading) {
     return (
-      <div className={`bg-white rounded-[24px] border border-gray-200 shadow-sm p-8 flex flex-col items-center justify-center min-h-[150px] ${className}`}>
+      <div className={`flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-gray-200 bg-white p-8 shadow-sm ${className}`}>
         <RefreshCw className="w-6 h-6 animate-spin text-gray-300 mb-2" />
         <span className="text-[13px] font-medium text-gray-400">กำลังโหลด...</span>
       </div>
@@ -537,7 +715,7 @@ function SectionWrapper({ state, title, icon, children, className = "", hideTitl
 
   if (state.error) {
     return (
-      <div className={`bg-white rounded-[24px] border border-red-100 shadow-sm p-6 flex flex-col items-center justify-center min-h-[150px] text-center ${className}`}>
+      <div className={`flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-red-100 bg-white p-6 text-center shadow-sm ${className}`}>
         <AlertCircle className="w-8 h-8 text-red-300 mb-2" />
         <span className="text-[14px] font-bold text-gray-700 mb-1">ไม่สามารถโหลดข้อมูลได้</span>
         <button onClick={state.retry} className="text-[12px] font-bold text-red-500 bg-red-50 px-4 py-1.5 rounded-full hover:bg-red-100 transition-colors mt-2">
@@ -548,11 +726,11 @@ function SectionWrapper({ state, title, icon, children, className = "", hideTitl
   }
 
   return (
-    <div className={`${hideTitle ? "" : "bg-white rounded-[24px] border border-gray-200 shadow-sm flex flex-col overflow-hidden"} ${className}`}>
+    <div className={`${hideTitle ? "" : "flex min-w-0 flex-col rounded-2xl border border-gray-200 bg-white shadow-sm"} ${className}`}>
       {!hideTitle && (
-        <div className="bg-gray-50 border-b border-gray-100 px-6 py-4 flex items-center gap-3 shrink-0">
+        <div className="flex shrink-0 items-center gap-3 rounded-t-2xl border-b border-gray-100 bg-[#fbfaf8] px-5 py-4 sm:px-6">
           {icon}
-          <h3 className="text-[16px] font-bold text-gray-800">{title}</h3>
+          <h3 className="text-[15px] font-bold text-gray-900 sm:text-[16px]">{title}</h3>
         </div>
       )}
       <div className={`flex-1 flex flex-col ${!hideTitle ? 'p-6' : ''}`}>
@@ -562,20 +740,29 @@ function SectionWrapper({ state, title, icon, children, className = "", hideTitl
   );
 }
 
-function KPICard({ title, value, icon, isCurrency = false, hidden = false }: any) {
+function KPICard({ title, value, icon, isCurrency = false, hidden = false, description = "", unit = "" }: any) {
   if (hidden) return null;
   return (
-    <div className="bg-white p-6 rounded-[20px] border border-gray-300 shadow-md flex flex-col justify-between h-[140px] relative overflow-hidden group hover:border-[#7a5c4e]/50 transition-colors">
-      <div className="absolute right-0 top-0 w-24 h-24 bg-gray-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110 -z-0"></div>
-      <div className="flex items-center gap-2 text-gray-500 relative z-10">
-         <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[#7a5c4e]">
+    <div className="flex min-h-[152px] min-w-0 flex-col rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+      <div className="flex items-center gap-3 text-gray-500">
+         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f4eee8] text-[#7a5c4e]">
            {icon}
          </div>
-         <span className="text-[14px] font-bold uppercase tracking-wide">{title}</span>
+         <span className="text-[13px] font-bold text-gray-600">{title}</span>
       </div>
-      <span className="text-[32px] font-black text-gray-800 truncate relative z-10 mt-auto">
-        {value === null || value === undefined ? "ยังคำนวณไม่ได้" : <>{isCurrency && "฿"}{value.toLocaleString(undefined, { minimumFractionDigits: isCurrency ? 2 : 0 })}</>}
+      <span className="mt-4 break-words text-[26px] font-black leading-tight text-gray-900 sm:text-[30px]">
+        {isCurrency ? formatCurrency(Number(value) || 0) : `${Number(value || 0).toLocaleString()}${unit ? ` ${unit}` : ""}`}
       </span>
+      <span className="mt-2 text-[11px] leading-4 text-gray-500">{description}</span>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-[#eee9e3] bg-[#fcfbf9] p-4">
+      <span className="block text-[12px] font-medium text-gray-500">{label}</span>
+      <span className="mt-1 block break-words text-[17px] font-bold leading-6 text-gray-900">{value}</span>
     </div>
   );
 }

@@ -35,7 +35,7 @@ const formatDateKey = (date: Date) => {
 const todayDate = () => fromIso(formatDateKey(new Date()));
 export const getTodayIso = () => formatDateKey(new Date());
 const formatThaiDate = (value: string) => value ? fromIso(value).toLocaleDateString("th-TH", { timeZone: TIME_ZONE, day: "numeric", month: "short", year: "numeric" }) : "เลือกช่วงเวลา";
-const formatDisplay = (value: DateRangeValue) => value.startDate && value.endDate && value.startDate === value.endDate ? formatThaiDate(value.startDate) : value.startDate && value.endDate ? `${formatThaiDate(value.startDate)} - ${formatThaiDate(value.endDate)}` : "เลือกช่วงเวลา";
+const formatDisplay = (value: DateRangeValue) => value.startDate && value.endDate ? `${formatThaiDate(value.startDate)} - ${formatThaiDate(value.endDate)}` : "เลือกช่วงเวลา";
 const makeRange = (start: Date, end: Date, period: string, mode: PickerView = "range"): DateRangeValue => ({ mode, startDate: toIso(start), endDate: toIso(end), period });
 export const getCurrentMonthToDate = (): DateRangeValue => {
   const today = todayDate();
@@ -163,10 +163,10 @@ export default function UnifiedDateRangePicker({ value, onChange, className = ""
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
-      <button ref={triggerRef} type="button" onClick={openPicker} className="flex items-center border border-gray-200 rounded-full bg-white overflow-hidden shadow-sm h-[48px] px-4 text-[14px] text-gray-700 font-bold whitespace-nowrap">
+      <button ref={triggerRef} type="button" onClick={openPicker} className="flex min-h-[48px] max-w-full flex-wrap items-center gap-y-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] font-bold text-gray-700 shadow-sm sm:px-4 sm:text-[14px]">
         <Calendar className="w-5 h-5 text-gray-400 mr-2 shrink-0" />
-        <span>{formatDisplay(value)}</span>
-        <ChevronDown className="w-4 h-4 text-gray-400 ml-2" />
+        <span className="min-w-0 whitespace-normal break-words">{formatDisplay(value)}</span>
+        <ChevronDown className="ml-1 h-4 w-4 shrink-0 text-gray-400" />
       </button>
       {open && typeof document !== "undefined" && createPortal((
         <div ref={popoverRef} style={{ top: popoverPosition.top, left: popoverPosition.left }} className="fixed z-[200] w-[min(420px,calc(100vw-32px))] max-h-[calc(100vh-32px)] overflow-y-auto pointer-events-auto bg-white border border-gray-200 rounded-2xl shadow-2xl p-4">

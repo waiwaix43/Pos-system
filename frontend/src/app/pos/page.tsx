@@ -1,10 +1,14 @@
 "use client";
 import { useToast } from '@/components/shared/ToastProvider';
 import { useState, useEffect, useRef } from "react";
+import generatePayload from 'promptpay-qr';
+import { QRCodeCanvas } from 'qrcode.react';
+import Cards from 'react-credit-cards-2';
+import 'react-credit-cards-2/dist/es/styles-compiled.css';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
-import { Search, Plus, Trash2, ArrowLeft, X, AlertCircle } from "lucide-react"; 
+import { Search, Plus, Trash2, ArrowLeft, X, AlertCircle, QrCode } from "lucide-react"; 
 
 export default function POSPage() {
   const { showToast } = useToast();
@@ -14,7 +18,9 @@ export default function POSPage() {
   const [shopSettings, setShopSettings] = useState<any>(null);
   const [activeShift, setActiveShift] = useState<any>(null);
   const [isShiftChecking, setIsShiftChecking] = useState(true);
-  const [view, setView] = useState<'pos' | 'payment' | 'success'>('pos');
+  const [view, setView] = useState<'pos' | 'payment' | 'success' | 'qr_modal' | 'transfer_pending'>('pos');
+  const [qrTransaction, setQrTransaction] = useState<any>(null);
+  const [pollingInterval, setPollingInterval] = useState<any>(null);
   
   const [heldOrders, setHeldOrders] = useState<any[]>([]);
   const [showHeldOrders, setShowHeldOrders] = useState(false);
@@ -407,11 +413,36 @@ export default function POSPage() {
         }, 1200);
     };
 
+  
+  const startPolling = (txId: string) => {
+      if (pollingInterval) clearInterval(pollingInterval);
+      const interval = setInterval(async () => {
+          try {
+              const res = await fetch(`http://localhost:5000/api/payments/${txId}/status`);
+              const data = await res.json();
+              if (data.success && data.status === 'PAID') {
+                  clearInterval(interval);
+                  setView('success');
+                  if (shopSettings?.auto_print_receipt) {
+                      // Note: billNumber state might be stale, use callback or ref if needed
+                  }
+              } else if (data.success && (data.status === 'FAILED' || data.status === 'EXPIRED' || data.status === 'CANCELLED')) {
+                  clearInterval(interval);
+                  // alert("การชำระเงินไม่สำเร็จ: " + data.status);
+                  setView('payment');
+              }
+          } catch (e) {
+              console.error(e);
+          }
+      }, 3000);
+      setPollingInterval(interval);
+  };
+
   const confirmPayment = async () => {
     if (paymentSubmissionRef.current) return;
-    if (!activeShift) return showToast("ไม่พบรอบการขายที่ใช้งานอยู่", 'error');
+    if (!activeShift) return alert("ไม่พบรอบการขายที่ใช้งานอยู่");
     if (displayPaidAmount < totalPrice && isCash) {
-        return showToast("จำนวนเงินไม่เพียงพอ!", 'error');
+        return alert("จำนวนเงินไม่เพียงพอ!");
     }
 
     paymentSubmissionRef.current = true;
@@ -434,26 +465,39 @@ export default function POSPage() {
         })
       });
       
-      const text = await response.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        data = { success: false, error: "ระบบขัดข้อง (Response ไม่ใช่ JSON)" };
-      }
+      const data = await response.json();
 
       if (response.ok && data.success) {
         setBillNumber(data.billNumber || "");
-        setView('success');
-        if (shopSettings?.auto_print_receipt) {
-            printReceipt(data.billNumber || "");
+        
+        if (data.orderStatus === 'PENDING_PAYMENT') {
+            // Call create QR
+            const qrRes = await fetch("http://localhost:5000/api/payments/create-qr", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ shop_id: user.shop_id, order_id: data.orderId, amount: totalPrice })
+            });
+            const qrData = await qrRes.json();
+            if (qrData.success) {
+                setQrTransaction(qrData.transaction);
+                setView('qr_modal');
+                startPolling(qrData.transaction.id);
+            } else {
+                alert("สร้าง QR ไม่สำเร็จ: " + qrData.error);
+            }
+        } else if (data.orderStatus === 'PENDING_VERIFICATION') {
+            setView('transfer_pending');
+        } else {
+            setView('success');
+            if (shopSettings?.auto_print_receipt) {
+                // printReceipt(data.billNumber || "");
+            }
         }
       } else {
-        showToast("เกิดข้อผิดพลาด: " + (data.error || "Unknown Error"), 'error');
-        if (data.error && data.error.includes("รอบการขายนี้ถูกปิดแล้ว")) router.push('/pos/shifts');
+        alert("เกิดข้อผิดพลาด: " + (data.error || "Unknown Error"));
       }
     } catch (error) { 
-        showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); 
+        alert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้"); 
     } finally {
       paymentSubmissionRef.current = false;
       setIsSubmittingPayment(false);
@@ -461,6 +505,8 @@ export default function POSPage() {
   };
 
   const finishTransaction = () => {
+      if (pollingInterval) clearInterval(pollingInterval);
+      setQrTransaction(null);
     setCart([]); 
     setPaidAmountStr(""); 
     if (paymentMethods.length > 0) setPaymentMethod(paymentMethods[0].name);
@@ -693,7 +739,82 @@ export default function POSPage() {
             </div>
           )}
 
-          {view === 'success' && (
+          
+          {view === 'qr_modal' && qrTransaction && (
+            <div className="absolute inset-0 bg-white z-50 flex flex-col p-6 items-center justify-center">
+               <div className="max-w-md w-full bg-gray-50 border border-gray-200 rounded-3xl p-8 flex flex-col items-center text-center">
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">ชำระเงิน</h2>
+                  <div className="w-full flex justify-between border-b border-gray-200 pb-4 mb-6">
+                      <span className="text-gray-500">Invoice</span>
+                      <span className="font-bold">{billNumber}</span>
+                  </div>
+                  <div className="w-full flex justify-between border-b border-gray-200 pb-4 mb-6">
+                      <span className="text-gray-500">ยอดชำระ</span>
+                      <span className="text-2xl font-bold text-[#7a5c4e]">฿{totalPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="bg-white p-4 rounded-xl shadow-sm mb-4 flex justify-center w-full">
+                      {qrTransaction.qr_data.startsWith('http') ? (
+                          <img src={qrTransaction.qr_data} alt="QR Code" width={200} height={200} />
+                      ) : (
+                          <QRCodeCanvas value={qrTransaction.qr_data} size={200} />
+                      )}
+                  </div>
+                  <p className="text-lg font-bold text-gray-800">สแกน QR เพื่อชำระเงิน</p>
+                  <p className="text-gray-500 mt-2">สถานะ: <span className="text-orange-500 font-bold animate-pulse">รอการชำระเงิน...</span></p>
+                  
+                  
+                  <div className="w-full flex gap-3 mt-8">
+                      <button onClick={() => { if(pollingInterval) clearInterval(pollingInterval); setView('payment'); }} className="flex-1 py-4 rounded-xl bg-gray-200 text-gray-700 font-bold hover:bg-gray-300">ยกเลิก</button>
+                      <button onClick={async () => {
+                          if (pollingInterval) clearInterval(pollingInterval);
+                          try {
+                              const res = await fetch(`http://localhost:5000/api/payments/${qrTransaction.id}/confirm`, { method: 'POST' });
+                              const data = await res.json();
+                              if (data.success) {
+                                  setView('success');
+                                  if (shopSettings?.auto_print_receipt) {
+                                      // Receipt print logic can go here
+                                  }
+                              } else {
+                                  alert('เกิดข้อผิดพลาด: ' + data.error);
+                              }
+                          } catch(e) { alert('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'); }
+                      }} className="flex-1 py-4 rounded-xl bg-[#7a5c4e] text-white font-bold hover:bg-[#684c3f]">ยืนยันรับเงิน (เช็คสลิปแล้ว)</button>
+                  </div>
+
+               </div>
+            </div>
+          )}
+
+          {view === 'transfer_pending' && (
+            <div className="absolute inset-0 bg-white z-50 flex flex-col p-6 items-center justify-center">
+               <div className="max-w-md w-full bg-gray-50 border border-gray-200 rounded-3xl p-8 flex flex-col items-center text-center">
+                  <h2 className="text-2xl font-bold text-gray-800 mb-2">โอนเงินเข้าบัญชี</h2>
+                  <div className="w-full flex justify-between border-b border-gray-200 pb-4 mb-4">
+                      <span className="text-gray-500">ยอดชำระ</span>
+                      <span className="text-2xl font-bold text-[#7a5c4e]">฿{totalPrice.toFixed(2)}</span>
+                  </div>
+                  
+                  {shopSettings?.qr_image && (
+                      <div className="mb-4 bg-white p-2 rounded-xl shadow-sm inline-block">
+                          <img src={shopSettings.qr_image} alt="QR สำหรับโอนเงิน" className="w-[200px] h-auto object-contain rounded-lg" />
+                          <p className="text-sm font-bold mt-2 text-gray-700">สแกนเพื่อโอนเงิน</p>
+                          <p className="text-xs text-red-500 mt-1">*กรุณาระบุยอดเงินเอง</p>
+                      </div>
+                  )}
+
+                  <div className="text-left w-full bg-blue-50 p-4 rounded-xl mb-6">
+                      <p className="text-sm font-bold text-gray-800 mb-1">ธนาคาร: {shopSettings?.bank_name || '-'}</p>
+                      <p className="text-sm text-gray-700">เลขบัญชี: <span className="font-bold text-lg">{shopSettings?.bank_account || '-'}</span></p>
+                      <p className="text-sm text-gray-700">ชื่อบัญชี: {shopSettings?.bank_account_name || '-'}</p>
+                  </div>
+                  
+                  <p className="text-gray-600 mb-6 text-sm">กรุณาตรวจสอบสลิปการโอนเงินของลูกค้า หากถูกต้องแล้ว ให้ดำเนินการอัปเดตสถานะในระบบจัดการหลังบ้าน หรือกดยืนยันใบเสร็จ</p>
+                  <button onClick={finishTransaction} className="w-full py-4 rounded-xl bg-[#7a5c4e] text-white font-bold hover:bg-[#684c3f]">ปิดหน้านี้ (โอนเงินสำเร็จแล้ว)</button>
+               </div>
+            </div>
+          )}
+    {view === 'success' && (
             <div className="flex-1 h-screen bg-[#f5f6f8] flex items-center justify-center font-sans">
               <div className="bg-white rounded-3xl w-full max-w-sm p-10 text-center shadow-2xl animate-in zoom-in duration-300 border">
                 <button onClick={finishTransaction} className="absolute top-4 right-5 text-gray-400 hover:text-black text-2xl">&times;</button>
@@ -748,26 +869,86 @@ export default function POSPage() {
                   <div className="flex justify-between items-center text-gray-500 font-bold border-t border-gray-300 pt-3"><span>เงินทอน</span><span className="text-3xl font-bold text-black">{formatCurrency(changeAmount, shopSettings?.currency || 'THB')}</span></div>
                 </div>
                 
-                {isCash ? (
-                  <div className="flex flex-col gap-4 flex-1">
-                    <div className="flex gap-4">
-                      {[100, 500, 1000].map(val => (
-                        <button key={val} onClick={() => setPaidAmountStr(val.toString())} className="flex-1 py-4 border rounded-xl text-xl font-bold hover:bg-gray-50 text-black">{val}</button>
-                      ))}
+                  {isCash ? (
+                    <div className="flex flex-col gap-4 flex-1">
+                      <div className="flex gap-4">
+                        {[100, 500, 1000].map(val => (
+                          <button key={val} onClick={() => setPaidAmountStr(val.toString())} className="flex-1 py-4 border rounded-xl text-xl font-bold hover:bg-gray-50 text-black">{val}</button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-4 gap-4 flex-1">
+                        {["7", "8", "9", "<", "4", "5", "6", "C", "1", "2", "3", "", "00", "0", ".", ""].map((b, i) => (
+                          b === "" ? <div key={i}></div> :
+                            <button key={i} onClick={() => handleKeypad(b)} className={`border rounded-xl text-2xl font-bold hover:bg-gray-50 active:bg-gray-100 ${b === "<" || b === "C" ? "text-red-500" : "text-black"}`}>{b}</button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-4 gap-4 flex-1">
-                      {["7", "8", "9", "<", "4", "5", "6", "C", "1", "2", "3", "", "00", "0", ".", ""].map((b, i) => (
-                        b === "" ? <div key={i}></div> :
-                          <button key={i} onClick={() => handleKeypad(b)} className={`border rounded-xl text-2xl font-bold hover:bg-gray-50 active:bg-gray-100 ${b === "<" || b === "C" ? "text-red-500" : "text-black"}`}>{b}</button>
-                      ))}
+                  ) : selectedPaymentConfig?.type === 'QR' ? (
+                    <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 p-6 text-center">
+                        {shopSettings?.qr_reference_number || shopSettings?.promptpay_payload || shopSettings?.promptpay_id ? (
+                            <div className="flex flex-col items-center">
+                                <div className="bg-green-100 p-4 rounded-full mb-4">
+                                    <QrCode className="w-12 h-12 text-green-600" />
+                                </div>
+                                <span className="text-[18px] font-bold text-gray-800">ระบบพร้อมสร้าง QR อัตโนมัติ</span>
+                                <span className="text-[14px] text-gray-500 mt-2">กดยืนยันชำระเงินด้านล่าง เพื่อแสดง QR Code สำหรับสแกน</span>
+                            </div>
+                        ) : (
+                            <div className="text-red-500 flex flex-col items-center gap-2">
+                                <AlertCircle className="w-8 h-8" />
+                                <span>ยังไม่ได้ตั้งค่า QR รับเงินของร้าน</span>
+                                <span className="text-sm">กรุณาอัปโหลดรูป QR ในเมนู "การตั้งค่า &gt; การชำระเงิน"</span>
+                            </div>
+                        )}
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
-                    <span className="text-[20px] font-bold text-gray-600 mb-2">ช่องทาง: {paymentMethod}</span>
-                    <span className="text-[14px] text-gray-500">ยอดชำระถูกกำหนดให้เต็มจำนวนโดยอัตโนมัติ</span>
-                  </div>
-                )}
+                  ) : selectedPaymentConfig?.type === 'TRANSFER' ? (
+                    <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 p-6 text-center">
+                         {shopSettings?.bank_account ? (
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm">
+                                <h3 className="text-gray-500 text-sm mb-4">ข้อมูลบัญชีสำหรับโอนเงิน</h3>
+                                <div className="space-y-4 text-left">
+                                    <div>
+                                        <p className="text-xs text-gray-400">ธนาคาร</p>
+                                        <p className="text-lg font-bold text-gray-800">{shopSettings.bank_name || '-'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-gray-400">เลขบัญชี</p>
+                                        <p className="text-xl font-mono font-bold text-[#7a5c4e]">{shopSettings.bank_account || '-'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-gray-400">ชื่อบัญชี</p>
+                                        <p className="text-md font-bold text-gray-800">{shopSettings.bank_account_name || '-'}</p>
+                                    </div>
+                                </div>
+                            </div>
+                         ) : (
+                            <div className="text-red-500 flex flex-col items-center gap-2">
+                                <AlertCircle className="w-8 h-8" />
+                                <span>ยังไม่ได้ตั้งค่าบัญชีธนาคาร</span>
+                                <span className="text-sm">กรุณาตั้งค่าในเมนู "ข้อมูลบัญชีรับเงินของร้าน"</span>
+                            </div>
+                         )}
+                    </div>
+                  ) : selectedPaymentConfig?.type === 'CARD' ? (
+                    <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 p-6 text-center">
+                        <div className="w-full max-w-md flex flex-col items-center">
+                            <Cards number="" name="ลูกค้า POS" expiry="" cvc="" />
+                            <div className="mt-6 text-left w-full max-w-sm">
+                                <p className="text-sm text-gray-500 mb-2">เชื่อมต่อเครื่องรูดบัตร (EDC) หรือกรอกข้อมูลบัตรเพื่อชำระเงินออนไลน์</p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input type="text" placeholder="หมายเลขบัตร" className="col-span-2 rounded-xl border border-gray-300 p-3 text-sm" />
+                                    <input type="text" placeholder="ด/ป" className="rounded-xl border border-gray-300 p-3 text-sm" />
+                                    <input type="text" placeholder="CVC" className="rounded-xl border border-gray-300 p-3 text-sm" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+                      <span className="text-[20px] font-bold text-gray-600 mb-2">ช่องทาง: {paymentMethod}</span>
+                      <span className="text-[14px] text-gray-500">ยอดชำระถูกกำหนดให้เต็มจำนวนโดยอัตโนมัติ</span>
+                    </div>
+                  )}
 
                 <button onClick={confirmPayment} disabled={paymentMethods.length === 0 || isSubmittingPayment} className={`w-full py-5 rounded-2xl mt-6 text-[20px] font-bold transition-all ${displayPaidAmount >= totalPrice && !isSubmittingPayment ? "bg-[#7a5c4e] text-white hover:bg-[#684c3f]" : "bg-gray-300 text-gray-500"}`}>
                   {isSubmittingPayment ? "กำลังบันทึกการชำระ..." : "ยืนยันการชำระ"}
