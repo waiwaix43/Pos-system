@@ -1,10 +1,10 @@
 "use client";
-import { useToast } from "../../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import NotificationBell from "../../components/NotificationBell";
-import InteractiveShopMap from "../../components/InteractiveShopMap";
+import NotificationBell from '@/components/shared/NotificationBell';
+import InteractiveShopMap from '@/components/shared/InteractiveShopMap';
 import "leaflet/dist/leaflet.css";
 import { createClient } from "@supabase/supabase-js";
 import { 

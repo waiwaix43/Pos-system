@@ -1,9 +1,9 @@
 "use client";
-import { useToast } from "../../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import NotificationBell from "../../components/NotificationBell";
-import UnifiedDateRangePicker, { DateRangeValue, getTodayIso } from "../../components/UnifiedDateRangePicker";
+import NotificationBell from '@/components/shared/NotificationBell';
+import UnifiedDateRangePicker, { DateRangeValue, getTodayIso } from '@/components/shared/UnifiedDateRangePicker';
 import { 
   Search, 
   RefreshCw, 

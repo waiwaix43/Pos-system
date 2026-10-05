@@ -1,8 +1,8 @@
 "use client";
-import { useToast } from "../../../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import NotificationBell from "../../../components/NotificationBell";
+import NotificationBell from '@/components/shared/NotificationBell';
 
 export default function EditOrderPage() {
   const { showToast } = useToast();

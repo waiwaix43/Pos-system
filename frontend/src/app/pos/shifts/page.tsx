@@ -1,9 +1,9 @@
 "use client";
-import { useToast } from "../../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import NotificationBell from "../../components/NotificationBell";
-import UnifiedDateRangePicker, { DateRangeValue } from "../../components/UnifiedDateRangePicker";
+import NotificationBell from '@/components/shared/NotificationBell';
+import UnifiedDateRangePicker, { DateRangeValue } from '@/components/shared/UnifiedDateRangePicker';
 import { 
   Clock, Play, Square, DollarSign, FileText, Package, CreditCard, History,
   AlertCircle, X, CheckCircle, TrendingUp, RefreshCw, BarChart3, TrendingDown, Lock, Save, AlertTriangle, List, ArrowDownCircle, ArrowUpCircle, Printer

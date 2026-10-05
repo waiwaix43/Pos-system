@@ -1,16 +1,16 @@
 "use client";
-import { useToast } from "../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Cropper, { Point, Area } from "react-easy-crop";
-import getCroppedImg from "../../utils/cropImage"; // ตรวจสอบ path ให้ตรงกับโปรเจกต์
+import getCroppedImg from '@/utils/cropImage'; // ตรวจสอบ path ให้ตรงกับโปรเจกต์
 import { 
     Camera, Eye, EyeOff, Plus, Trash2, CheckCircle, AlertCircle, RefreshCw, Check, ChevronRight, ChevronLeft
 } from "lucide-react";
 
 // นำเข้า Modals
-import TermsModal from "../components/TermsModal";
-import PrivacyModal from "../components/PrivacyModal";
+import TermsModal from '@/components/shared/TermsModal';
+import PrivacyModal from '@/components/shared/PrivacyModal';
 
 // กำหนด Version ของเอกสารเพื่อส่งเข้า Backend
 const TERMS_VERSION = "1.0";

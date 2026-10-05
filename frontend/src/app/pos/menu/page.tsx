@@ -1,9 +1,9 @@
 "use client";
-import { useToast } from "../../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import NotificationBell from "../../components/NotificationBell";
+import NotificationBell from '@/components/shared/NotificationBell';
 import { createClient } from "@supabase/supabase-js";
 import { 
   Package, 

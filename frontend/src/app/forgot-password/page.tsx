@@ -1,5 +1,5 @@
 "use client";
-import { useToast } from "../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 
 import { useRouter } from "next/navigation";
 

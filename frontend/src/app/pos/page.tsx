@@ -1,9 +1,9 @@
 "use client";
-import { useToast } from "../components/ToastProvider";
+import { useToast } from '@/components/shared/ToastProvider';
 import { useState, useEffect, useRef } from "react";
-import { formatCurrency, formatDate } from "../../utils/formatters";
+import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useRouter } from "next/navigation";
-import NotificationBell from "../components/NotificationBell";
+import NotificationBell from '@/components/shared/NotificationBell';
 import { Search, Plus, Trash2, ArrowLeft, X, AlertCircle } from "lucide-react"; 
 
 export default function POSPage() {
