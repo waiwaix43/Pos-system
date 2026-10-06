@@ -1,2 +1,0 @@
-frontend\app\components\PrivacyModal.tsx:137 {/* TODO: แทนที่ Placeholder ด้วยข้อมูลจริงของบริษัท */}
-frontend\app\components\TermsModal.tsx:156 {/* TODO: แทนที่ Placeholder ด้วยข้อมูลจริงของบริษัท */}
