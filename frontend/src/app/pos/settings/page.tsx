@@ -2,12 +2,10 @@
 import { useToast } from '@/components/shared/ToastProvider';
 
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
-import InteractiveShopMap from '@/components/shared/InteractiveShopMap';
 import "leaflet/dist/leaflet.css";
-import { createClient } from "@supabase/supabase-js";
-import jsQR from "jsqr";
 import { 
   Store, 
   TrendingUp, 
@@ -33,12 +31,23 @@ import {
   QrCode
 } from "lucide-react";
 
-// ==========================================
-// SUPABASE CLIENT (คงไว้เผื่อมีการใช้งานส่วนอื่น)
-// ==========================================
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/$/, "");
+const FETCH_TIMEOUT_MS = 10000;
+
+const InteractiveShopMap = dynamic(() => import('@/components/shared/InteractiveShopMap'), {
+  ssr: false,
+  loading: () => <div className="h-[280px] w-full animate-pulse bg-gray-100" />
+});
+
+const fetchWithTimeout = async (url: string, init?: RequestInit) => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
 
 // ==========================================
 // INTERFACES
@@ -174,6 +183,8 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<string>("shop");
   
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingPaymentMethods, setIsLoadingPaymentMethods] = useState(false);
+  const [paymentMethodsError, setPaymentMethodsError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   
@@ -233,11 +244,12 @@ export default function SettingsPage() {
   const fetchSettings = async (shopId: number) => {
     setIsLoading(true);
     setErrorMsg("");
+    void fetchPaymentMethods(shopId);
     try {
       const storedUser = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("userContext") || "null") : null;
       const currentUserId = user?.id ?? storedUser?.id;
 
-      const res = await fetch(`http://localhost:5000/api/settings?shop_id=${shopId}`);
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/settings?shop_id=${shopId}`);
       if (!res.ok) throw new Error(`เกิดข้อผิดพลาดในการโหลดข้อมูล (Status: ${res.status})`);
       const data = await res.json();
       const userPinMap = data.pin_settings && typeof data.pin_settings === 'object' && !Array.isArray(data.pin_settings)
@@ -257,19 +269,38 @@ export default function SettingsPage() {
       setCurrentSettings(normalizedSettings);
       setLogoPreview(normalizedSettings.logo || null);
       setQrPreview(normalizedSettings.qr_image || null);
-
-      // โหลด Payment Methods
-      const payRes = await fetch(`http://localhost:5000/api/payment-methods?shop_id=${shopId}`);
-      if (payRes.ok) {
-        const payData = await payRes.json();
-        setPaymentMethods(payData);
-        setOriginalPaymentMethods(JSON.parse(JSON.stringify(payData)));
-      }
     } catch (error: any) {
       console.error("Fetch Settings Error:", error);
-      setErrorMsg(error.message === "Failed to fetch" ? "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ Backend ได้" : error.message);
+      setErrorMsg(error.name === "AbortError"
+        ? "เซิร์ฟเวอร์ใช้เวลาตอบสนองนานเกินไป กรุณาลองอีกครั้ง"
+        : error.message === "Failed to fetch"
+          ? "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ Backend ได้"
+          : error.message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchPaymentMethods = async (shopId: number) => {
+    setIsLoadingPaymentMethods(true);
+    setPaymentMethodsError("");
+    try {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/payment-methods?shop_id=${shopId}`);
+      if (!response.ok) throw new Error(`โหลดช่องทางการชำระเงินไม่สำเร็จ (Status: ${response.status})`);
+
+      const methods: PaymentMethod[] = await response.json();
+      if (!Array.isArray(methods)) throw new Error("รูปแบบข้อมูลช่องทางการชำระเงินไม่ถูกต้อง");
+      setPaymentMethods(methods);
+      setOriginalPaymentMethods(JSON.parse(JSON.stringify(methods)));
+    } catch (error: any) {
+      console.error("Fetch Payment Methods Error:", error);
+      setPaymentMethodsError(error.name === "AbortError"
+        ? "เซิร์ฟเวอร์ใช้เวลาตอบสนองนานเกินไป"
+        : error.message === "Failed to fetch"
+          ? "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ Backend ได้"
+          : error.message);
+    } finally {
+      setIsLoadingPaymentMethods(false);
     }
   };
 
@@ -324,6 +355,7 @@ export default function SettingsPage() {
 
       context.drawImage(image, 0, 0);
       const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const { default: jsQR } = await import("jsqr");
       const result = jsQR(imageData.data, imageData.width, imageData.height, {
         inversionAttempts: "attemptBoth"
       });
@@ -408,7 +440,7 @@ export default function SettingsPage() {
     if (!user || !newPaymentMethod.name.trim()) return showToast("กรุณาระบุชื่อช่องทางการชำระเงิน", "error");
     setIsAddingPaymentMethod(true);
     try {
-      const response = await fetch("http://localhost:5000/api/payment-methods", {
+      const response = await fetch(`${API_BASE_URL}/api/payment-methods`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shop_id: user.shop_id, ...newPaymentMethod })
@@ -429,7 +461,7 @@ export default function SettingsPage() {
   const handleDeletePaymentMethod = async (method: PaymentMethod) => {
     if (!user || !window.confirm(`ลบช่องทาง “${method.name}” ใช่หรือไม่?`)) return;
     try {
-      const response = await fetch(`http://localhost:5000/api/payment-methods/${method.id}?shop_id=${user.shop_id}`, { method: "DELETE" });
+      const response = await fetch(`${API_BASE_URL}/api/payment-methods/${method.id}?shop_id=${user.shop_id}`, { method: "DELETE" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "ลบช่องทางการชำระเงินไม่สำเร็จ");
       setPaymentMethods(previous => previous.filter(item => item.id !== method.id));
@@ -510,7 +542,7 @@ export default function SettingsPage() {
 
 
       // 2. บันทึกข้อมูลการตั้งค่าไปที่ Backend
-      const resSettings = await fetch(`http://localhost:5000/api/settings`, {
+      const resSettings = await fetch(`${API_BASE_URL}/api/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shop_id: user.shop_id, data: payloadSettings }),
@@ -520,7 +552,7 @@ export default function SettingsPage() {
       // 3. บันทึกช่องทางการชำระเงิน (ถ้ามีการแก้ไข)
       const paymentMethodsChanged = JSON.stringify(paymentMethods) !== JSON.stringify(originalPaymentMethods);
       if (paymentMethodsChanged) {
-        const resPayment = await fetch(`http://localhost:5000/api/payment-methods`, {
+        const resPayment = await fetch(`${API_BASE_URL}/api/payment-methods`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ shop_id: user.shop_id, methods: paymentMethods }),
@@ -549,7 +581,7 @@ export default function SettingsPage() {
     setIsSaving(true);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/users/${user.id}/pin-setting`, {
+      const response = await fetch(`${API_BASE_URL}/api/users/${user.id}/pin-setting`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shop_id: user.shop_id, pin_enabled: enabled })
@@ -605,7 +637,7 @@ export default function SettingsPage() {
         ? { id: user?.id, email: user?.email, oldPass: securityForm.oldPass, newPass: securityForm.newPass, confirmPass: securityForm.confirmPass }
         : { id: user?.id, email: user?.email, password: securityForm.oldPin, newPin: securityForm.newPin, confirmPin: securityForm.confirmPin };
 
-      const res = await fetch(`http://localhost:5000${endpoint}`, {
+      const res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -971,6 +1003,20 @@ export default function SettingsPage() {
                            <AlertCircle className="w-5 h-5 text-blue-500 shrink-0" />
                            <p>กำหนดช่องทางการชำระเงินที่ต้องการแสดงในหน้า POS สามารถเปิด-ปิด และจัดเรียงลำดับได้ ข้อมูลนี้จะถูกบันทึกลงในบิลขายจริง</p>
                         </div>
+                        {isLoadingPaymentMethods ? (
+                          <p className="mb-4 text-sm text-gray-500">กำลังโหลดช่องทางการชำระเงิน...</p>
+                        ) : paymentMethodsError ? (
+                          <div className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                            <span>{paymentMethodsError}</span>
+                            <button
+                              type="button"
+                              onClick={() => void fetchPaymentMethods(user?.shop_id || 1)}
+                              className="shrink-0 font-bold underline"
+                            >
+                              ลองอีกครั้ง
+                            </button>
+                          </div>
+                        ) : null}
                           <div className="mb-5 rounded-[16px] border border-gray-200 bg-gray-50 p-4">
                             <p className="mb-3 text-[14px] font-bold text-gray-800">ข้อมูลบัญชีรับเงินของร้าน (สำหรับ QR และโอนเงิน)</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

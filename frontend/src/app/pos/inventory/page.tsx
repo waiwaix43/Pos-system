@@ -9,6 +9,37 @@ import {
   Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2, Minus, Check
 } from "lucide-react";
 
+const ITEMS_PER_PAGE = 50;
+const getThaiApiMessage = (message: unknown, fallback: string) => {
+  if (
+    typeof message !== 'string' ||
+    !/[\u0E00-\u0E7F]/.test(message) ||
+    /[\u0080-\u009F\uFFFD]/.test(message)
+  ) {
+    return fallback;
+  }
+  return message;
+};
+
+const getMovementLabel = (reason: unknown, movementType: unknown) => {
+  if (typeof reason === 'string' && reason.trim() && !/[\u0080-\u009F\uFFFD]/.test(reason)) {
+    return reason;
+  }
+
+  switch (movementType) {
+    case 'INITIAL_STOCK':
+      return 'เพิ่มสินค้าเข้าคลัง';
+    case 'STOCK_IN':
+      return 'รับสินค้าเข้า';
+    case 'STOCK_OUT':
+      return 'เบิกสินค้าออก';
+    case 'SALE':
+      return 'ตัดสต็อกจากการขาย';
+    default:
+      return 'ปรับปรุงสต็อก';
+  }
+};
+
 // ==========================================
 // SUPABASE CLIENT สำหรับอัปโหลดรูปภาพ
 // ==========================================
@@ -24,6 +55,7 @@ export default function InventoryPage() {
 
   // States: Main Data
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [inventoryImages, setInventoryImages] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState<boolean>(true);
   
   // States: Filters & Tabs
@@ -34,6 +66,7 @@ export default function InventoryPage() {
   const [filterStock, setFilterStock] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [filterSubcategory, setFilterSubcategory] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [inventoryCategories, setInventoryCategories] = useState<any[]>([]);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [categoryForm, setCategoryForm] = useState({ id: null as number | null, name: "", type: "raw_material" });
@@ -84,7 +117,7 @@ export default function InventoryPage() {
     setLoading(true);
     try {
       const [invRes, settingsRes, categoriesRes] = await Promise.all([
-        fetch(`http://localhost:5000/api/inventory/items?shop_id=${user.shop_id}`),
+        fetch(`http://localhost:5000/api/inventory/items?shop_id=${user.shop_id}&include_images=false`),
         fetch(`http://localhost:5000/api/settings?shop_id=${user.shop_id}`),
         fetch(`http://localhost:5000/api/inventory/categories?shop_id=${user.shop_id}`)
       ]);
@@ -111,7 +144,10 @@ export default function InventoryPage() {
     }
   }, [user]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);const activeTypeValue = activeTab === "วัตถุดิบ" ? "raw_material" : "packaging";
+  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, activeTab, filterStatus, filterStock, filterType, filterSubcategory]);
+
+  const activeTypeValue = activeTab === "วัตถุดิบ" ? "raw_material" : "packaging";
   const activeFilterTypeLabel = activeTab === "วัตถุดิบ" ? 'วัตถุดิบ' : 'บรรจุภัณฑ์';
 
   const subcategoryOptions = useMemo(() => {
@@ -120,14 +156,18 @@ export default function InventoryPage() {
       return matchesActiveTab;
     });
 
-    const relevantCategoryIds = new Set(filteredByType
-      .map(item => item.category_id)
-      .filter((id) => id !== null && id !== undefined && id !== ''));
+    const countsByCategory = new Map<string, number>();
+    filteredByType.forEach((item) => {
+      if (item.category_id !== null && item.category_id !== undefined && item.category_id !== '') {
+        const categoryId = String(item.category_id);
+        countsByCategory.set(categoryId, (countsByCategory.get(categoryId) || 0) + 1);
+      }
+    });
 
     const dynamicCategories = inventoryCategories.filter((cat) => {
       const categoryId = String(cat.id);
       const localType = categoryTypeMap[categoryId];
-      return relevantCategoryIds.has(categoryId) || localType === activeTypeValue || (!relevantCategoryIds.has(categoryId) && !localType);
+      return countsByCategory.has(categoryId) || localType === activeTypeValue || !localType;
     });
 
     return [
@@ -135,10 +175,7 @@ export default function InventoryPage() {
       ...dynamicCategories.map((cat) => ({
         id: String(cat.id),
         name: cat.name,
-        count: inventoryItems.filter((item) => {
-          const sameType = item.type === activeTypeValue || (!item.type && activeTypeValue === 'raw_material');
-          return sameType && String(item.category_id) === String(cat.id);
-        }).length
+        count: countsByCategory.get(String(cat.id)) || 0
       }))
     ];
   }, [inventoryCategories, inventoryItems, activeTypeValue, categoryTypeMap]);
@@ -180,7 +217,7 @@ export default function InventoryPage() {
         })
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'บันทึกหมวดย่อยไม่สำเร็จ');
+      if (!res.ok) throw new Error(getThaiApiMessage(data.error, 'บันทึกหมวดย่อยไม่สำเร็จ กรุณาลองใหม่'));
 
       const savedCategory = data.category || data || { id: Date.now(), name: categoryForm.name.trim(), type: categoryForm.type };
       const resolvedCategoryId = savedCategory.id ?? data.id ?? categoryForm.id ?? Date.now();
@@ -203,9 +240,9 @@ export default function InventoryPage() {
       setShowCategoryModal(false);
       setFilterSubcategory('all');
       await fetchData();
-      showToast(categoryForm.id ? `แก้ไขหมวดย่อย '${normalizedCategory.name}' สำเร็จ` : `เพิ่มหมวดย่อย '${normalizedCategory.name}' สำเร็จ`, 'success');
+      showToast(categoryForm.id ? 'แก้ไขหมวดย่อยสำเร็จ' : 'เพิ่มหมวดย่อยสำเร็จ', 'success');
     } catch (err: any) {
-      showToast(err.message || 'บันทึกหมวดย่อยไม่สำเร็จ' , 'error');
+      showToast(getThaiApiMessage(err.message, 'บันทึกหมวดย่อยไม่สำเร็จ กรุณาลองใหม่'), 'error');
     }
   };
 
@@ -219,7 +256,7 @@ export default function InventoryPage() {
         method: 'DELETE'
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'ลบหมวดย่อยไม่สำเร็จ');
+      if (!res.ok) throw new Error(getThaiApiMessage(data.error, 'ลบหมวดย่อยไม่สำเร็จ กรุณาลองใหม่'));
 
       setInventoryCategories((prev) => prev.filter((cat) => Number(cat.id) !== Number(categoryId)));
       setInventoryItems((prev) => prev.map((item) => Number(item.category_id) === Number(categoryId)
@@ -232,9 +269,9 @@ export default function InventoryPage() {
       });
       if (String(filterSubcategory) === String(categoryId)) setFilterSubcategory('all');
       await fetchData();
-      showToast(`ลบหมวดย่อย '${category.name}' สำเร็จ`, 'success');
+      showToast('ลบหมวดย่อยสำเร็จ', 'success');
     } catch (err: any) {
-      showToast(err.message || 'ลบหมวดย่อยไม่สำเร็จ' , 'error');
+      showToast(getThaiApiMessage(err.message, 'ลบหมวดย่อยไม่สำเร็จ กรุณาลองใหม่'), 'error');
     }
   };
 
@@ -246,8 +283,8 @@ export default function InventoryPage() {
     setActiveTab('วัตถุดิบ');
   };
 
-  const countRaw = inventoryItems.filter(i => !i.type || i.type === 'raw_material').length;
-  const countPkg = inventoryItems.filter(i => i.type === 'packaging').length;
+  const countRaw = useMemo(() => inventoryItems.filter(i => !i.type || i.type === 'raw_material').length, [inventoryItems]);
+  const countPkg = useMemo(() => inventoryItems.filter(i => i.type === 'packaging').length, [inventoryItems]);
 
   const selectTypeTab = (tab: string) => {
     const nextType = tab === 'วัตถุดิบ' ? 'raw_material' : 'packaging';
@@ -258,24 +295,55 @@ export default function InventoryPage() {
 
   const effectiveType = filterType === 'all' ? activeTypeValue : filterType;
 
-  let displayedItems: any[] = inventoryItems.filter(i => {
-    const matchesType = i.type === effectiveType || (!i.type && effectiveType === 'raw_material');
-    const matchesSearch = (i.name?.toLowerCase().includes(searchQuery.toLowerCase()) || i.sku?.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesType && matchesSearch;
-  });
+  const displayedItems = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+    return inventoryItems.filter((item) => {
+      const matchesType = item.type === effectiveType || (!item.type && effectiveType === 'raw_material');
+      const matchesSearch = !normalizedSearch ||
+        item.name?.toLocaleLowerCase().includes(normalizedSearch) ||
+        item.sku?.toLocaleLowerCase().includes(normalizedSearch);
+      const matchesSubcategory = filterSubcategory === 'all' || String(item.category_id) === String(filterSubcategory);
+      const matchesStatus = filterStatus === 'all' || item.status === filterStatus;
+      const matchesStock = filterStock === 'low'
+        ? item.quantity <= Math.max(item.min_threshold || 0, lowStockThreshold) && item.quantity > 0
+        : filterStock === 'out'
+          ? item.quantity <= 0
+          : true;
+      return matchesType && matchesSearch && matchesSubcategory && matchesStatus && matchesStock;
+    });
+  }, [inventoryItems, effectiveType, searchQuery, filterSubcategory, filterStatus, filterStock, lowStockThreshold]);
+  const pageCount = Math.max(1, Math.ceil(displayedItems.length / ITEMS_PER_PAGE));
+  const paginatedItems = useMemo(
+    () => displayedItems.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
+    [displayedItems, currentPage]
+  );
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, pageCount));
+  }, [pageCount]);
+  useEffect(() => {
+    if (!user?.shop_id || paginatedItems.length === 0) {
+      setInventoryImages({});
+      return;
+    }
 
-  if (filterSubcategory !== 'all') {
-    displayedItems = displayedItems.filter((item) => String(item.category_id) === String(filterSubcategory));
-  }
+    let isCurrentPage = true;
+    const itemIds = paginatedItems.map((item) => item.id).join(',');
+    fetch(`http://localhost:5000/api/inventory/items?shop_id=${user.shop_id}&images_only=true&item_ids=${itemIds}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('โหลดรูปสินค้าไม่สำเร็จ');
+        return response.json();
+      })
+      .then((items) => {
+        if (isCurrentPage) {
+          setInventoryImages(Object.fromEntries(items.map((item: any) => [String(item.id), item.image_url || null])));
+        }
+      })
+      .catch((error) => {
+        if (isCurrentPage) console.error('Failed to load inventory images:', error);
+      });
 
-  if (filterStatus !== "all") {
-    displayedItems = displayedItems.filter(i => i.status === filterStatus);
-  }
-  if (filterStock === "low") {
-    displayedItems = displayedItems.filter(i => i.quantity <= Math.max(i.min_threshold || 0, lowStockThreshold) && i.quantity > 0);
-  } else if (filterStock === "out") {
-    displayedItems = displayedItems.filter(i => i.quantity <= 0);
-  }
+    return () => { isCurrentPage = false; };
+  }, [user?.shop_id, paginatedItems]);
 
   const activeFilterChips = [
     ...(filterSubcategory !== 'all' ? [{ label: subcategoryOptions.find((item) => String(item.id) === String(filterSubcategory))?.name || 'หมวดย่อย', key: 'subcategory' }] : []),
@@ -304,7 +372,7 @@ export default function InventoryPage() {
       });
       setFormData((previous: any) => ({ ...previous, image_url: imageDataUrl }));
     } catch (err: any) {
-      showToast("อัปโหลดรูปไม่สำเร็จ: " + err.message, 'error');
+      showToast('อ่านรูปภาพไม่สำเร็จ กรุณาลองเลือกไฟล์ใหม่', 'error');
     } finally {
       setUploadingImage(false);
     }
@@ -334,12 +402,12 @@ export default function InventoryPage() {
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || data.message || "บันทึกข้อมูลไม่สำเร็จ");
+      if (!res.ok) throw new Error(getThaiApiMessage(data.error || data.message, 'บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่'));
       setShowFormModal(false);
       setFormData({});
       await fetchData(); 
     } catch (err: any) {
-      showToast(err.message, 'error');
+      showToast(getThaiApiMessage(err.message, 'บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -355,12 +423,12 @@ export default function InventoryPage() {
         method: "DELETE"
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "ลบรายการไม่สำเร็จ");
+      if (!res.ok) throw new Error(getThaiApiMessage(data.error, 'ลบรายการไม่สำเร็จ กรุณาลองใหม่'));
 
       setSelectedItem(null);
       await fetchData();
     } catch (err: any) {
-      showToast(err.message, 'error');
+      showToast(getThaiApiMessage(err.message, 'ลบรายการไม่สำเร็จ กรุณาลองใหม่'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -369,9 +437,43 @@ export default function InventoryPage() {
   // ==========================================
   // ADJUST STOCK
   // ==========================================
+  const applyStockAdjustment = (itemId: number, quantity: number, movement?: any) => {
+    setInventoryItems((items) => items.map((item) => Number(item.id) === itemId
+      ? { ...item, quantity, total_pieces: quantity * Number(item.package_size || 1) }
+      : item));
+    setSelectedItem((item: any) => item && Number(item.id) === itemId
+      ? {
+          ...item,
+          quantity,
+          total_pieces: quantity * Number(item.package_size || 1),
+          movements: movement
+            ? [movement, ...(item.movements || []).filter((existing: any) => existing.id !== movement.id)]
+            : item.movements
+        }
+      : item);
+  };
+
+  const refreshStockQuantity = async (itemId: number) => {
+    const response = await fetch(`http://localhost:5000/api/inventory/${itemId}?shop_id=${user.shop_id}`);
+    const data = await response.json();
+    if (!response.ok || !Number.isFinite(Number(data.quantity))) {
+      throw new Error(getThaiApiMessage(data.error, 'โหลดจำนวนสต็อกล่าสุดไม่สำเร็จ'));
+    }
+    const quantity = Number(data.quantity);
+    applyStockAdjustment(itemId, quantity);
+    return quantity;
+  };
+
   const handleAdjustStock = async () => {
     if (!adjustData.qty || isNaN(Number(adjustData.qty))) return showToast("กรุณาระบุจำนวนที่ต้องการปรับ", 'error');
-    
+    if (!selectedItem) return;
+
+    const itemId = Number(selectedItem.id);
+    const previousQuantity = Number(selectedItem.quantity || 0);
+    const optimisticQuantity = previousQuantity + Number(adjustData.qty);
+    applyStockAdjustment(itemId, optimisticQuantity);
+    setDrawerTab('detail');
+    showToast('กำลังบันทึกการปรับสต็อก...', 'info');
     setIsSaving(true);
     try {
       const res = await fetch(`http://localhost:5000/api/inventory/adjust`, {
@@ -380,21 +482,37 @@ export default function InventoryPage() {
         body: JSON.stringify({
           shop_id: user.shop_id,
           user_id: user.id,
-          item_id: selectedItem.id,
+          item_id: itemId,
           adjust_qty: Number(adjustData.qty),
+          expected_quantity: selectedItem.quantity,
           reason: adjustData.reason
         })
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาด");
+      if (res.status === 409 && Number.isFinite(Number(data.current_stock))) {
+        applyStockAdjustment(itemId, Number(data.current_stock));
+        showToast('สต็อกถูกเปลี่ยนแปลงแล้ว อัปเดตจำนวนล่าสุดให้แล้ว กรุณาตรวจสอบก่อนปรับอีกครั้ง', 'error');
+        return;
+      }
+      if (data.stock_updated) {
+        applyStockAdjustment(itemId, Number(data.new_stock), data.movement);
+        showToast(getThaiApiMessage(data.error, 'ปรับสต็อกแล้ว แต่บันทึกประวัติไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ'), 'error');
+        return;
+      }
+      if (!res.ok) throw new Error(getThaiApiMessage(data.error, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'));
       
-      showToast(data.message, 'error');
+      applyStockAdjustment(itemId, Number(data.new_stock), data.movement);
+      showToast(getThaiApiMessage(data.message, 'ปรับสต็อกสำเร็จ'), 'success');
       setAdjustData({ qty: "", reason: "นับ Stock ประจำวัน", note: "" });
-      handleOpenDetail(selectedItem.id); 
-      fetchData(); 
     } catch (err: any) {
-      showToast(err.message, 'error');
+      try {
+        await refreshStockQuantity(itemId);
+      } catch (refreshError) {
+        console.error('Failed to refresh inventory after adjustment error:', refreshError);
+        applyStockAdjustment(itemId, previousQuantity);
+      }
+      showToast(getThaiApiMessage(err.message, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -410,6 +528,10 @@ export default function InventoryPage() {
     const amount = Number(stockForm.amount);
     if (!Number.isFinite(amount) || amount <= 0) return showToast("กรุณาระบุจำนวนที่มากกว่า 0", 'error');
     if (stockDialog.mode === "out" && amount > Number(selectedItem.quantity || 0)) return showToast("จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้", 'error');
+    const itemId = Number(selectedItem.id);
+    const previousQuantity = Number(selectedItem.quantity || 0);
+    const adjustment = stockDialog.mode === "in" ? amount : -amount;
+    showToast('กำลังบันทึกการปรับสต็อก...', 'info');
     setIsSaving(true);
     try {
       const response = await fetch("http://localhost:5000/api/inventory/adjust", {
@@ -418,20 +540,42 @@ export default function InventoryPage() {
         body: JSON.stringify({
           shop_id: user.shop_id,
           user_id: user.id,
-          item_id: selectedItem.id,
-          adjust_qty: stockDialog.mode === "in" ? amount : -amount,
+          item_id: itemId,
+          adjust_qty: adjustment,
           expected_quantity: selectedItem.quantity,
           reason: stockForm.reason,
           note: stockForm.note
         })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "ปรับสต็อกไม่สำเร็จ");
+      if (response.status === 409 && Number.isFinite(Number(data.current_stock))) {
+        applyStockAdjustment(itemId, Number(data.current_stock));
+        showToast('สต็อกถูกเปลี่ยนแปลงแล้ว อัปเดตจำนวนล่าสุดให้แล้ว กรุณาตรวจสอบก่อนปรับอีกครั้ง', 'error');
+        return;
+      }
+      if (data.stock_updated) {
+        applyStockAdjustment(itemId, Number(data.new_stock), data.movement);
+        setStockDialog({ open: false, mode: "in" });
+        showToast(getThaiApiMessage(data.error, 'ปรับสต็อกแล้ว แต่บันทึกประวัติไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ'), 'error');
+        return;
+      }
+      if (!response.ok) throw new Error(getThaiApiMessage(data.error, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'));
+      applyStockAdjustment(itemId, Number(data.new_stock), data.movement);
       setStockDialog({ open: false, mode: "in" });
-      await fetchData();
-      await handleOpenDetail(selectedItem.id);
+      setStockForm({ amount: "1", reason: "รับสินค้าเข้า", note: "" });
+      showToast(getThaiApiMessage(data.message, 'ปรับสต็อกสำเร็จ'), 'success');
     } catch (error: any) {
-      showToast(error.message, 'error');
+      try {
+        const latestQuantity = await refreshStockQuantity(itemId);
+        if (latestQuantity !== previousQuantity) {
+          setStockDialog({ open: false, mode: "in" });
+          showToast('ยอดสต็อกมีการเปลี่ยนแปลงแล้ว โหลดข้อมูลล่าสุดให้แล้ว กรุณาตรวจสอบก่อนปรับซ้ำ', 'info');
+          return;
+        }
+      } catch (refreshError) {
+        console.error('Failed to refresh inventory after adjustment error:', refreshError);
+      }
+      showToast(getThaiApiMessage(error.message, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'), 'error');
     } finally {
       setIsSaving(false);
     }
@@ -443,11 +587,11 @@ export default function InventoryPage() {
     try {
       const res = await fetch(`http://localhost:5000/api/inventory/${id}?shop_id=${user.shop_id}`);
       const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || "Failed to fetch");
+      if (!res.ok || data.error) throw new Error(getThaiApiMessage(data.error, 'โหลดรายละเอียดสินค้าไม่สำเร็จ'));
       
       let itemMovs = [];
       try {
-         const movRes = await fetch(`http://localhost:5000/api/stock-movements?shop_id=${user.shop_id}`);
+         const movRes = await fetch(`http://localhost:5000/api/stock-movements?shop_id=${user.shop_id}&item_id=${id}`);
          const movData = await movRes.json();
          
          if (Array.isArray(movData)) {
@@ -463,7 +607,7 @@ export default function InventoryPage() {
 
       setSelectedItem({...data, type: data.type || 'material', movements: itemMovs});
     } catch (err: any) {
-      showToast("โหลดรายละเอียดไม่ได้: " + err.message, 'error');
+      showToast(getThaiApiMessage(err.message, 'โหลดรายละเอียดสินค้าไม่สำเร็จ กรุณาลองใหม่'), 'error');
     } finally {
       setDetailLoading(false);
     }
@@ -658,6 +802,30 @@ export default function InventoryPage() {
                 <button onClick={() => changeViewMode("table")} className={`p-2 transition-colors ${viewMode === 'table' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><List className="w-4 h-4" /></button>
                 <button onClick={() => changeViewMode("grid")} className={`p-2 border-l border-gray-200 transition-colors ${viewMode === 'grid' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid className="w-4 h-4" /></button>
               </div>
+              <div className="flex items-center gap-2 text-[12px] text-gray-500">
+                <span>
+                  {displayedItems.length === 0
+                    ? '0 รายการ'
+                    : `${(currentPage - 1) * ITEMS_PER_PAGE + 1}-${Math.min(currentPage * ITEMS_PER_PAGE, displayedItems.length)} จาก ${displayedItems.length} รายการ`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage <= 1}
+                  className="rounded-md border border-gray-200 bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ก่อนหน้า
+                </button>
+                <span>{currentPage}/{pageCount}</span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(pageCount, page + 1))}
+                  disabled={currentPage >= pageCount}
+                  className="rounded-md border border-gray-200 bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ถัดไป
+                </button>
+              </div>
             </div>
 
             {loading ? (
@@ -686,11 +854,11 @@ export default function InventoryPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {displayedItems.map((item) => (
+                      {paginatedItems.map((item) => (
                         <tr key={item.id} onClick={() => handleOpenDetail(item.id)} className="hover:bg-gray-50/80 transition-colors cursor-pointer border-b border-gray-100 bg-white">
                           <td className="px-6 py-4 flex items-center gap-3">
                             <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center shrink-0 overflow-hidden border border-gray-200">
-                              {item.image_url ? <img src={item.image_url} alt="img" className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-gray-400" />}
+                              {inventoryImages[String(item.id)] ? <img src={inventoryImages[String(item.id)] ?? ''} alt="img" loading="lazy" className="w-full h-full object-cover" /> : <Package className="w-5 h-5 text-gray-400" />}
                             </div>
                             <span className="text-[15px] font-bold text-gray-800">{item.name}</span>
                           </td>
@@ -713,10 +881,10 @@ export default function InventoryPage() {
                 {/* ---------------- GRID VIEW ---------------- */}
                 {viewMode === "grid" && (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 p-6">
-                    {displayedItems.map((item) => (
+                    {paginatedItems.map((item) => (
                       <div key={item.id} onClick={() => handleOpenDetail(item.id)} className="border border-gray-200 rounded-[20px] overflow-hidden hover:shadow-md transition-all cursor-pointer bg-white group hover:-translate-y-1 flex flex-col">
                         <div className="h-[150px] bg-gray-100 flex items-center justify-center relative shrink-0">
-                          {item.image_url ? <img src={item.image_url} alt="img" className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <Package className="w-8 h-8 text-gray-300" />}
+                          {inventoryImages[String(item.id)] ? <img src={inventoryImages[String(item.id)] ?? ''} alt="img" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <Package className="w-8 h-8 text-gray-300" />}
                           {item.quantity <= 0 && <span className="absolute top-2 right-2 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-sm">หมดสต็อก</span>}
                         </div>
                         <div className="p-4 flex flex-col flex-1 justify-between">
@@ -1007,7 +1175,7 @@ export default function InventoryPage() {
                                 <tr key={mov.id} className="border-b border-dashed border-gray-100 last:border-0 hover:bg-gray-50">
                                   <td className="px-4 py-3 text-[13px]">
                                     <div className="text-gray-500 text-[11px] mb-1">{new Date(mov.created_at).toLocaleString('th-TH')}</div>
-                                    <div className="font-bold text-gray-800">{mov.reason || mov.movement_type}</div>
+                                    <div className="font-bold text-gray-800">{getMovementLabel(mov.reason, mov.movement_type)}</div>
                                   </td>
                                   <td className={`px-4 py-3 text-[14px] font-black text-right ${mov.quantity < 0 ? 'text-red-500' : 'text-green-600'}`}>
                                     {mov.quantity > 0 ? '+' : ''}{mov.quantity}
@@ -1116,16 +1284,16 @@ export default function InventoryPage() {
                 <label className="mb-2 block text-[13px] font-bold text-gray-700">จำนวนที่ต้องการ{stockDialog.mode === 'in' ? 'เพิ่ม' : 'ลด'}</label>
                 <div className="flex items-center gap-3">
                   <button type="button" onClick={() => setStockForm({...stockForm, amount: String(Math.max(1, Number(stockForm.amount || 1) - 1))})} className="h-12 w-12 rounded-xl border border-gray-300 bg-white"><Minus className="mx-auto h-4 w-4" /></button>
-                  <input type="number" min="1" value={stockForm.amount} onChange={(e) => setStockForm({...stockForm, amount: e.target.value})} className="h-12 min-w-0 flex-1 rounded-xl border border-gray-300 text-center text-[20px] font-bold outline-none" />
+                  <input type="number" min="1" max={stockDialog.mode === 'out' ? Number(selectedItem.quantity || 0) : undefined} value={stockForm.amount} onChange={(e) => setStockForm({...stockForm, amount: e.target.value})} className="h-12 min-w-0 flex-1 rounded-xl border border-gray-300 text-center text-[20px] font-bold outline-none" />
                   <button type="button" onClick={() => setStockForm({...stockForm, amount: String(Number(stockForm.amount || 0) + 1)})} className="h-12 w-12 rounded-xl bg-[#7a5c4e] text-white"><Plus className="mx-auto h-4 w-4" /></button>
                 </div>
                 <p className="mt-2 text-[12px] text-gray-500">หน่วย: {selectedItem.unit}</p>
               </div>
               <div><label className="mb-2 block text-[13px] font-bold text-gray-700">เหตุผล</label><select value={stockForm.reason} onChange={(e) => setStockForm({...stockForm, reason: e.target.value})} className="w-full rounded-xl border border-gray-300 p-3"><option value="รับสินค้าเข้า">รับสินค้าเข้า</option><option value="สินค้าเสียหาย / หมดอายุ / สูญหาย">สินค้าเสียหาย / หมดอายุ / สูญหาย</option><option value="นับ Stock ประจำวัน">นับ Stock ประจำวัน</option><option value="อื่นๆ">อื่นๆ</option></select></div>
               <div><label className="mb-2 block text-[13px] font-bold text-gray-700">หมายเหตุ <span className="font-normal text-gray-400">(ไม่บังคับ)</span></label><textarea value={stockForm.note} onChange={(e) => setStockForm({...stockForm, note: e.target.value})} rows={2} className="w-full rounded-xl border border-gray-300 p-3" /></div>
-              <div className="rounded-xl bg-gray-50 p-4 text-center"><span className="text-[13px] text-gray-500">สต็อกหลังรายการ</span><p className="mt-1 text-[20px] font-black text-gray-800">{Number(selectedItem.quantity || 0).toLocaleString()} → {Math.max(0, Number(selectedItem.quantity || 0) + (stockDialog.mode === 'in' ? Number(stockForm.amount || 0) : -Number(stockForm.amount || 0))).toLocaleString()} {selectedItem.unit}</p></div>
+              <div className="rounded-xl bg-gray-50 p-4 text-center"><span className="text-[13px] text-gray-500">สต็อกหลังรายการ</span><p className={`mt-1 text-[20px] font-black ${stockDialog.mode === 'out' && Number(stockForm.amount || 0) > Number(selectedItem.quantity || 0) ? 'text-red-600' : 'text-gray-800'}`}>{Number(selectedItem.quantity || 0).toLocaleString()} → {(Number(selectedItem.quantity || 0) + (stockDialog.mode === 'in' ? Number(stockForm.amount || 0) : -Number(stockForm.amount || 0))).toLocaleString()} {selectedItem.unit}</p>{stockDialog.mode === 'out' && Number(stockForm.amount || 0) > Number(selectedItem.quantity || 0) && <p className="mt-1 text-[12px] font-medium text-red-600">จำนวนที่ลดเกินสต็อกคงเหลือ</p>}</div>
             </div>
-            <div className="grid grid-cols-2 gap-3 border-t border-gray-200 bg-gray-50 p-5"><button type="button" onClick={() => setStockDialog({ open: false, mode: 'in' })} className="rounded-xl border border-gray-300 bg-white py-3 font-bold text-gray-700">ยกเลิก</button><button type="button" onClick={submitStockAdjustment} disabled={isSaving} className="flex items-center justify-center gap-2 rounded-xl bg-[#7a5c4e] py-3 font-bold text-white disabled:opacity-50">{isSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {stockDialog.mode === 'in' ? 'เพิ่มสต็อก' : 'ลดสต็อก'}</button></div>
+            <div className="grid grid-cols-2 gap-3 border-t border-gray-200 bg-gray-50 p-5"><button type="button" onClick={() => setStockDialog({ open: false, mode: 'in' })} disabled={isSaving} className="rounded-xl border border-gray-300 bg-white py-3 font-bold text-gray-700 disabled:opacity-50">ยกเลิก</button><button type="button" onClick={submitStockAdjustment} disabled={isSaving || !Number.isFinite(Number(stockForm.amount)) || Number(stockForm.amount) <= 0 || (stockDialog.mode === 'out' && Number(stockForm.amount) > Number(selectedItem.quantity || 0))} className="flex items-center justify-center gap-2 rounded-xl bg-[#7a5c4e] py-3 font-bold text-white disabled:opacity-50">{isSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {stockDialog.mode === 'in' ? 'เพิ่มสต็อก' : 'ลดสต็อก'}</button></div>
           </div>
         </div>
       )}

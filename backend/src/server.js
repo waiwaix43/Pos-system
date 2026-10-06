@@ -13,7 +13,7 @@ app.options(/.*/, cors());
 app.use(express.json({ limit: '10mb' })); 
 
 // ==========================================
-// --- 1. API เธชเธกเธฑเธเธฃเธชเธกเธฒเธเธดเธ (Register) ---
+// --- 1. API สมัครสมาชิก (Register) ---
 // ==========================================
 app.post('/api/register', async (req, res) => {
     const { 
@@ -23,15 +23,15 @@ app.post('/api/register', async (req, res) => {
     } = req.body;
 
     if (!shop_name || !admin_email || !password) {
-        return res.status(400).json({ error: 'เธเธฃเธธเธ“เธฒเธเธฃเธญเธเธเนเธญเธกเธนเธฅเธเธทเนเธเธเธฒเธเธ—เธตเนเธเธณเน€เธเนเธเนเธซเนเธเธฃเธเธ–เนเธงเธ' });
+        return res.status(400).json({ error: 'กรุณากรอกข้อมูลพื้นฐานที่จำเป็นให้ครบถ้วน' });
     }
 
     try {
         const { data: existingUser } = await db.from('staff').select('id').eq('email', admin_email).single();
-        if (existingUser) return res.status(400).json({ error: 'เธญเธตเน€เธกเธฅเธเธตเนเธ–เธนเธเนเธเนเธเธฒเธเนเธฅเนเธงเนเธเธฃเธฐเธเธ' });
+        if (existingUser) return res.status(400).json({ error: 'อีเมลนี้ถูกใช้งานแล้วในระบบ' });
 
         const { data: shopRes, error: shopErr } = await db.from('shops').insert([{ 
-            shop_name, branch: branch || 'เธชเธฒเธเธฒเธซเธฅเธฑเธ', owner_email: admin_email, profile_image: profile_image || null 
+            shop_name, branch: branch || 'สาขาหลัก', owner_email: admin_email, profile_image: profile_image || null 
         }]).select('id').single();
 
         if (shopErr) throw shopErr;
@@ -41,16 +41,16 @@ app.post('/api/register', async (req, res) => {
         const hashedAdminPassword = await bcrypt.hash(password, salt);
         const hashedStaffPassword = await bcrypt.hash('staff_password', salt);
         
-        const finalRoles = (roles && roles.length > 0) ? roles : [{ roleName: 'เน€เธเนเธฒเธเธญเธเธฃเนเธฒเธ', pin: null }];
-        const getEmailPrefix = (role) => { if(role === 'เน€เธเนเธฒเธเธญเธเธฃเนเธฒเธ') return 'owner'; if(role === 'เธเธนเนเธเธฑเธ”เธเธฒเธฃ') return 'manager'; return 'staff'; };
+        const finalRoles = (roles && roles.length > 0) ? roles : [{ roleName: 'เจ้าของร้าน', pin: null }];
+        const getEmailPrefix = (role) => { if(role === 'เจ้าของร้าน') return 'owner'; if(role === 'ผู้จัดการ') return 'manager'; return 'staff'; };
 
         const staffValues = await Promise.all(finalRoles.map(async (r, index) => {
-            const isOwner = r.roleName === 'เน€เธเนเธฒเธเธญเธเธฃเนเธฒเธ';
+            const isOwner = r.roleName === 'เจ้าของร้าน';
             return {
                 shop_id: shopId,
-                name: isOwner ? admin_name : `${r.roleName} ${index}`,
+                name: isOwner ? admin_name : `\({r.roleName}\){index}`,
                 phone: isOwner ? admin_phone : null,
-                email: isOwner ? admin_email : `${getEmailPrefix(r.roleName)}_${index}@${shop_name.replace(/\s+/g, '')}.com`,
+                email: isOwner ? admin_email : `\({getEmailPrefix(r.roleName)}_\){index}@${shop_name.replace(/\s+/g, '')}.com`,
                 password: isOwner ? hashedAdminPassword : hashedStaffPassword,
                 role: r.roleName,
                 pin: r.pin ? await bcrypt.hash(String(r.pin), salt) : null
@@ -60,13 +60,13 @@ app.post('/api/register', async (req, res) => {
         const { error: staffErr } = await db.from('staff').insert(staffValues);
         if (staffErr) { await db.from('shops').delete().eq('id', shopId); throw staffErr; }
 
-        const fullAddress = `${address || ''} ${sub_district || ''} ${district || ''} ${province || ''} ${zipcode || ''}`.trim();
+        const fullAddress = `\({address || ''}\){sub_district || ''} \({district || ''}\){province || ''} ${zipcode || ''}`.trim();
         const defaultShopSettings = {
-            shop_name, branch_name: branch || 'เธชเธฒเธเธฒเธซเธฅเธฑเธ', logo: profile_image || "", 
-            address: fullAddress || "เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธ—เธตเนเธญเธขเธนเนเธฃเนเธฒเธ", phone: shop_phone || "-", email: shop_email || admin_email, tax_id: "-",
+            shop_name, branch_name: branch || 'สาขาหลัก', logo: profile_image || "", 
+            address: fullAddress || "กรุณาระบุที่อยู่ร้าน", phone: shop_phone || "-", email: shop_email || admin_email, tax_id: "-",
             allow_negative_stock: false, auto_deduct_stock: true, allow_price_override: true, allow_discounts: true,
             require_reason_delete_item: true, require_reason_cancel_bill: true, auto_print_receipt: true, enable_e_receipt: false,
-            receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "เธเธญเธเธเธธเธ“เธ—เธตเนเนเธเนเธเธฃเธดเธเธฒเธฃ",
+            receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "ขอบคุณที่ใช้บริการ",
             pin_enabled: Array.isArray(roles) && roles.length > 0,
             pin_settings: {},
             payment_cash_enabled: true, payment_qr_enabled: true, payment_transfer_enabled: false, payment_credit_enabled: false, payment_debit_enabled: false,
@@ -78,18 +78,18 @@ app.post('/api/register', async (req, res) => {
 
         await db.from('shop_settings').insert([{ shop_id: shopId, settings_data: defaultShopSettings }]);
 
-        res.status(201).json({ success: true, message: "เธชเธฃเนเธฒเธเธเธฑเธเธเธตเธฃเนเธฒเธเนเธฅเธฐเธเธเธฑเธเธเธฒเธเธชเธณเน€เธฃเนเธ" });
-    } catch (err) { res.status(500).json({ error: "เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธชเธฃเนเธฒเธเธเธฑเธเธเธตเนเธ”เน: " + err.message }); }
+        res.status(201).json({ success: true, message: "สร้างบัญชีร้านและพนักงานสำเร็จ" });
+    } catch (err) { res.status(500).json({ error: "ไม่สามารถสร้างบัญชีได้: " + err.message }); }
 });
 
 // ==========================================
-// --- 2. API เน€เธเนเธฒเธชเธนเนเธฃเธฐเธเธ (Login) ---
+// --- 2. API เข้าสู่ระบบ (Login) ---
 // ==========================================
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     try {
         const { data: user, error } = await db.from('staff').select('*, shops(shop_name, branch, profile_image)').eq('email', email).single();
-        if (error || !user) return res.status(401).json({ error: 'เธญเธตเน€เธกเธฅเธซเธฃเธทเธญเธฃเธซเธฑเธชเธเนเธฒเธเนเธกเนเธ–เธนเธเธ•เนเธญเธ' });
+        if (error || !user) return res.status(401).json({ error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
         
         let validPassword = false;
         if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
@@ -98,8 +98,8 @@ app.post('/api/login', async (req, res) => {
             validPassword = (password === user.password);
         }
 
-        if (!validPassword) return res.status(401).json({ error: 'เธญเธตเน€เธกเธฅเธซเธฃเธทเธญเธฃเธซเธฑเธชเธเนเธฒเธเนเธกเนเธ–เธนเธเธ•เนเธญเธ' });
-        if (user.status === 'inactive') return res.status(401).json({ error: 'เธเธฑเธเธเธตเธเธตเนเธ–เธนเธเธฃเธฐเธเธฑเธเธเธฒเธฃเนเธเนเธเธฒเธ' });
+        if (!validPassword) return res.status(401).json({ error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
+        if (user.status === 'inactive') return res.status(401).json({ error: 'บัญชีนี้ถูกระงับการใช้งาน' });
 
         const { data: shopSettingsData } = await db.from('shop_settings').select('settings_data').eq('shop_id', user.shop_id).single();
         const savedSettings = shopSettingsData?.settings_data ? (typeof shopSettingsData.settings_data === 'string' ? JSON.parse(shopSettingsData.settings_data) : shopSettingsData.settings_data) : {};
@@ -116,13 +116,13 @@ app.post('/api/login', async (req, res) => {
             pinRequired: shouldRequirePinForUser,
             pinEnabled,
             token: jwt.sign({ id: user.id, shop_id: user.shop_id, role: user.role }, JWT_SECRET, { expiresIn: '12h' }),
-            user: { id: user.id, email: user.email, name: user.name, role: user.role, pin: user.pin, pin_enabled: pinEnabled, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'เธชเธฒเธเธฒเธซเธฅเธฑเธ', profile_image: user.shops?.profile_image || '' } 
+            user: { id: user.id, email: user.email, name: user.name, role: user.role, pin: user.pin, pin_enabled: pinEnabled, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } 
         });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 3. API เธ•เธฃเธงเธเธชเธญเธ & เธฃเธตเน€เธเนเธ• PIN ---
+// --- 3. API ตรวจสอบ & รีเซ็ต PIN ---
 // ==========================================
 
 const authenticateToken = (req, res, next) => {
@@ -149,7 +149,7 @@ app.post('/api/verify-pin', async (req, res) => {
     const { email, role, pin } = req.body; 
     try {
         const { data: users, error } = await db.from('staff').select('*, shops(shop_name, branch, profile_image)').eq('email', email).eq('role', role);
-        if (error || !users || users.length === 0) return res.status(404).json({ success: false, error: "เนเธกเนเธเธเธเนเธญเธกเธนเธฅเธเธนเนเนเธเน" });
+        if (error || !users || users.length === 0) return res.status(404).json({ success: false, error: "ไม่พบข้อมูลผู้ใช้" });
         
         const user = users[0];
         let validPin = false;
@@ -160,16 +160,16 @@ app.post('/api/verify-pin', async (req, res) => {
         }
         
         if (validPin) {
-            res.json({ success: true, token: jwt.sign({ id: user.id, shop_id: user.shop_id, role: user.role }, JWT_SECRET, { expiresIn: '12h' }), user: { id: user.id, email: user.email, name: user.name, role: user.role, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'เธชเธฒเธเธฒเธซเธฅเธฑเธ', profile_image: user.shops?.profile_image || '' } });
-        } else { res.status(401).json({ success: false, error: "เธฃเธซเธฑเธช PIN เนเธกเนเธ–เธนเธเธ•เนเธญเธ" }); }
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+            res.json({ success: true, token: jwt.sign({ id: user.id, shop_id: user.shop_id, role: user.role }, JWT_SECRET, { expiresIn: '12h' }), user: { id: user.id, email: user.email, name: user.name, role: user.role, shop_id: user.shop_id, shop_name: user.shops?.shop_name || '-', branch: user.shops?.branch || 'สาขาหลัก', profile_image: user.shops?.profile_image || '' } });
+        } else { res.status(401).json({ success: false, error: "รหัส PIN ไม่ถูกต้อง" }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/reset-pin', async (req, res) => {
     const { email, password, newPin } = req.body;
     try {
         const { data: user, error } = await db.from('staff').select('*').eq('email', email).single();
-        if (error || !user) return res.status(404).json({ error: "เนเธกเนเธเธเธเนเธญเธกเธนเธฅเธเธนเนเนเธเนเธเธฒเธ" });
+        if (error || !user) return res.status(404).json({ error: "ไม่พบข้อมูลผู้ใช้งาน" });
 
         let validPass = false;
         if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
@@ -178,7 +178,7 @@ app.post('/api/reset-pin', async (req, res) => {
             validPass = (password === user.password);
         }
 
-        if (!validPass) return res.status(401).json({ error: "เธฃเธซเธฑเธชเธเนเธฒเธเน€เธเนเธฒเธชเธนเนเธฃเธฐเธเธเนเธกเนเธ–เธนเธเธ•เนเธญเธ" });
+        if (!validPass) return res.status(401).json({ error: "รหัสผ่านเข้าสู่ระบบไม่ถูกต้อง" });
 
         const salt = await bcrypt.genSalt(10);
         const hashedNewPin = await bcrypt.hash(String(newPin), salt);
@@ -186,20 +186,20 @@ app.post('/api/reset-pin', async (req, res) => {
         const { error: updateErr } = await db.from('staff').update({ pin: hashedNewPin }).eq('email', email);
         if (updateErr) throw updateErr;
 
-        res.json({ success: true, message: "เธ•เธฑเนเธเธฃเธซเธฑเธช PIN เนเธซเธกเนเน€เธฃเธตเธขเธเธฃเนเธญเธขเนเธฅเนเธง" });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ success: true, message: "ตั้งรหัส PIN ใหม่เรียบร้อยแล้ว" });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/users/change-password', async (req, res) => {
     const { id, email, oldPass, newPass, confirmPass } = req.body;
     if ((!id && !email) || !oldPass || !newPass || !confirmPass) {
-        return res.status(400).json({ error: "เธเธฃเธธเธ“เธฒเธเธฃเธญเธเธเนเธญเธกเธนเธฅเนเธซเนเธเธฃเธเธ—เธธเธเธเนเธญเธ" });
+        return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบทุกช่อง" });
     }
     if (String(newPass).length < 6) {
-        return res.status(400).json({ error: "เธฃเธซเธฑเธชเธเนเธฒเธเนเธซเธกเนเธ•เนเธญเธเธกเธตเธญเธขเนเธฒเธเธเนเธญเธข 6 เธ•เธฑเธงเธญเธฑเธเธฉเธฃ" });
+        return res.status(400).json({ error: "รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร" });
     }
     if (String(newPass) !== String(confirmPass)) {
-        return res.status(400).json({ error: "เธฃเธซเธฑเธชเธเนเธฒเธเนเธซเธกเนเธเธฑเธเธขเธทเธเธขเธฑเธเธฃเธซเธฑเธชเธเนเธฒเธเนเธกเนเธ•เธฃเธเธเธฑเธ" });
+        return res.status(400).json({ error: "รหัสผ่านใหม่กับยืนยันรหัสผ่านไม่ตรงกัน" });
     }
     try {
         let query = db.from('staff').select('id, password');
@@ -207,30 +207,30 @@ app.put('/api/users/change-password', async (req, res) => {
         else query = query.eq('email', email);
 
         const { data: user, error } = await query.single();
-        if (error || !user) return res.status(404).json({ error: "เนเธกเนเธเธเธเนเธญเธกเธนเธฅเธเธนเนเนเธเนเธเธฒเธ" });
+        if (error || !user) return res.status(404).json({ error: "ไม่พบข้อมูลผู้ใช้งาน" });
 
         const validPassword = user.password?.startsWith('$2a$') || user.password?.startsWith('$2b$')
             ? await bcrypt.compare(String(oldPass), user.password)
             : String(oldPass) === user.password;
-        if (!validPassword) return res.status(401).json({ error: "เธฃเธซเธฑเธชเธเนเธฒเธเน€เธ”เธดเธกเนเธกเนเธ–เธนเธเธ•เนเธญเธ" });
+        if (!validPassword) return res.status(401).json({ error: "รหัสผ่านเดิมไม่ถูกต้อง" });
 
         const hashedPass = await bcrypt.hash(String(newPass), await bcrypt.genSalt(10));
         const { error: updateError } = await db.from('staff').update({ password: hashedPass }).eq('id', user.id);
         if (updateError) throw updateError;
-        res.json({ success: true, message: "เน€เธเธฅเธตเนเธขเธเธฃเธซเธฑเธชเธเนเธฒเธเน€เธฃเธตเธขเธเธฃเนเธญเธขเนเธฅเนเธง" });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ success: true, message: "เปลี่ยนรหัสผ่านเรียบร้อยแล้ว" });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/users/change-pin', async (req, res) => {
     const { id, email, password, newPin, confirmPin } = req.body;
     if ((!id && !email) || !password || !newPin || !confirmPin) {
-        return res.status(400).json({ error: "เธเธฃเธธเธ“เธฒเธเธฃเธญเธเธเนเธญเธกเธนเธฅเนเธซเนเธเธฃเธเธ—เธธเธเธเนเธญเธ" });
+        return res.status(400).json({ error: "กรุณากรอกข้อมูลให้ครบทุกช่อง" });
     }
     if (!/^\d{4}$/.test(String(newPin))) {
-        return res.status(400).json({ error: "เธเธฃเธธเธ“เธฒเธเธฃเธญเธ PIN เนเธซเธกเนเน€เธเนเธเธ•เธฑเธงเน€เธฅเธ 4 เธซเธฅเธฑเธ" });
+        return res.status(400).json({ error: "กรุณากรอก PIN ใหม่เป็นตัวเลข 4 หลัก" });
     }
     if (String(newPin) !== String(confirmPin)) {
-        return res.status(400).json({ error: "เธฃเธซเธฑเธช PIN เนเธซเธกเนเธเธฑเธเธขเธทเธเธขเธฑเธ PIN เนเธกเนเธ•เธฃเธเธเธฑเธ" });
+        return res.status(400).json({ error: "รหัส PIN ใหม่กับยืนยัน PIN ไม่ตรงกัน" });
     }
     try {
         let query = db.from('staff').select('id, password');
@@ -238,23 +238,23 @@ app.put('/api/users/change-pin', async (req, res) => {
         else query = query.eq('email', email);
         
         const { data: user, error } = await query.single();
-        if (error || !user) return res.status(404).json({ error: "เนเธกเนเธเธเธเนเธญเธกเธนเธฅเธเธนเนเนเธเนเธเธฒเธ" });
+        if (error || !user) return res.status(404).json({ error: "ไม่พบข้อมูลผู้ใช้งาน" });
 
         const validPassword = user.password?.startsWith('$2a$') || user.password?.startsWith('$2b$')
             ? await bcrypt.compare(String(password), user.password)
             : String(password) === user.password;
-        if (!validPassword) return res.status(401).json({ error: "เธฃเธซเธฑเธชเธเนเธฒเธเนเธกเนเธ–เธนเธเธ•เนเธญเธ" });
+        if (!validPassword) return res.status(401).json({ error: "รหัสผ่านไม่ถูกต้อง" });
 
         const hashedPin = await bcrypt.hash(String(newPin), await bcrypt.genSalt(10));
         const { error: updateError } = await db.from('staff').update({ pin: hashedPin }).eq('id', user.id);
         if (updateError) throw updateError;
-        res.json({ success: true, message: "เน€เธเธฅเธตเนเธขเธเธฃเธซเธฑเธช PIN เน€เธฃเธตเธขเธเธฃเนเธญเธขเนเธฅเนเธง" });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ success: true, message: "เปลี่ยนรหัส PIN เรียบร้อยแล้ว" });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/verify-manager-pin', async (req, res) => {
     try {
-        const { data: users, error } = await db.from('staff').select('*').eq('shop_id', req.body.shop_id).in('role', ['เน€เธเนเธฒเธเธญเธเธฃเนเธฒเธ', 'เธเธนเนเธเธฑเธ”เธเธฒเธฃ']);
+        const { data: users, error } = await db.from('staff').select('*').eq('shop_id', req.body.shop_id).in('role', ['เจ้าของร้าน', 'ผู้จัดการ']);
         if (error) throw error;
         
         let validUser = false;
@@ -267,11 +267,11 @@ app.post('/api/verify-manager-pin', async (req, res) => {
             }
         }
         res.json({ success: validUser });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 4. API เธซเธกเธงเธ”เธซเธกเธนเนเธชเธดเธเธเนเธฒ (Categories) ---
+// --- 4. API หมวดหมู่สินค้า (Categories) ---
 // ==========================================
 app.get('/api/categories', async (req, res) => {
     try {
@@ -279,21 +279,21 @@ app.get('/api/categories', async (req, res) => {
         const { data, error } = await db.from('categories').select('*').eq('shop_id', shop_id).order('sort_order', { ascending: true }).order('id', { ascending: false });
         if (error) throw error;
         return res.status(200).json(data || []);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.post('/api/categories', async (req, res) => {
     try {
         const { error } = await db.from('categories').insert([{ shop_id: req.body.shop_id, name: req.body.name, status: req.body.status || 'active' }]);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.put('/api/categories/:id', async (req, res) => {
     try {
         const shopId = req.body.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('categories').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.delete('/api/categories/:id', async (req, res) => {
     try {
@@ -301,7 +301,7 @@ app.delete('/api/categories/:id', async (req, res) => {
         if (!shopId) return res.status(400).json({ error: 'Missing shop_id' });
         const { error } = await db.from('categories').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/categories/reorder', async (req, res) => {
@@ -313,11 +313,11 @@ app.put('/api/categories/reorder', async (req, res) => {
             await db.from('categories').update({ sort_order: i }).eq('id', ordered_ids[i]).eq('shop_id', shop_id);
         }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 5. API เธชเธดเธเธเนเธฒ (Products) ---
+// --- 5. API สินค้า (Products) ---
 // ==========================================
 app.get('/api/products', async (req, res) => {
     const { shop_id, category_id } = req.query;
@@ -327,34 +327,34 @@ app.get('/api/products', async (req, res) => {
         const { data, error } = await query.order('id', { ascending: false });
         if (error) throw error;
         return res.status(200).json(data || []);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.post('/api/products', async (req, res) => {
     const { shop_id, category_id, name, price, status, image_url } = req.body;
     try {
         const { error } = await db.from('products').insert([{ shop_id, category_id, name, price, status: status || 'active', image_url }]);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.put('/api/products/:id', async (req, res) => {
     try {
         const shopId = req.body.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('products').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.delete('/api/products/:id', async (req, res) => {
     try {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('products').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 6. API เธ•เธฑเธงเน€เธฅเธทเธญเธเธชเธดเธเธเนเธฒ (Options & Modifiers) ---
+// --- 6. API ตัวเลือกสินค้า (Options & Modifiers) ---
 // ==========================================
 app.get('/api/options', async (req, res) => {
     try {
@@ -376,7 +376,7 @@ app.get('/api/options', async (req, res) => {
             items: items.filter(i => i.option_group_id === g.id)
         }));
         res.json(result);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/options', async (req, res) => {
@@ -395,14 +395,14 @@ app.post('/api/options', async (req, res) => {
             if (itemsErr) throw itemsErr;
         }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/options/:id', async (req, res) => {
     const groupId = req.params.id;
     const { shop_id, name, description, type, is_required, min_selection, max_selection, status, items } = req.body;
     try {
-        if (!shop_id) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shop_id) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error: groupErr } = await db.from('option_groups')
             .update({ name, description, type, is_required, min_selection, max_selection, status })
             .eq('id', groupId)
@@ -419,17 +419,17 @@ app.put('/api/options/:id', async (req, res) => {
             if (itemsErr) throw itemsErr;
         }
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/options/:id', async (req, res) => {
     try {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('option_groups').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; 
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/product_options', async (req, res) => {
@@ -441,15 +441,15 @@ app.get('/api/product_options', async (req, res) => {
         const { data, error } = await query;
         if (error) throw error; 
         res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/product_options', async (req, res) => {
     const { product_id, option_group_ids, shop_id } = req.body;
     try {
-        if (!shop_id || !product_id) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id เนเธฅเธฐ product_id' });
+        if (!shop_id || !product_id) return res.status(400).json({ error: 'ต้องระบุ shop_id และ product_id' });
         const { data: product, error: productErr } = await db.from('products').select('id, shop_id').eq('id', product_id).eq('shop_id', shop_id).single();
-        if (productErr || !product) return res.status(403).json({ error: 'เธชเธดเธเธเนเธฒเธเธตเนเนเธกเนเนเธ”เนเธญเธขเธนเนเนเธเธฃเนเธฒเธเธเธญเธเธเธธเธ“' });
+        if (productErr || !product) return res.status(403).json({ error: 'สินค้านี้ไม่ได้อยู่ในร้านของคุณ' });
 
         await db.from('product_options').delete().eq('product_id', product_id);
         
@@ -457,7 +457,7 @@ app.post('/api/product_options', async (req, res) => {
             const { data: validGroups, error: groupsErr } = await db.from('option_groups').select('id').eq('shop_id', shop_id).in('id', option_group_ids);
             if (groupsErr) throw groupsErr;
             const validIds = (validGroups || []).map(g => g.id);
-            if (validIds.length === 0) return res.status(400).json({ error: 'เนเธกเนเธกเธตเธ•เธฑเธงเน€เธฅเธทเธญเธเธ—เธตเนเธ•เธฃเธเธเธฑเธเธฃเนเธฒเธเธเธตเน' });
+            if (validIds.length === 0) return res.status(400).json({ error: 'ไม่มีตัวเลือกที่ตรงกับร้านนี้' });
             const inserts = validIds.map(oid => ({ product_id, option_group_id: oid }));
             const { error: insertErr } = await db.from('product_options').insert(inserts);
             if (insertErr) throw insertErr;
@@ -466,12 +466,12 @@ app.post('/api/product_options', async (req, res) => {
         const hasOptions = option_group_ids && option_group_ids.length > 0;
         await db.from('products').update({ has_options: hasOptions }).eq('id', product_id).eq('shop_id', shop_id);
 
-        res.json({ success: true, message: "เธเธนเธเธ•เธฑเธงเน€เธฅเธทเธญเธเน€เธฃเธตเธขเธเธฃเนเธญเธขเนเธฅเนเธง" });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ success: true, message: "ผูกตัวเลือกเรียบร้อยแล้ว" });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 7. API เธชเธนเธ•เธฃเธชเธดเธเธเนเธฒ (Recipes) - เธฃเธญเธเธฃเธฑเธ Atomic Update ---
+// --- 7. API สูตรสินค้า (Recipes) - รองรับ Atomic Update ---
 // ==========================================
 app.get('/api/recipes', async (req, res) => {
     try {
@@ -488,7 +488,7 @@ app.get('/api/recipes', async (req, res) => {
         const { data, error } = await query;
         if (error) throw error;
         res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/products/:productId/recipe', async (req, res) => {
@@ -496,19 +496,19 @@ app.put('/api/products/:productId/recipe', async (req, res) => {
     const { shop_id, items } = req.body;
 
     if (!productId) {
-        return res.status(400).json({ error: "เนเธกเนเธเธ Product ID" });
+        return res.status(400).json({ error: "ไม่พบ Product ID" });
     }
 
     try {
-        if (!shop_id) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shop_id) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { data: product, error: productErr } = await db.from('products').select('id, shop_id').eq('id', productId).eq('shop_id', shop_id).single();
-        if (productErr || !product) return res.status(403).json({ error: 'เธชเธดเธเธเนเธฒเธเธตเนเนเธกเนเนเธ”เนเธญเธขเธนเนเนเธเธฃเนเธฒเธเธเธญเธเธเธธเธ“' });
+        if (productErr || !product) return res.status(403).json({ error: 'สินค้านี้ไม่ได้อยู่ในร้านของคุณ' });
 
         const { error: deleteError } = await db.from('recipes').delete().eq('product_id', productId);
 
         if (deleteError) {
             console.error("Delete Recipe Error:", deleteError);
-            return res.status(500).json({ error: "เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เน€เธเธฅเธตเธขเธฃเนเธชเธนเธ•เธฃเน€เธ”เธดเธกเนเธ”เน: " + deleteError.message });
+            return res.status(500).json({ error: "ไม่สามารถเคลียร์สูตรเดิมได้: " + deleteError.message });
         }
 
         if (items && items.length > 0) {
@@ -523,41 +523,41 @@ app.put('/api/products/:productId/recipe', async (req, res) => {
 
             if (insertError) {
                 console.error("Insert Recipe Error:", insertError);
-                return res.status(500).json({ error: "เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธเธฑเธเธ—เธถเธเธชเธนเธ•เธฃเนเธซเธกเนเนเธ”เน: " + insertError.message });
+                return res.status(500).json({ error: "ไม่สามารถบันทึกสูตรใหม่ได้: " + insertError.message });
             }
         }
 
-        return res.status(200).json({ success: true, message: "เธญเธฑเธเน€เธ”เธ•เธชเธนเธ•เธฃเธชเธณเน€เธฃเนเธ" });
+        return res.status(200).json({ success: true, message: "อัปเดตสูตรสำเร็จ" });
 
     } catch (error) {
         console.error("Server Error updating recipe:", error);
-        return res.status(500).json({ error: "เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ—เธตเนเธเธฒเธเธเนเธญเธกเธนเธฅ" });
+        return res.status(500).json({ error: "เกิดข้อผิดพลาดที่ฐานข้อมูล" });
     }
 });
 
 app.post('/api/recipes', async (req, res) => {
     const { product_id, inventory_item_id, quantity, unit, shop_id } = req.body;
     try {
-        if (!shop_id || !product_id) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id เนเธฅเธฐ product_id' });
+        if (!shop_id || !product_id) return res.status(400).json({ error: 'ต้องระบุ shop_id และ product_id' });
         const { data: product, error: productErr } = await db.from('products').select('id').eq('id', product_id).eq('shop_id', shop_id).single();
-        if (productErr || !product) return res.status(403).json({ error: 'เธชเธดเธเธเนเธฒเธเธตเนเนเธกเนเนเธ”เนเธญเธขเธนเนเนเธเธฃเนเธฒเธเธเธญเธเธเธธเธ“' });
+        if (productErr || !product) return res.status(403).json({ error: 'สินค้านี้ไม่ได้อยู่ในร้านของคุณ' });
         const { error } = await db.from('recipes').insert([{ product_id, inventory_item_id, quantity, unit }]);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/recipes/:id', async (req, res) => {
     try {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('recipes').delete().eq('id', req.params.id).eq('product_id', req.body.product_id || '').not('product_id', 'is', null);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 8. API เธเธฑเธเธ—เธถเธเธญเธญเน€เธ”เธญเธฃเน & เธ•เธฑเธ”เธชเธ•เนเธญเธ (Orders & Deduct) ---
+// --- 8. API บันทึกออเดอร์ & ตัดสต็อก (Orders & Deduct) ---
 // ==========================================
 app.get('/api/next-bill-number', async (req, res) => {
     const { shop_id, shift_id } = req.query;
@@ -571,23 +571,23 @@ app.get('/api/next-bill-number', async (req, res) => {
         const startNumber = Number.parseInt(settings.receipt_start_number, 10);
         const nextNumber = Number.isNaN(startNumber) ? (count || 0) + 1 : startNumber + (count || 0);
         const padding = Number.isNaN(startNumber) ? 4 : String(settings.receipt_start_number).length;
-        res.json({ billCode: `${prefix}${String(nextNumber).padStart(padding, '0')}` });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ billCode: `\({prefix}\){String(nextNumber).padStart(padding, '0')}` });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/orders', async (req, res) => {
     const { shop_id, staff_id, shift_id, order_type, total_amount, payment_method, received_amount, change_amount, cart } = req.body;
     try {
-        if (!shift_id) return res.status(400).json({ success: false, error: "เนเธกเนเธเธเธฃเธซเธฑเธชเธฃเธญเธเธเธฒเธฃเธเธฒเธข" });
+        if (!shift_id) return res.status(400).json({ success: false, error: "ไม่พบรหัสรอบการขาย" });
         const { data: activeShift, error: shiftErr } = await db.from('shifts').select('status').eq('id', shift_id).single();
-        if (shiftErr || !activeShift || activeShift.status !== 'OPEN') return res.status(400).json({ success: false, error: "เธฃเธญเธเธเธฒเธฃเธเธฒเธขเธเธตเนเธ–เธนเธเธเธดเธ”เนเธฅเนเธง เธเธฃเธธเธ“เธฒเน€เธเธดเธ”เธฃเธญเธเธเธฒเธฃเธเธฒเธขเนเธซเธกเน" });
+        if (shiftErr || !activeShift || activeShift.status !== 'OPEN') return res.status(400).json({ success: false, error: "รอบการขายนี้ถูกปิดแล้ว กรุณาเปิดรอบการขายใหม่" });
 
         const { count, error: countErr } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shift_id', shift_id);
         if (countErr) throw countErr;
 
         
         const isGateway = ['QR', 'PROMPTPAY', 'CREDIT_CARD', 'CARD'].includes(payment_method) || payment_method.includes('QR');
-        const isTransfer = ['TRANSFER', 'เนเธญเธเน€เธเธดเธ'].includes(payment_method) || payment_method.includes('เนเธญเธเน€เธเธดเธ');
+        const isTransfer = ['TRANSFER', 'โอนเงิน'].includes(payment_method) || payment_method.includes('โอนเงิน');
         let orderStatus = 'completed';
         if (isGateway) orderStatus = 'PENDING_PAYMENT';
         else if (isTransfer) orderStatus = 'PENDING_VERIFICATION';
@@ -627,7 +627,7 @@ app.post('/api/orders', async (req, res) => {
                         const pkgSize = getPkgSize(inventoryItem.unit);
                         const currentSubUnitTotal = Number(inventoryItem.quantity) * pkgSize;
                         if (currentSubUnitTotal < requiredQuantity) {
-                            return res.status(400).json({ success: false, error: `เธงเธฑเธ•เธ–เธธเธ”เธดเธ ${inventoryItem.name || ''} เนเธกเนเน€เธเธตเธขเธเธเธญเธชเธณเธซเธฃเธฑเธเธเธฒเธฃเธเธฒเธข` });
+                            return res.status(400).json({ success: false, error: `วัตถุดิบ ${inventoryItem.name || ''} ไม่เพียงพอสำหรับการขาย` });
                         }
                     }
                 }
@@ -637,11 +637,11 @@ app.post('/api/orders', async (req, res) => {
         const startNumber = Number.parseInt(receiptSettingsSnapshot?.receipt_start_number, 10);
         const nextNumber = Number.isNaN(startNumber) ? (count || 0) + 1 : startNumber + (count || 0);
         const padding = Number.isNaN(startNumber) ? 4 : String(receiptSettingsSnapshot.receipt_start_number).length;
-        const billNumber = `${receiptPrefix}${String(nextNumber).padStart(padding, '0')}`;
+        const billNumber = `\({receiptPrefix}\){String(nextNumber).padStart(padding, '0')}`;
 
         const { data: orderRes, error: orderErr } = await db.from('orders').insert([{
             bill_number: billNumber, shop_id, staff_id: staff_id || null, shift_id, order_type, total_amount: calculatedTotal,
-            payment_method: payment_method || 'เน€เธเธดเธเธชเธ”', received_amount: received_amount || calculatedTotal, change_amount: change_amount || 0, status: orderStatus
+            payment_method: payment_method || 'เงินสด', received_amount: received_amount || calculatedTotal, change_amount: change_amount || 0, status: orderStatus
         }]).select('id').single();
         if (orderErr) throw orderErr;
 
@@ -689,7 +689,7 @@ app.post('/api/orders', async (req, res) => {
                             
                             await db.from('stock_movements').insert([{
                                 shop_id, inventory_item_id: recipe.inventory_item_id, movement_type: 'SALE',
-                                quantity: -deductStorageUnit, balance_after: newStock, reference_id: orderId, reason: `เธเธฒเธขเธชเธดเธเธเนเธฒ POS (เธเธดเธฅ ${billNumber})`
+                                quantity: -deductStorageUnit, balance_after: newStock, reference_id: orderId, reason: `ขายสินค้า POS (บิล ${billNumber})`
                             }]);
                             await syncInventoryNotification({ shopId: shop_id, itemId: recipe.inventory_item_id, userId: staff_id || null });
                         }
@@ -697,25 +697,25 @@ app.post('/api/orders', async (req, res) => {
                 }
             }
         }
-        res.status(201).json({ success: true, message: "เธชเธฃเนเธฒเธเธญเธญเน€เธ”เธญเธฃเนเธชเธณเน€เธฃเนเธ", billNumber, orderId, orderStatus });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.status(201).json({ success: true, message: "สร้างออเดอร์สำเร็จ", billNumber, orderId, orderStatus });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/orders', async (req, res) => {
     try {
         const { data, error } = await db.from('orders').select('*').eq('shop_id', req.query.shop_id).order('created_at', { ascending: false });
         if (error) throw error; res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/orders/single/:id', async (req, res) => {
     try {
-        if (!req.query.shop_id) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!req.query.shop_id) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const query = db.from('orders').select('*').eq('id', req.params.id).eq('shop_id', req.query.shop_id);
         const { data, error } = await query.single();
-        if (error || !data) return res.status(404).json({ error: "เนเธกเนเธเธเธเนเธญเธกเธนเธฅเธเธดเธฅ" });
+        if (error || !data) return res.status(404).json({ error: "ไม่พบข้อมูลบิล" });
         res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/orders/:id/items', async (req, res) => {
@@ -728,15 +728,15 @@ app.get('/api/orders/:id/items', async (req, res) => {
         query = query.eq('order_id', req.params.id);
         const { data, error } = await query;
         if (error) throw error; res.json((data || []).map(item => ({ ...item, name: item.products?.name })));
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/orders/:id/void', async (req, res) => {
     const orderId = req.params.id;
     const { shop_id, pin } = req.body;
     try {
-        const { data: users, error: staffErr } = await db.from('staff').select('*').eq('shop_id', shop_id).in('role', ['เน€เธเนเธฒเธเธญเธเธฃเนเธฒเธ', 'เธเธนเนเธเธฑเธ”เธเธฒเธฃ']);
-        if (staffErr || !users || users.length === 0) return res.status(403).json({ success: false, error: "เนเธกเนเธกเธตเธชเธดเธ—เธเธดเนเธขเธเน€เธฅเธดเธเธเธดเธฅ" });
+        const { data: users, error: staffErr } = await db.from('staff').select('*').eq('shop_id', shop_id).in('role', ['เจ้าของร้าน', 'ผู้จัดการ']);
+        if (staffErr || !users || users.length === 0) return res.status(403).json({ success: false, error: "ไม่มีสิทธิ์ยกเลิกบิล" });
         
         let validUser = false;
         for (const u of users) {
@@ -747,10 +747,10 @@ app.post('/api/orders/:id/void', async (req, res) => {
              }
         }
         
-        if (!validUser) return res.status(403).json({ success: false, error: "เธฃเธซเธฑเธช PIN เนเธกเนเธ–เธนเธเธ•เนเธญเธ" });
+        if (!validUser) return res.status(403).json({ success: false, error: "รหัส PIN ไม่ถูกต้อง" });
 
         const { data: order } = await db.from('orders').select('*').eq('id', orderId).eq('shop_id', shop_id).single();
-        if (!order || order.status === 'cancelled') return res.status(400).json({ success: false, error: "เนเธกเนเธเธเธเธดเธฅเธเธตเน เธซเธฃเธทเธญเธเธดเธฅเธ–เธนเธเธขเธเน€เธฅเธดเธเนเธเนเธฅเนเธง" });
+        if (!order || order.status === 'cancelled') return res.status(400).json({ success: false, error: "ไม่พบบิลนี้ หรือบิลถูกยกเลิกไปแล้ว" });
 
         let autoDeduct = true;
         try {
@@ -779,7 +779,7 @@ app.post('/api/orders/:id/void', async (req, res) => {
                             
                             await db.from('stock_movements').insert([{
                                 shop_id, inventory_item_id: recipe.inventory_item_id, movement_type: 'VOID_RETURN',
-                                quantity: returnStorageUnit, balance_after: newStock, reference_id: orderId, reason: `เธเธทเธเธชเธ•เนเธญเธเธเธฒเธเธเธฒเธฃเธขเธเน€เธฅเธดเธเธเธดเธฅ (Void)`
+                                quantity: returnStorageUnit, balance_after: newStock, reference_id: orderId, reason: `คืนสต็อกจากการยกเลิกบิล (Void)`
                             }]);
                         }
                     }
@@ -793,10 +793,10 @@ app.post('/api/orders/:id/void', async (req, res) => {
         if (settings && settings.settings_data) {
             const sData = typeof settings.settings_data === 'string' ? JSON.parse(settings.settings_data) : settings.settings_data;
             if (sData.notify_cancel_bill !== false) {
-                await createNotification({ shopId: shop_id, type: 'CANCEL_BILL', priority: 'WARNING', title: 'เธขเธเน€เธฅเธดเธเธเธดเธฅ', message: `เธเธดเธฅ ${order.bill_number} เธ–เธนเธเธขเธเน€เธฅเธดเธ`, entityType: 'order', entityId: orderId, userId: req.body.staff_id || null });
+                await createNotification({ shopId: shop_id, type: 'CANCEL_BILL', priority: 'WARNING', title: 'ยกเลิกบิล', message: `บิล ${order.bill_number} ถูกยกเลิก`, entityType: 'order', entityId: orderId, userId: req.body.staff_id || null });
             }
             if (sData.notify_refund !== false && items && items.length > 0) {
-                await createNotification({ shopId: shop_id, type: 'REFUND', priority: 'INFO', title: 'เธเธทเธเธชเธดเธเธเนเธฒ', message: `เธเธทเธเธชเธดเธเธเนเธฒเธเธฒเธเธเธดเธฅ ${order.bill_number}`, entityType: 'order', entityId: orderId, userId: req.body.staff_id || null });
+                await createNotification({ shopId: shop_id, type: 'REFUND', priority: 'INFO', title: 'คืนสินค้า', message: `คืนสินค้าจากบิล ${order.bill_number}`, entityType: 'order', entityId: orderId, userId: req.body.staff_id || null });
             }
         }
 
@@ -805,36 +805,36 @@ app.post('/api/orders/:id/void', async (req, res) => {
             const newTotalSales = allOrders ? allOrders.reduce((sum, o) => sum + Number(o.total_amount), 0) : 0;
             await db.from('shifts').update({ total_sales: newTotalSales }).eq('id', order.shift_id);
         }
-        res.json({ success: true, message: "เธขเธเน€เธฅเธดเธเธเธดเธฅเน€เธฃเธตเธขเธเธฃเนเธญเธขเนเธฅเนเธง" });
+        res.json({ success: true, message: "ยกเลิกบิลเรียบร้อยแล้ว" });
     } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 // ==========================================
-// --- 9. API เธฃเธญเธเธเธฒเธฃเธเธฒเธข / เธเธฐ (Shifts) ---
+// --- 9. API รอบการขาย / กะ (Shifts) ---
 // ==========================================
 app.get('/api/shifts/active', async (req, res) => {
     try {
         const { data, error } = await db.from('shifts').select('*').eq('shop_id', req.query.shop_id).eq('status', 'OPEN').single();
         if (error && error.code !== 'PGRST116') throw error; 
         res.json({ shift: data || null });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/shifts', async (req, res) => {
     try {
         const { data, error } = await db.from('shifts').select('*, staff(role, email)').eq('shop_id', req.query.shop_id).order('opened_at', { ascending: false });
-        if (error) throw error; res.json({ shifts: data.map(shift => ({ ...shift, staff_name: shift.staff ? `${shift.staff.role}` : 'เธเธเธฑเธเธเธฒเธ' })) });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        if (error) throw error; res.json({ shifts: data.map(shift => ({ ...shift, staff_name: shift.staff ? `${shift.staff.role}` : 'พนักงาน' })) });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/shifts/open', async (req, res) => {
     const { shop_id, staff_id, opening_cash } = req.body;
     try {
         const { data: existing } = await db.from('shifts').select('id').eq('shop_id', shop_id).eq('status', 'OPEN').single();
-        if (existing) return res.status(400).json({ message: "เธกเธตเธฃเธญเธเธเธฒเธฃเธเธฒเธขเน€เธเธดเธ”เธญเธขเธนเนเนเธฅเนเธง เธเธฃเธธเธ“เธฒเธเธดเธ”เธฃเธญเธเน€เธ”เธดเธกเธเนเธญเธ" });
+        if (existing) return res.status(400).json({ message: "มีรอบการขายเปิดอยู่แล้ว กรุณาปิดรอบเดิมก่อน" });
         const { data, error } = await db.from('shifts').insert([{ shop_id, staff_id, opening_cash: Number(opening_cash) || 0, status: 'OPEN', opened_at: new Date().toISOString() }]).select().single();
         if (error) throw error; res.json({ success: true, shift: data });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/shifts/close', async (req, res) => {
@@ -848,20 +848,20 @@ app.post('/api/shifts/close', async (req, res) => {
         await db.from('shifts').update({ total_sales: totalSales }).eq('id', shift_id);
         
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/shifts/expense', async (req, res) => {
     const { shop_id, shift_id, pin, amount, reason } = req.body;
     try {
-        const { data: users } = await db.from('staff').select('*').eq('shop_id', shop_id).in('role', ['เน€เธเนเธฒเธเธญเธเธฃเนเธฒเธ', 'เธเธนเนเธเธฑเธ”เธเธฒเธฃ']);
+        const { data: users } = await db.from('staff').select('*').eq('shop_id', shop_id).in('role', ['เจ้าของร้าน', 'ผู้จัดการ']);
         let validPin = false;
         for (const u of users) {
             if (u.pin && (u.pin.startsWith('$2a$') || u.pin.startsWith('$2b$'))) {
                 if (await bcrypt.compare(String(pin), u.pin)) { validPin = true; break; }
             } else if (u.pin === String(pin)) { validPin = true; break; }
         }
-        if (!validPin) return res.status(403).json({ success: false, error: "เธฃเธซเธฑเธช PIN เธเธนเนเธกเธตเธญเธณเธเธฒเธเธญเธเธธเธกเธฑเธ•เธดเนเธกเนเธ–เธนเธเธ•เนเธญเธ" });
+        if (!validPin) return res.status(403).json({ success: false, error: "รหัส PIN ผู้มีอำนาจอนุมัติไม่ถูกต้อง" });
 
         const { error } = await db.from('shift_expenses').insert([{ shift_id, shop_id, amount: Number(amount), reason }]);
         if (error) throw error;
@@ -886,8 +886,8 @@ app.get('/api/shifts/:id/summary', async (req, res) => {
         
         if (orders) {
             orders.forEach(o => {
-                if (o.payment_method === 'เน€เธเธดเธเธชเธ”') cashSales += Number(o.total_amount);
-                else if (o.payment_method === 'เธเธฑเธ•เธฃเน€เธเธฃเธ”เธดเธ•') creditSales += Number(o.total_amount);
+                if (o.payment_method === 'เงินสด') cashSales += Number(o.total_amount);
+                else if (o.payment_method === 'บัตรเครดิต') creditSales += Number(o.total_amount);
                 else transferSales += Number(o.total_amount);
             });
         }
@@ -896,7 +896,7 @@ app.get('/api/shifts/:id/summary', async (req, res) => {
         const expectedCash = Number(shift?.opening_cash || 0) + cashSales + totalExpenses;
         const productTotals = {};
         (orderItems || []).forEach(item => {
-            const productName = item.products?.name || 'เธชเธดเธเธเนเธฒเนเธกเนเธฃเธฐเธเธธเธเธทเนเธญ';
+            const productName = item.products?.name || 'สินค้าไม่ระบุชื่อ';
             const key = item.product_id || productName;
             if (!productTotals[key]) productTotals[key] = { name: productName, quantity: 0, total: 0 };
             productTotals[key].quantity += Number(item.quantity) || 0;
@@ -926,26 +926,31 @@ app.get('/api/shifts/:id/summary', async (req, res) => {
             },
             soldProducts
         });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 10. API เธฃเธฐเธเธเธเธฅเธฑเธเธชเธดเธเธเนเธฒ (Inventory) ---
+// --- 10. API ระบบคลังสินค้า (Inventory) ---
 // ==========================================
 const decodeInventoryUnit = (unit) => {
-    const value = String(unit || 'เธซเธเนเธงเธข');
+    const value = String(unit || 'หน่วย');
     const parts = value.split('|');
     if (parts.length === 3 && Number(parts[1]) > 0) {
-        return { unit: parts[0], package_size: Number(parts[1]), package_unit: parts[2] };
+        return {
+            unit: /[\u0080-\u009F\uFFFD]/.test(parts[0]) ? 'หน่วย' : parts[0],
+            package_size: Number(parts[1]),
+            package_unit: /[\u0080-\u009F\uFFFD]/.test(parts[2]) ? 'ชิ้น' : parts[2]
+        };
     }
-    return { unit: value, package_size: 1, package_unit: value };
+    const safeUnit = /[\u0080-\u009F\uFFFD]/.test(value) ? 'หน่วย' : value;
+    return { unit: safeUnit, package_size: 1, package_unit: safeUnit };
 };
 
 const encodeInventoryUnit = (unit, packageSize, packageUnit) => {
-    const baseUnit = String(unit || 'เธซเธเนเธงเธข').trim();
+    const baseUnit = String(unit || 'หน่วย').trim();
     const size = Number(packageSize || 1);
-    const contentUnit = String(packageUnit || 'เธเธดเนเธ').trim();
-    return size !== 1 ? `${baseUnit}|${size}|${contentUnit}` : baseUnit;
+    const contentUnit = String(packageUnit || 'ชิ้น').trim();
+    return size !== 1 ? `\({baseUnit}|\){size}|${contentUnit}` : baseUnit;
 };
 
 const presentInventoryItem = (item) => {
@@ -965,12 +970,14 @@ app.get('/api/inventory/categories', async (req, res) => {
         }
         const { data: items, error: itemErr } = await db.from('inventory_items').select('category_id').eq('shop_id', req.query.shop_id);
         if (itemErr) throw itemErr;
+        const itemCounts = new Map();
+        (items || []).forEach(item => itemCounts.set(item.category_id, (itemCounts.get(item.category_id) || 0) + 1));
         res.json((categories || []).map(c => ({
             ...c,
             type: c.type || 'raw_material',
-            item_count: items.filter(i => i.category_id === c.id).length
+            item_count: itemCounts.get(c.id) || 0
         })));
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/inventory/categories', async (req, res) => {
@@ -978,30 +985,30 @@ app.post('/api/inventory/categories', async (req, res) => {
         const { shop_id, name, type } = req.body;
         const normalizedShopId = Number(shop_id);
         const normalizedType = String(type || 'raw_material');
-        if (!normalizedShopId || !String(name || '').trim()) return res.status(400).json({ error: 'เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธฃเนเธฒเธเธเนเธฒเนเธฅเธฐเธเธทเนเธญเธซเธกเธงเธ”เธขเนเธญเธข' });
-        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'เธเธฃเธฐเน€เธ เธ—เธซเธกเธงเธ”เธขเนเธญเธขเนเธกเนเธ–เธนเธเธ•เนเธญเธ' });
+        if (!normalizedShopId || !String(name || '').trim()) return res.status(400).json({ error: 'กรุณาระบุร้านค้าและชื่อหมวดย่อย' });
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหมวดย่อยไม่ถูกต้อง' });
 
         const trimmedName = String(name).trim();
         const { data: duplicate, error: duplicateErr } = await db.from('inventory_categories').select('id').eq('shop_id', normalizedShopId).ilike('name', trimmedName).limit(1);
         if (duplicateErr) throw duplicateErr;
-        if (duplicate && duplicate.length > 0) return res.status(409).json({ error: 'เธกเธตเธซเธกเธงเธ”เธขเนเธญเธขเธเธทเนเธญเน€เธ”เธตเธขเธงเธเธฑเธเธญเธขเธนเนเนเธฅเนเธงเนเธเธฃเนเธฒเธเธเธตเน' });
+        if (duplicate && duplicate.length > 0) return res.status(409).json({ error: 'มีหมวดย่อยชื่อนี้อยู่แล้วในร้าน' });
 
         let categoryInsert = { shop_id: normalizedShopId, name: trimmedName };
         try {
             const { data, error } = await db.from('inventory_categories').insert([{ ...categoryInsert, type: normalizedType }]).select('*').single();
             if (error) throw error;
             const createdCategory = { ...data, type: data.type || 'raw_material' };
-            return res.json({ success: true, message: "เน€เธเธดเนเธกเธซเธกเธงเธ”เธซเธกเธนเนเธชเธ•เนเธญเธเธชเธณเน€เธฃเนเธ", id: createdCategory.id, category: createdCategory });
+            return res.json({ success: true, message: "เพิ่มหมวดหมู่สต็อกสำเร็จ", id: createdCategory.id, category: createdCategory });
         } catch (err) {
             if (String(err.message || '').toLowerCase().includes('type')) {
                 const { data, error } = await db.from('inventory_categories').insert([{ ...categoryInsert }]).select('*').single();
                 if (error) throw error;
                 const createdCategory = { ...data, type: 'raw_material' };
-                return res.json({ success: true, message: "เน€เธเธดเนเธกเธซเธกเธงเธ”เธซเธกเธนเนเธชเธ•เนเธญเธเธชเธณเน€เธฃเนเธ", id: createdCategory.id, category: createdCategory });
+                return res.json({ success: true, message: "เพิ่มหมวดหมู่สต็อกสำเร็จ", id: createdCategory.id, category: createdCategory });
             }
             throw err;
         }
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/inventory/categories/:id', async (req, res) => {
@@ -1010,17 +1017,17 @@ app.put('/api/inventory/categories/:id', async (req, res) => {
         const normalizedShopId = Number(shop_id);
         const normalizedCategoryId = Number(req.params.id);
         const normalizedType = String(type || 'raw_material');
-        if (!normalizedShopId || !String(name || '').trim()) return res.status(400).json({ error: 'เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธฃเนเธฒเธเธเนเธฒเนเธฅเธฐเธเธทเนเธญเธซเธกเธงเธ”เธขเนเธญเธข' });
-        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'เธเธฃเธฐเน€เธ เธ—เธซเธกเธงเธ”เธขเนเธญเธขเนเธกเนเธ–เธนเธเธ•เนเธญเธ' });
+        if (!normalizedShopId || !String(name || '').trim()) return res.status(400).json({ error: 'กรุณาระบุร้านค้าและชื่อหมวดย่อย' });
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหมวดย่อยไม่ถูกต้อง' });
 
         const trimmedName = String(name).trim();
         const { data: existingCategory, error: existingError } = await db.from('inventory_categories').select('id, type').eq('id', normalizedCategoryId).eq('shop_id', normalizedShopId).maybeSingle();
         if (existingError) throw existingError;
-        if (!existingCategory) return res.status(404).json({ error: 'เนเธกเนเธเธเธซเธกเธงเธ”เธขเนเธญเธขเธเธตเนเนเธเธฃเนเธฒเธเธเธญเธเธเธธเธ“' });
+        if (!existingCategory) return res.status(404).json({ error: 'ไม่พบหมวดย่อยนี้ในร้านของคุณ' });
 
         const { data: duplicate, error: duplicateErr } = await db.from('inventory_categories').select('id').eq('shop_id', normalizedShopId).ilike('name', trimmedName).neq('id', normalizedCategoryId).limit(1);
         if (duplicateErr) throw duplicateErr;
-        if (duplicate && duplicate.length > 0) return res.status(409).json({ error: 'เธกเธตเธซเธกเธงเธ”เธขเนเธญเธขเธเธทเนเธญเน€เธ”เธตเธขเธงเธเธฑเธเธญเธขเธนเนเนเธฅเนเธงเนเธเธฃเนเธฒเธเธเธตเน' });
+        if (duplicate && duplicate.length > 0) return res.status(409).json({ error: 'มีหมวดย่อยชื่อนี้อยู่แล้วในร้าน' });
 
         const categoryUpdate = { name: trimmedName };
         try {
@@ -1030,24 +1037,24 @@ app.put('/api/inventory/categories/:id', async (req, res) => {
             const { data, error } = await db.from('inventory_categories').update({ ...categoryUpdate, type: normalizedType }).eq('id', normalizedCategoryId).eq('shop_id', normalizedShopId).select('*').single();
             if (error) throw error;
             const updatedCategory = { ...data, type: data.type || 'raw_material' };
-            return res.json({ success: true, message: 'เนเธเนเนเธเธซเธกเธงเธ”เธขเนเธญเธขเธชเธณเน€เธฃเนเธ', id: updatedCategory.id, category: updatedCategory });
+            return res.json({ success: true, message: 'แก้ไขหมวดย่อยสำเร็จ', id: updatedCategory.id, category: updatedCategory });
         } catch (err) {
             if (String(err.message || '').toLowerCase().includes('type')) {
                 const { data, error } = await db.from('inventory_categories').update(categoryUpdate).eq('id', normalizedCategoryId).eq('shop_id', normalizedShopId).select('*').single();
                 if (error) throw error;
                 const updatedCategory = { ...data, type: 'raw_material' };
-                return res.json({ success: true, message: 'เนเธเนเนเธเธซเธกเธงเธ”เธขเนเธญเธขเธชเธณเน€เธฃเนเธ', id: updatedCategory.id, category: updatedCategory });
+                return res.json({ success: true, message: 'แก้ไขหมวดย่อยสำเร็จ', id: updatedCategory.id, category: updatedCategory });
             }
             throw err;
         }
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/inventory/categories/:id', async (req, res) => {
     try {
         const shopId = Number(req.query.shop_id || req.body?.shop_id);
         const categoryId = Number(req.params.id);
-        if (!shopId || !categoryId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id เนเธฅเธฐ category_id' });
+        if (!shopId || !categoryId) return res.status(400).json({ error: 'กรุณาระบุร้านค้าและหมวดหมู่' });
 
         const { data: linkedItems, error: checkErr } = await db.from('inventory_items').select('id').eq('category_id', categoryId).eq('shop_id', shopId);
         if (checkErr) throw checkErr;
@@ -1059,29 +1066,43 @@ app.delete('/api/inventory/categories/:id', async (req, res) => {
 
         const { error } = await db.from('inventory_categories').delete().eq('id', categoryId).eq('shop_id', shopId);
         if (error) throw error;
-        res.json({ success: true, message: 'เธฅเธเธซเธกเธงเธ”เธขเนเธญเธขเธชเธณเน€เธฃเนเธ เนเธฅเธฐเธขเนเธฒเธขเธฃเธฒเธขเธเธฒเธฃเธ—เธตเนเนเธเนเธซเธกเธงเธ”เธเธตเนเธญเธญเธเนเธฅเนเธง' });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ success: true, message: 'ลบหมวดย่อยสำเร็จ และย้ายรายการที่ใช้หมวดนี้ออกแล้ว' });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/inventory/items', async (req, res) => {
-    const { shop_id, category_id, search } = req.query;
+    const { shop_id, category_id, search, item_ids, include_images, images_only } = req.query;
     try {
-        let query = db.from('inventory_items').select('*, inventory_categories(name)').eq('shop_id', shop_id).order('id', { ascending: true });
+        if (images_only === 'true' && !item_ids) return res.status(400).json({ error: 'กรุณาระบุรายการสินค้าที่ต้องการโหลดรูป' });
+        let itemIds;
+        if (item_ids) {
+            itemIds = String(item_ids).split(',').map(id => Number(id));
+            if (itemIds.length > 50 || itemIds.some(id => !Number.isInteger(id) || id <= 0)) {
+                return res.status(400).json({ error: 'รายการสินค้าที่ระบุไม่ถูกต้อง' });
+            }
+        }
+        const columns = images_only === 'true'
+            ? 'id, image_url'
+            : include_images === 'false'
+                ? 'id, shop_id, category_id, name, quantity, unit, min_threshold, sku, cost, type, status, inventory_categories(name)'
+                : '*, inventory_categories(name)';
+        let query = db.from('inventory_items').select(columns).eq('shop_id', shop_id).order('id', { ascending: true });
         if (category_id && category_id !== 'all') query = query.eq('category_id', category_id);
         if (search) query = query.ilike('name', `%${search}%`);
+        if (itemIds) query = query.in('id', itemIds);
         const { data, error } = await query;
         if (error) throw error;
-        res.json(data.map(item => presentInventoryItem({ ...item, category_name: item.inventory_categories?.name })));
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json(data.map(item => images_only === 'true' ? item : presentInventoryItem({ ...item, category_name: item.inventory_categories?.name })));
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/inventory/items', async (req, res) => {
     const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
     try {
-        if (!shop_id || !name) return res.status(400).json({ error: "เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธฃเนเธฒเธเธเนเธฒเนเธฅเธฐเธเธทเนเธญเธฃเธฒเธขเธเธฒเธฃ" });
-        if (!category_id) return res.status(400).json({ error: "เธเธฃเธธเธ“เธฒเน€เธฅเธทเธญเธเธซเธกเธงเธ”เธขเนเธญเธขเธเนเธญเธเธเธฑเธเธ—เธถเธ" });
+        if (!shop_id || !name) return res.status(400).json({ error: "กรุณาระบุร้านค้าและชื่อรายการ" });
+        if (!category_id) return res.status(400).json({ error: "กรุณาเลือกหมวดย่อยก่อนบันทึก" });
         const normalizedType = String(type || 'raw_material');
-        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'เธเธฃเธฐเน€เธ เธ—เธซเธฅเธฑเธเนเธกเนเธ–เธนเธเธ•เนเธญเธ' });
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหลักไม่ถูกต้อง' });
 
         let category = null;
         try {
@@ -1090,20 +1111,20 @@ app.post('/api/inventory/items', async (req, res) => {
             category = data;
         } catch (err) {
             const { data, error } = await db.from('inventory_categories').select('id').eq('id', category_id).eq('shop_id', shop_id).single();
-            if (error || !data) return res.status(400).json({ error: 'เธซเธกเธงเธ”เธขเนเธญเธขเธ—เธตเนเน€เธฅเธทเธญเธเนเธกเนเธกเธตเธญเธขเธนเนเนเธเธฃเนเธฒเธเธเธตเน เธซเธฃเธทเธญเนเธกเนเธ•เธฃเธเธเธฑเธเธเธฃเธฐเน€เธ เธ—เธซเธฅเธฑเธ' });
+            if (error || !data) return res.status(400).json({ error: 'ไม่พบหมวดย่อยที่เลือกในร้านนี้ หรือประเภทไม่ตรงกับประเภทหลัก' });
             category = { id: data.id, type: normalizedType };
         }
-        if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'เธซเธกเธงเธ”เธขเนเธญเธขเธ•เนเธญเธเน€เธเนเธเธเธญเธเธเธฃเธฐเน€เธ เธ—เธซเธฅเธฑเธเธ—เธตเนเน€เธฅเธทเธญเธ' });
+        if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'หมวดย่อยต้องเป็นประเภทเดียวกับประเภทหลักที่เลือก' });
 
         if (sku && String(sku).trim()) {
             const { data: skuMatch, error: skuError } = await db.from('inventory_items').select('id').eq('shop_id', shop_id).eq('sku', String(sku).trim()).maybeSingle();
             if (skuError) throw skuError;
-            if (skuMatch) return res.status(400).json({ error: 'SKU เธเธตเนเธ–เธนเธเนเธเนเนเธฅเนเธงเนเธเธฃเนเธฒเธเธเธตเน' });
+            if (skuMatch) return res.status(400).json({ error: 'SKU นี้ถูกใช้แล้วในร้านนี้' });
         }
 
         const { data: shop, error: shopError } = await db.from('shops').select('id').eq('id', shop_id).maybeSingle();
         if (shopError) throw shopError;
-        if (!shop) return res.status(400).json({ error: "เนเธกเนเธเธเธฃเนเธฒเธเธเนเธฒเธเธตเน เธเธฃเธธเธ“เธฒเธญเธญเธเธเธฒเธเธฃเธฐเธเธเนเธฅเนเธงเน€เธเนเธฒเธชเธนเนเธฃเธฐเธเธเนเธซเธกเน" });
+        if (!shop) return res.status(400).json({ error: "ไม่พบร้านค้านี้ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่" });
 
         const { data: createdItem, error } = await db.from('inventory_items').insert([{
             shop_id, category_id: category_id || null, name, quantity: quantity || 0, unit: encodeInventoryUnit(unit, package_size, package_unit), min_threshold: min_threshold || 0,
@@ -1114,21 +1135,21 @@ app.post('/api/inventory/items', async (req, res) => {
         if (createdItem && initialQuantity !== 0) {
             const { error: movementError } = await db.from('stock_movements').insert([{
                 shop_id, inventory_item_id: createdItem.id, movement_type: 'INITIAL_STOCK',
-                quantity: initialQuantity, balance_after: initialQuantity, reason: 'เน€เธเธดเนเธกเธชเธดเธเธเนเธฒเน€เธเนเธฒเธเธฅเธฑเธ'
+                quantity: initialQuantity, balance_after: initialQuantity, reason: 'เพิ่มเข้าคลัง'
             }]);
             if (movementError) throw movementError;
         }
-        res.json({ success: true, message: "เน€เธเธดเนเธกเธฃเธฒเธขเธเธฒเธฃเน€เธเนเธฒเธเธฅเธฑเธเธชเธณเน€เธฃเนเธ" });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ success: true, message: "เพิ่มรายการเข้าคลังสำเร็จ" });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/inventory/items/:id', async (req, res) => {
     try {
         const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
-        if (!shop_id) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
-        if (!category_id) return res.status(400).json({ error: 'เธเธฃเธธเธ“เธฒเน€เธฅเธทเธญเธเธซเธกเธงเธ”เธขเนเธญเธขเธเนเธญเธเธเธฑเธเธ—เธถเธ' });
+        if (!shop_id) return res.status(400).json({ error: 'กรุณาระบุร้านค้า' });
+        if (!category_id) return res.status(400).json({ error: 'กรุณาเลือกหมวดย่อยก่อนบันทึก' });
         const normalizedType = String(type || 'raw_material');
-        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'เธเธฃเธฐเน€เธ เธ—เธซเธฅเธฑเธเนเธกเนเธ–เธนเธเธ•เนเธญเธ' });
+        if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหลักไม่ถูกต้อง' });
 
         let category = null;
         try {
@@ -1137,19 +1158,19 @@ app.put('/api/inventory/items/:id', async (req, res) => {
             category = data;
         } catch (err) {
             const { data, error } = await db.from('inventory_categories').select('id').eq('id', category_id).eq('shop_id', shop_id).single();
-            if (error || !data) return res.status(400).json({ error: 'เธซเธกเธงเธ”เธขเนเธญเธขเธ—เธตเนเน€เธฅเธทเธญเธเนเธกเนเธกเธตเธญเธขเธนเนเนเธเธฃเนเธฒเธเธเธตเน เธซเธฃเธทเธญเนเธกเนเธ•เธฃเธเธเธฑเธเธเธฃเธฐเน€เธ เธ—เธซเธฅเธฑเธ' });
+            if (error || !data) return res.status(400).json({ error: 'ไม่พบหมวดย่อยที่เลือกในร้านนี้ หรือประเภทไม่ตรงกับประเภทหลัก' });
             category = { id: data.id, type: normalizedType };
         }
-        if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'เธซเธกเธงเธ”เธขเนเธญเธขเธ•เนเธญเธเน€เธเนเธเธเธญเธเธเธฃเธฐเน€เธ เธ—เธซเธฅเธฑเธเธ—เธตเนเน€เธฅเธทเธญเธ' });
+        if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'หมวดย่อยต้องเป็นประเภทเดียวกับประเภทหลักที่เลือก' });
 
         if (sku && String(sku).trim()) {
             const { data: skuMatch, error: skuError } = await db.from('inventory_items').select('id').eq('shop_id', shop_id).eq('sku', String(sku).trim()).neq('id', req.params.id).maybeSingle();
             if (skuError) throw skuError;
-            if (skuMatch) return res.status(400).json({ error: 'SKU เธเธตเนเธ–เธนเธเนเธเนเนเธฅเนเธงเนเธเธฃเนเธฒเธเธเธตเน' });
+            if (skuMatch) return res.status(400).json({ error: 'SKU นี้ถูกใช้แล้วในร้านนี้' });
         }
 
         const { data: existingItem, error: existingError } = await db.from('inventory_items').select('shop_id, quantity').eq('id', req.params.id).eq('shop_id', shop_id).single();
-        if (existingError || !existingItem) return res.status(403).json({ error: 'เนเธกเนเธเธเธงเธฑเธ•เธ–เธธเธ”เธดเธเธเธตเนเนเธเธฃเนเธฒเธเธเธญเธเธเธธเธ“' });
+        if (existingError || !existingItem) return res.status(403).json({ error: 'ไม่พบรายการนี้ในร้านของคุณ' });
         const updates = {
             category_id: category_id || null,
             name,
@@ -1165,56 +1186,94 @@ app.put('/api/inventory/items/:id', async (req, res) => {
         const { error } = await db.from('inventory_items').update(updates).eq('id', req.params.id).eq('shop_id', shop_id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/inventory/items/:id', async (req, res) => {
     try {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'กรุณาระบุร้านค้า' });
         const { error } = await db.from('inventory_items').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/inventory/adjust', async (req, res) => {
     const { shop_id, item_id, user_id, adjust_qty, reason, note, expected_quantity } = req.body;
     try {
         const amount = Number(adjust_qty);
-        if (!shop_id || !item_id || !Number.isFinite(amount) || amount === 0) return res.status(400).json({ error: 'เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธเธณเธเธงเธเธ—เธตเนเธ–เธนเธเธ•เนเธญเธ' });
+        if (!shop_id || !item_id || !Number.isFinite(amount) || amount === 0) return res.status(400).json({ error: 'กรุณาระบุจำนวนที่ถูกต้อง' });
         const { data: item, error: itemErr } = await db.from('inventory_items').select('quantity, shop_id, name, unit').eq('id', item_id).eq('shop_id', shop_id).single();
-        if (itemErr || !item) throw new Error("เนเธกเนเธเธเธงเธฑเธ•เธ–เธธเธ”เธดเธเนเธเธฃเธฐเธเธ");
+        if (itemErr || !item) throw new Error("ไม่พบวัตถุดิบในระบบ");
         const previousQuantity = Number(item.quantity || 0);
-        if (expected_quantity !== undefined && Math.abs(Number(expected_quantity) - previousQuantity) > 0.001) return res.status(409).json({ error: 'เธชเธ•เนเธญเธเธ–เธนเธเน€เธเธฅเธตเนเธขเธเนเธเธฅเธเนเธฅเนเธง เธเธฃเธธเธ“เธฒเนเธซเธฅเธ”เธเนเธญเธกเธนเธฅเนเธซเธกเน' });
-        const newQty = previousQuantity + amount;
-        if (newQty < 0) return res.status(400).json({ error: 'เธเธณเธเธงเธเธ—เธตเนเธฅเธ”เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธกเธฒเธเธเธงเนเธฒเธชเธ•เนเธญเธเธเธฑเธเธเธธเธเธฑเธเนเธ”เน' });
-        const { data: updatedItem, error: updateErr } = await db.from('inventory_items').update({ quantity: newQty }).eq('id', item_id).eq('shop_id', shop_id).select('quantity').single();
-        if (updateErr) throw updateErr;
-        if (!updatedItem) return res.status(409).json({ error: 'เธชเธ•เนเธญเธเธ–เธนเธเน€เธเธฅเธตเนเธขเธเนเธเธฅเธเนเธฅเนเธง เธเธฃเธธเธ“เธฒเธฅเธญเธเนเธซเธกเน' });
-
-        const { error: moveErr } = await db.from('stock_movements').insert([{
-            shop_id, inventory_item_id: item_id, movement_type: amount > 0 ? 'STOCK_IN' : 'STOCK_OUT', quantity: amount, balance_before: previousQuantity, balance_after: newQty, reason: reason || 'เธเธฃเธฑเธเธชเธ•เนเธญเธ', note: note || null, created_by: user_id || null
-        }]);
-        if (moveErr) throw moveErr;
-        await syncInventoryNotification({ shopId: shop_id, itemId: item_id, userId: user_id || null });
-        const { data: settingsRow } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-        if (settingsRow && settingsRow.settings_data) {
-            const sData = typeof settingsRow.settings_data === 'string' ? JSON.parse(settingsRow.settings_data) : settingsRow.settings_data;
-            if (sData.notify_stock_adjust !== false) {
-                await createNotification({ shopId: shop_id, type: 'STOCK_ADJUST', priority: 'INFO', title: 'เธเธฃเธฑเธเธชเธ•เนเธญเธ', message: `เธเธฃเธฑเธเธชเธ•เนเธญเธ ${item.name} (${amount > 0 ? '+' : ''}${amount})`, entityType: 'inventory_item', entityId: item_id, userId: user_id || null });
-            }
+        if (expected_quantity !== undefined && Math.abs(Number(expected_quantity) - previousQuantity) > 0.001) {
+            return res.status(409).json({ error: 'สต็อกถูกเปลี่ยนแปลงแล้ว ข้อมูลล่าสุดถูกอัปเดตแล้ว', current_stock: previousQuantity });
         }
-        res.json({ success: true, message: "เธเธฃเธฑเธเธเธฃเธธเธ Stock เธชเธณเน€เธฃเนเธ", new_stock: newQty });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        const newQty = previousQuantity + amount;
+        if (newQty < 0) return res.status(400).json({ error: 'จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้' });
+        const { data: updatedItem, error: updateErr } = await db.from('inventory_items')
+            .update({ quantity: newQty })
+            .eq('id', item_id)
+            .eq('shop_id', shop_id)
+            .eq('quantity', previousQuantity)
+            .select('quantity')
+            .maybeSingle();
+        if (updateErr) throw updateErr;
+        if (!updatedItem) {
+            const { data: latestItem, error: latestItemError } = await db.from('inventory_items')
+                .select('quantity')
+                .eq('id', item_id)
+                .eq('shop_id', shop_id)
+                .maybeSingle();
+            if (latestItemError) throw latestItemError;
+            return res.status(409).json({
+                error: 'สต็อกถูกเปลี่ยนแปลงแล้ว ข้อมูลล่าสุดถูกอัปเดตแล้ว',
+                current_stock: latestItem?.quantity
+            });
+        }
+
+        const { data: movement, error: moveErr } = await db.from('stock_movements').insert([{
+            shop_id, inventory_item_id: item_id, movement_type: amount > 0 ? 'STOCK_IN' : 'STOCK_OUT', quantity: amount, balance_before: previousQuantity, balance_after: newQty, reason: reason || 'ปรับ Stock', note: note || null, created_by: user_id || null
+        }]).select('*').single();
+        if (moveErr) {
+            console.error('Inventory quantity updated but stock movement could not be recorded:', moveErr);
+            return res.status(500).json({
+                success: false,
+                stock_updated: true,
+                new_stock: updatedItem.quantity,
+                error: 'ปรับสต็อกแล้ว แต่บันทึกประวัติไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ'
+            });
+        }
+
+        res.json({ success: true, message: "ปรับสต็อกสำเร็จ", new_stock: updatedItem.quantity, movement });
+        Promise.all([
+            syncInventoryNotification({ shopId: shop_id, itemId: item_id, userId: user_id || null }),
+            (async () => {
+                const { data: settingsRow, error: settingsError } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
+                if (settingsError) throw settingsError;
+                if (settingsRow?.settings_data) {
+                    const sData = typeof settingsRow.settings_data === 'string' ? JSON.parse(settingsRow.settings_data) : settingsRow.settings_data;
+                    if (sData.notify_stock_adjust !== false) {
+                        await createNotification({ shopId: shop_id, type: 'STOCK_ADJUST', priority: 'INFO', title: 'ปรับสต็อก', message: `ปรับสต็อก ${item.name} (${amount > 0 ? '+' : ''}${amount})`, entityType: 'inventory_item', entityId: item_id, userId: user_id || null });
+                    }
+                }
+            })()
+        ]).catch((notificationError) => {
+            console.error('Inventory adjustment saved, but notification sync failed:', notificationError);
+        });
+    } catch (err) {
+        console.error('Inventory stock adjustment failed:', err);
+        res.status(500).json({ error: 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่' });
+    }
 });
 
 app.get('/api/inventory/:id', async (req, res) => {
     try {
         const shopId = req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'กรุณาระบุร้านค้า' });
         const { data, error } = await db.from('inventory_items').select('*').eq('id', req.params.id).eq('shop_id', shopId).single();
         if (error) throw error; res.json({ ...presentInventoryItem(data), stock: data.quantity, minStock: data.min_threshold || 10, sku: data.sku || `SKU-${data.id}`, movements: [] });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/stock-movements', async (req, res) => {
@@ -1224,17 +1283,17 @@ app.get('/api/stock-movements', async (req, res) => {
         if (item_id) query = query.eq('inventory_item_id', item_id);
         const { data, error } = await query;
         if (error) throw error; res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 11. API เธเธฒเธฃเธ•เธฑเนเธเธเนเธฒ & เธเนเธญเธเธ—เธฒเธเธเธฒเธฃเธเธณเธฃเธฐเน€เธเธดเธ ---
+// --- 11. API การตั้งค่า & ช่องทางการชำระเงิน ---
 // ==========================================
 const defaultSettings = {
-    shop_name: "เธเธทเนเธญเธฃเนเธฒเธเธเธญเธเธเธธเธ“", branch_name: "เธชเธฒเธเธฒเธซเธฅเธฑเธ", logo: "", address: "เธ—เธตเนเธญเธขเธนเนเธฃเนเธฒเธ", phone: "-", email: "-", tax_id: "-",
+    shop_name: "ชื่อร้านของคุณ", branch_name: "สาขาหลัก", logo: "", address: "ที่อยู่ร้าน", phone: "-", email: "-", tax_id: "-",
     allow_negative_stock: false, auto_deduct_stock: true, allow_price_override: true, allow_discounts: true,
     require_reason_delete_item: true, require_reason_cancel_bill: true, auto_print_receipt: true, enable_e_receipt: false,
-    receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "เธเธญเธเธเธธเธ“เธ—เธตเนเนเธเนเธเธฃเธดเธเธฒเธฃ",
+    receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "ขอบคุณที่ใช้บริการ",
     pin_enabled: true,
     pin_settings: {},
     payment_cash_enabled: true, payment_qr_enabled: true, payment_transfer_enabled: false, payment_credit_enabled: false, payment_debit_enabled: false,
@@ -1259,7 +1318,7 @@ app.get('/api/settings', async (req, res) => {
 app.get('/api/staff-roles', async (req, res) => {
     const email = req.query.email;
     if (!email) {
-        return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธเธญเธตเน€เธกเธฅเธเธนเนเนเธเน' });
+        return res.status(400).json({ error: 'ต้องระบุอีเมลผู้ใช้' });
     }
 
     try {
@@ -1269,7 +1328,7 @@ app.get('/api/staff-roles', async (req, res) => {
             .single();
 
         if (userError || !currentUser) {
-            return res.status(404).json({ error: 'เนเธกเนเธเธเธเนเธญเธกเธนเธฅเธเธเธฑเธเธเธฒเธ' });
+            return res.status(404).json({ error: 'ไม่พบข้อมูลพนักงาน' });
         }
 
         const { data: staffList, error: staffError } = await db.from('staff')
@@ -1282,15 +1341,15 @@ app.get('/api/staff-roles', async (req, res) => {
         const roles = Array.from(new Set((staffList || []).map((staff) => staff.role).filter(Boolean)));
         return res.json(roles);
     } catch (error) {
-        return res.status(500).json({ error: error.message || 'เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เนเธซเธฅเธ”เธชเธดเธ—เธเธดเนเธเธเธฑเธเธเธฒเธเนเธ”เน' });
+        return res.status(500).json({ error: error.message || 'ไม่สามารถโหลดสิทธิ์พนักงานได้' });
     }
 });
 
 app.put('/api/settings', async (req, res) => {
     try {
         const { error } = await db.from('shop_settings').upsert({ shop_id: req.body.shop_id, settings_data: req.body.data });
-        if (error) throw error; res.json({ success: true, message: "เธเธฑเธเธ—เธถเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเน€เธฃเธตเธขเธเธฃเนเธญเธขเนเธฅเนเธงเธเนเธฐ" });
-    } catch (error) { res.status(500).json({ error: "เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธเธฑเธเธ—เธถเธเธเนเธญเธกเธนเธฅเนเธ”เน" }); }
+        if (error) throw error; res.json({ success: true, message: "บันทึกการตั้งค่าเรียบร้อยแล้วค่ะ" });
+    } catch (error) { res.status(500).json({ error: "ไม่สามารถบันทึกข้อมูลได้" }); }
 });
 
 app.put('/api/users/:id/pin-setting', async (req, res) => {
@@ -1299,7 +1358,7 @@ app.put('/api/users/:id/pin-setting', async (req, res) => {
         const userId = req.params.id;
 
         if (!shop_id) {
-            return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+            return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         }
 
         const { data: shopSettingsData, error: fetchError } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
@@ -1323,7 +1382,7 @@ app.put('/api/users/:id/pin-setting', async (req, res) => {
 
         res.json({ success: true, pin_enabled: Boolean(pin_enabled), user_id: Number(userId) });
     } catch (error) {
-        res.status(500).json({ error: error.message || 'เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธเธฑเธเธ—เธถเธเธชเธ–เธฒเธเธฐ PIN เธเธญเธเธเธเธฑเธเธเธฒเธเนเธ”เน' });
+        res.status(500).json({ error: error.message || 'ไม่สามารถบันทึกสถานะ PIN ของพนักงานได้' });
     }
 });
 
@@ -1334,30 +1393,30 @@ app.get('/api/payment-methods', async (req, res) => {
         if (error) throw error;
         if (!data || data.length === 0) {
             const defaults = [
-                { shop_id: shopId, name: 'เน€เธเธดเธเธชเธ”', type: 'CASH', is_enabled: true, display_order: 0 },
-                { shop_id: shopId, name: 'QR เธเธฃเนเธญเธกเน€เธเธขเน', type: 'QR', is_enabled: true, display_order: 1 },
-                { shop_id: shopId, name: 'เนเธญเธเน€เธเธดเธ', type: 'TRANSFER', is_enabled: true, display_order: 2 },
-                { shop_id: shopId, name: 'เธเธฑเธ•เธฃเน€เธเธฃเธ”เธดเธ•', type: 'CARD', is_enabled: false, display_order: 3 }
+                { shop_id: shopId, name: 'เงินสด', type: 'CASH', is_enabled: true, display_order: 0 },
+                { shop_id: shopId, name: 'QR พร้อมเพย์', type: 'QR', is_enabled: true, display_order: 1 },
+                { shop_id: shopId, name: 'โอนเงิน', type: 'TRANSFER', is_enabled: true, display_order: 2 },
+                { shop_id: shopId, name: 'บัตรเครดิต', type: 'CARD', is_enabled: false, display_order: 3 }
             ];
             const seeded = await db.from('payment_methods').insert(defaults).select('*');
             if (seeded.error) throw seeded.error;
             return res.json(seeded.data || []);
         }
         return res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/payment-methods', async (req, res) => {
     try {
         const { shop_id, name, type } = req.body;
-        if (!shop_id || !String(name || '').trim()) return res.status(400).json({ error: 'เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธเธเธทเนเธญเธเนเธญเธเธ—เธฒเธเธเธฒเธฃเธเธณเธฃเธฐเน€เธเธดเธ' });
+        if (!shop_id || !String(name || '').trim()) return res.status(400).json({ error: 'กรุณาระบุชื่อช่องทางการชำระเงิน' });
         const { count } = await db.from('payment_methods').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id);
         const { data, error } = await db.from('payment_methods').insert([{
             shop_id, name: String(name).trim(), type: type || 'OTHER', is_enabled: true, display_order: count || 0
         }]).select('*').single();
         if (error) throw error;
         res.status(201).json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/payment-methods/:id', async (req, res) => {
@@ -1365,7 +1424,7 @@ app.delete('/api/payment-methods/:id', async (req, res) => {
         const { error } = await db.from('payment_methods').delete().eq('id', req.params.id).eq('shop_id', req.query.shop_id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/payment-methods', async (req, res) => {
@@ -1376,47 +1435,47 @@ app.put('/api/payment-methods', async (req, res) => {
             .eq('shop_id', req.body.shop_id)));
         const failed = results.find(result => result.error);
         if (failed?.error) throw failed.error;
-        res.json({ success: true, message: "เธญเธฑเธเน€เธ”เธ•เธเนเธญเธเธ—เธฒเธเธเธฒเธฃเธเธณเธฃเธฐเน€เธเธดเธเน€เธฃเธตเธขเธเธฃเนเธญเธขเนเธฅเนเธง" });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+        res.json({ success: true, message: "อัปเดตช่องทางการชำระเงินเรียบร้อยแล้ว" });
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 12. API เนเธเธฃเนเธกเธเธฑเนเธ (Promotions) ---
+// --- 12. API โปรโมชั่น (Promotions) ---
 // ==========================================
 app.get('/api/promotions', async (req, res) => {
     try {
         const { data, error } = await db.from('promotions').select('*').eq('shop_id', req.query.shop_id).order('id', { ascending: false });
         if (error) throw error; res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/promotions', async (req, res) => {
     try {
         const { error } = await db.from('promotions').insert([req.body]);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/promotions/:id', async (req, res) => {
     try {
         const shopId = req.body.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('promotions').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/promotions/:id', async (req, res) => {
     try {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'เธ•เนเธญเธเธฃเธฐเธเธธ shop_id' });
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('promotions').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
-// --- 13. API เธเธฒเธฃเธเธฑเธ”เธเธฒเธฃเธเธเธฑเธเธเธฒเธ (Staff) ---
+// --- 13. API การจัดการพนักงาน (Staff) ---
 // ==========================================
 app.get('/api/staff', async (req, res) => {
     try {
@@ -1428,14 +1487,14 @@ app.get('/api/staff', async (req, res) => {
             
         if (error) throw error; 
         res.json((data || []).map(staff => ({ ...staff, image_url: null, created_at: null })));
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.post('/api/staff', async (req, res) => {
     const { shop_id, name, email, role, phone, pin, password, status } = req.body;
     try {
         const { data: existing } = await db.from('staff').select('id').eq('email', email).single();
-        if (existing) return res.status(400).json({ error: "เธญเธตเน€เธกเธฅเธเธตเนเธกเธตเธญเธขเธนเนเนเธเธฃเธฐเธเธเนเธฅเนเธง" });
+        if (existing) return res.status(400).json({ error: "อีเมลนี้มีอยู่ในระบบแล้ว" });
 
         const salt = await bcrypt.genSalt(10);
         const hashedPass = await bcrypt.hash(password || 'staff_password', salt);
@@ -1447,7 +1506,7 @@ app.post('/api/staff', async (req, res) => {
         }]);
         if (error) throw error;
         res.status(201).json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.put('/api/staff/:id', async (req, res) => {
@@ -1455,7 +1514,7 @@ app.put('/api/staff/:id', async (req, res) => {
     try {
         const { data: existingStaff } = await db.from('staff').select('shop_id').eq('id', req.params.id).single();
         if (!existingStaff || existingStaff.shop_id !== shop_id) {
-            return res.status(403).json({ error: "เนเธกเนเธกเธตเธชเธดเธ—เธเธดเนเน€เธเนเธฒเธ–เธถเธเธเนเธญเธกเธนเธฅเธเธเธฑเธเธเธฒเธเธเธเธเธตเน" });
+            return res.status(403).json({ error: "ไม่มีสิทธิ์เข้าถึงข้อมูลพนักงานคนนี้" });
         }
 
         const updateData = { name, role, phone, status };
@@ -1472,23 +1531,23 @@ app.put('/api/staff/:id', async (req, res) => {
         const { error } = await db.from('staff').update(updateData).eq('id', req.params.id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.delete('/api/staff/:id', async (req, res) => {
     try {
         const { shop_id } = req.body || {};
-        if (!shop_id) return res.status(400).json({ error: "เธ•เนเธญเธเธฃเธฐเธเธธเธฃเนเธฒเธเธเนเธฒ" });
+        if (!shop_id) return res.status(400).json({ error: "ต้องระบุร้านค้า" });
 
         const { data: existingStaff } = await db.from('staff').select('shop_id').eq('id', req.params.id).single();
         if (!existingStaff || String(existingStaff.shop_id) !== String(shop_id)) {
-            return res.status(403).json({ error: "เนเธกเนเธกเธตเธชเธดเธ—เธเธดเนเธฅเธเธเธเธฑเธเธเธฒเธเธเธเธเธตเน" });
+            return res.status(403).json({ error: "ไม่มีสิทธิ์ลบพนักงานคนนี้" });
         }
 
         const { error } = await db.from('staff').delete().eq('id', req.params.id).eq('shop_id', shop_id);
         if (error) throw error;
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); }
+    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/staff/:id/activity', async (req, res) => {
@@ -1507,8 +1566,8 @@ app.get('/api/staff/:id/activity', async (req, res) => {
         if (orders) {
             orders.forEach(o => activities.push({
                 type: 'SALE',
-                action: 'เธฃเธฑเธเธญเธญเน€เธ”เธญเธฃเนเนเธฅเธฐเธเธณเธฃเธฐเน€เธเธดเธ',
-                detail: `เน€เธฅเธเธ—เธตเนเธเธดเธฅ: ${o.bill_number} เธขเธญเธ”: เธฟ${Number(o.total_amount).toLocaleString()}`,
+                action: 'รับออเดอร์และชำระเงิน',
+                detail: `เลขที่บิล: \({o.bill_number} ยอด: ฿\){Number(o.total_amount).toLocaleString()}`,
                 created_at: o.created_at
             }));
         }
@@ -1523,13 +1582,13 @@ app.get('/api/staff/:id/activity', async (req, res) => {
         if (shifts) {
             shifts.forEach(s => {
                 activities.push({
-                    type: 'SHIFT_OPEN', action: 'เน€เธเธดเธ”เธฃเธญเธเธเธฒเธฃเธเธฒเธข',
-                    detail: `เน€เธเธดเธ”เธฃเธญเธเธเธฒเธฃเธเธฒเธข (เธฃเธซเธฑเธช: ${s.id})`, created_at: s.opened_at
+                    type: 'SHIFT_OPEN', action: 'เปิดรอบการขาย',
+                    detail: `เปิดรอบการขาย (รหัส: ${s.id})`, created_at: s.opened_at
                 });
                 if (s.closed_at) {
                     activities.push({
-                        type: 'SHIFT_CLOSE', action: 'เธเธดเธ”เธฃเธญเธเธเธฒเธฃเธเธฒเธข',
-                        detail: `เธเธดเธ”เธฃเธญเธเธเธฒเธฃเธเธฒเธข (เธฃเธซเธฑเธช: ${s.id})`, created_at: s.closed_at
+                        type: 'SHIFT_CLOSE', action: 'ปิดรอบการขาย',
+                        detail: `ปิดรอบการขาย (รหัส: ${s.id})`, created_at: s.closed_at
                     });
                 }
             });
@@ -1538,12 +1597,12 @@ app.get('/api/staff/:id/activity', async (req, res) => {
         activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         res.json(activities.slice(0, 15)); 
     } catch (err) { 
-        res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธฃเธฐเธเธ' }); 
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); 
     }
 });
 
 // ==========================================
-// --- 14. API เธชเธณเธซเธฃเธฑเธเธซเธเนเธฒ Dashboard Reports ---
+// --- 14. API สำหรับหน้า Dashboard Reports ---
 // ==========================================
 
 const getBangkokDateKey = (date) => {
@@ -1556,31 +1615,31 @@ const getDateRange = (period, customStart, customEnd) => {
     let startDate = new Date(`${todayKey}T00:00:00+07:00`);
     let endDate = new Date(`${todayKey}T23:59:59.999+07:00`);
 
-    if (period === 'เน€เธกเธทเนเธญเธงเธฒเธ') {
+    if (period === 'เมื่อวาน') {
         startDate.setDate(startDate.getDate() - 1);
         endDate = new Date(`${getBangkokDateKey(startDate)}T23:59:59.999+07:00`);
-    } else if (period === '7 เธงเธฑเธเธ—เธตเนเธเนเธฒเธเธกเธฒ') {
+    } else if (period === '7 วันที่ผ่านมา') {
         startDate.setDate(startDate.getDate() - 6);
-    } else if (period === '30 เธงเธฑเธเธ—เธตเนเธเนเธฒเธเธกเธฒ') {
+    } else if (period === '30 วันที่ผ่านมา') {
         startDate.setDate(startDate.getDate() - 29);
-    } else if (period === 'เน€เธ”เธทเธญเธเธเธตเน') {
+    } else if (period === 'เดือนนี้') {
         startDate = new Date(`${todayKey.slice(0, 8)}01T00:00:00+07:00`);
-    } else if (period === 'เน€เธ”เธทเธญเธเธ—เธตเนเนเธฅเนเธง') {
+    } else if (period === 'เดือนที่แล้ว') {
         startDate.setDate(1);
         startDate.setMonth(startDate.getMonth() - 1);
         endDate = new Date(startDate);
         endDate.setMonth(endDate.getMonth() + 1);
         endDate.setMilliseconds(-1);
-    } else if (period === 'เธเธตเธเธตเน') {
+    } else if (period === 'ปีนี้') {
         startDate = new Date(`${todayKey.slice(0, 4)}-01-01T00:00:00+07:00`);
-    } else if (period === 'เธเธตเธ—เธตเนเนเธฅเนเธง') {
+    } else if (period === 'ปีที่แล้ว') {
         startDate = new Date(`${Number(todayKey.slice(0, 4)) - 1}-01-01T00:00:00+07:00`);
         endDate = new Date(`${Number(todayKey.slice(0, 4))}-01-01T00:00:00+07:00`);
         endDate.setMilliseconds(-1);
-    } else if (period === 'เธ—เธฑเนเธเธซเธกเธ”') {
+    } else if (period === 'ทั้งหมด') {
         startDate = new Date('1970-01-01T00:00:00+07:00');
         endDate = new Date('2999-12-31T23:59:59.999+07:00');
-    } else if (period === 'เธเธณเธซเธเธ”เน€เธญเธ' && customStart && customEnd) {
+    } else if (period === 'กำหนดเอง' && customStart && customEnd) {
         startDate = new Date(`${customStart}T00:00:00+07:00`);
         endDate = new Date(`${customEnd}T23:59:59.999+07:00`);
     }
@@ -1606,7 +1665,7 @@ app.get('/api/reports/summary', async (req, res) => {
         const totalItems = items ? items.reduce((sum, i) => sum + Number(i.quantity), 0) : 0;
 
         res.json({ summary: { netSales, totalBills, avgBill, totalItems } });
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/sales', async (req, res) => {
@@ -1636,7 +1695,7 @@ app.get('/api/reports/sales', async (req, res) => {
             const dateKey = getBangkokDateKey(new Date(date));
             if (granularity === 'hour') {
                 const hour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', hour12: false }).format(new Date(date));
-                return `${dateKey}T${hour}:00`;
+                return `\({dateKey}T\){hour}:00`;
             }
             if (granularity === 'week') {
                 const day = new Date(`${dateKey}T00:00:00+07:00`);
@@ -1670,7 +1729,7 @@ app.get('/api/reports/sales', async (req, res) => {
             if (!grouped[key]) grouped[key] = { value: 0, orderCount: 0, itemCount: 0, orders: [] };
         };
         if (granularity === 'hour') {
-            for (let hour = 0; hour < 24; hour += 1) addBucket(`${startKey}T${String(hour).padStart(2, '0')}:00`);
+            for (let hour = 0; hour < 24; hour += 1) addBucket(`\({startKey}T\){String(hour).padStart(2, '0')}:00`);
         } else if (granularity === 'day') {
             for (const cursor = new Date(rangeStart); cursor <= rangeEnd; cursor.setDate(cursor.getDate() + 1)) addBucket(getBangkokDateKey(cursor));
         }
@@ -1689,7 +1748,7 @@ app.get('/api/reports/sales', async (req, res) => {
         });
 
         res.json({ chart, granularity });
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/payments', async (req, res) => {
@@ -1701,7 +1760,7 @@ app.get('/api/reports/payments', async (req, res) => {
         
         if (!orders || orders.length === 0) return res.json([]);
         const grouped = orders.reduce((acc, o) => {
-            const method = o.payment_method || 'เน€เธเธดเธเธชเธ”';
+            const method = o.payment_method || 'เงินสด';
             if(!acc[method]) acc[method] = { count: 0, sum: 0 };
             acc[method].count += 1;
             acc[method].sum += Number(o.total_amount);
@@ -1709,9 +1768,9 @@ app.get('/api/reports/payments', async (req, res) => {
         }, {});
         
         res.json(Object.keys(grouped).map(k => ({
-            "เธเนเธญเธเธ—เธฒเธ": k, "เธเธณเธเธงเธเธฃเธฒเธขเธเธฒเธฃ": grouped[k].count, "เธขเธญเธ”เธฃเธงเธก (เธฟ)": grouped[k].sum.toLocaleString()
+            "ช่องทาง": k, "จำนวนรายการ": grouped[k].count, "ยอดรวม (฿)": grouped[k].sum.toLocaleString()
         })));
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/products', async (req, res) => {
@@ -1733,11 +1792,11 @@ app.get('/api/reports/products', async (req, res) => {
         });
 
         const topProducts = Object.keys(productSales).sort((a,b) => productSales[b].qty - productSales[a].qty).slice(0, 10).map(k => ({
-            "เธเธทเนเธญเธชเธดเธเธเนเธฒ": k, "เธเธฒเธขเนเธ”เน (เธเธดเนเธ)": productSales[k].qty, "เธขเธญเธ”เธฃเธงเธก (เธฟ)": productSales[k].sum.toLocaleString()
+            "ชื่อสินค้า": k, "ขายได้ (ชิ้น)": productSales[k].qty, "ยอดรวม (฿)": productSales[k].sum.toLocaleString()
         }));
 
         res.json(topProducts);
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/inventory', async (req, res) => {
@@ -1751,12 +1810,12 @@ app.get('/api/reports/inventory', async (req, res) => {
 
         const table = inv.filter(i => Number(i.quantity) <= Number(i.min_threshold)).map(i => ({
             id: i.id,
-            "เธเธทเนเธญเธงเธฑเธ•เธ–เธธเธ”เธดเธ": i.name, "เธเธเน€เธซเธฅเธทเธญ": `${i.quantity} ${i.unit}`, "เธเธฑเนเธเธ•เนเธณ": `${i.min_threshold} ${i.unit}`,
-            "เธชเธ–เธฒเธเธฐ": Number(i.quantity) <= 0 ? "เธซเธกเธ”" : "เธ•เนเธณ"
+            "ชื่อวัตถุดิบ": i.name, "คงเหลือ": `\({i.quantity}\){i.unit}`, "ขั้นต่ำ": `\({i.min_threshold}\){i.unit}`,
+            "สถานะ": Number(i.quantity) <= 0 ? "หมด" : "ต่ำ"
         }));
 
         res.json({ totalItems: inv.length, outOfStock, lowStock, asOf: new Date().toISOString(), table });
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/stock-movement', async (req, res) => {
@@ -1775,22 +1834,22 @@ app.get('/api/reports/stock-movement', async (req, res) => {
         if (inventoryError) throw inventoryError;
         const itemDetails = new Map((inventoryItems || []).map(item => [item.id, { ...item, ...decodeInventoryUnit(item.unit) }]));
         const movementLabels = {
-            SALE: 'เนเธเนเนเธเธเธฒเธเธเธฒเธฃเธเธฒเธข',
-            VOID_RETURN: 'เธเธทเธเธเธฒเธเธเธฒเธฃเธขเธเน€เธฅเธดเธเธเธดเธฅ',
-            ADJUSTMENT: 'เธเธฃเธฑเธ Stock',
-            INITIAL_STOCK: 'เน€เธเธดเนเธกเน€เธเนเธฒเธเธฅเธฑเธ'
+            SALE: 'ใช้ไปจากการขาย',
+            VOID_RETURN: 'คืนสต็อกจากการยกเลิกบิล (Void)',
+            ADJUSTMENT: 'ปรับ Stock',
+            INITIAL_STOCK: 'เพิ่มเข้าคลัง'
         };
 
         res.json(movements.map(m => ({
-            "เธงเธฑเธเธ—เธตเน": new Date(m.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }),
-            "เธฃเธฒเธขเธเธฒเธฃเธงเธฑเธ•เธ–เธธเธ”เธดเธ": itemDetails.get(m.inventory_item_id)?.name || '-',
-            "เธเธฃเธฐเน€เธ เธ—": movementLabels[m.movement_type] || m.movement_type,
-            "เธเธณเธเธงเธเธ—เธตเนเน€เธเธฅเธตเนเธขเธ": Number(m.quantity) > 0 ? `+${m.quantity}` : m.quantity,
-            "เธซเธเนเธงเธข": itemDetails.get(m.inventory_item_id)?.unit || 'เธซเธเนเธงเธข',
-            "เธเธเน€เธซเธฅเธทเธญเธซเธฅเธฑเธเธฃเธฒเธขเธเธฒเธฃ": m.balance_after ?? '-',
-            "เธฃเธฒเธขเธฅเธฐเน€เธญเธตเธขเธ”": m.reference_id ? `เธเธดเธฅ #${m.reference_id}` : (m.reason || '-')
+            "วันที่": new Date(m.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }),
+            "รายการวัตถุดิบ": itemDetails.get(m.inventory_item_id)?.name || '-',
+            "ประเภท": movementLabels[m.movement_type] || m.movement_type,
+            "จำนวนที่เปลี่ยน": Number(m.quantity) > 0 ? `+${m.quantity}` : m.quantity,
+            "หน่วย": itemDetails.get(m.inventory_item_id)?.unit || 'หน่วย',
+            "คงเหลือหลังรายการ": m.balance_after ?? '-',
+            "รายละเอียด": m.reference_id ? `บิล #${m.reference_id}` : (m.reason || '-')
         })));
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/employees', async (req, res) => {
@@ -1802,7 +1861,7 @@ app.get('/api/reports/employees', async (req, res) => {
         
         if (!orders || orders.length === 0) return res.json([]);
         const grouped = orders.reduce((acc, o) => {
-            const sName = o.staff?.name || 'เธเธเธฑเธเธเธฒเธ (เนเธกเนเธฃเธฐเธเธธ)';
+            const sName = o.staff?.name || 'พนักงาน (ไม่ระบุ)';
             if(!acc[sName]) acc[sName] = { bills: 0, sum: 0 };
             acc[sName].bills += 1;
             acc[sName].sum += Number(o.total_amount);
@@ -1810,9 +1869,9 @@ app.get('/api/reports/employees', async (req, res) => {
         }, {});
 
         res.json(Object.keys(grouped).map(k => ({
-            "เธเธเธฑเธเธเธฒเธ": k, "เธเธณเธเธงเธเธเธดเธฅ": grouped[k].bills, "เธขเธญเธ”เธเธฒเธข (เธฟ)": grouped[k].sum.toLocaleString()
+            "พนักงาน": k, "จำนวนบิล": grouped[k].bills, "ยอดขาย (฿)": grouped[k].sum.toLocaleString()
         })));
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/shifts', async (req, res) => {
@@ -1824,10 +1883,10 @@ app.get('/api/reports/shifts', async (req, res) => {
         
         if (!shifts || shifts.length === 0) return res.json([]);
         res.json(shifts.map(s => ({
-            "เธเธเธฑเธเธเธฒเธ": s.staff?.name || '-', "เน€เธงเธฅเธฒเน€เธเธดเธ”เธเธฐ": new Date(s.opened_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }),
-            "เธชเธ–เธฒเธเธฐ": s.closed_at ? 'เธเธดเธ”เนเธฅเนเธง' : 'เธเธณเธฅเธฑเธเน€เธเธดเธ”', "เธขเธญเธ”เธเธฒเธข": Number(s.total_sales || 0).toLocaleString()
+            "พนักงาน": s.staff?.name || '-', "เวลาเปิดกะ": new Date(s.opened_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }),
+            "สถานะ": s.closed_at ? 'ปิดแล้ว' : 'กำลังเปิด', "ยอดขาย": Number(s.total_sales || 0).toLocaleString()
         })));
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 app.get('/api/reports/profit', async (req, res) => {
@@ -1872,39 +1931,39 @@ app.get('/api/reports/profit', async (req, res) => {
         });
 
         res.json({ revenue, expenses, cogs: cogsAvailable ? cogs : null, cogsAvailable, netProfit: cogsAvailable ? revenue - expenses - cogs : null });
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
-app.get('/api/reports/customers', (req, res) => res.json({ available: false, message: 'เธขเธฑเธเนเธกเนเธกเธตเธเนเธญเธกเธนเธฅเธฅเธนเธเธเนเธฒเนเธ schema เธเธฑเธเธเธธเธเธฑเธ' }));
+app.get('/api/reports/customers', (req, res) => res.json({ available: false, message: 'ยังไม่มีข้อมูลลูกค้าใน schema ปัจจุบัน' }));
 app.get('/api/reports/tax', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
         const { data: settings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
         const data = settings?.settings_data || {};
-        if (!data.vat_enabled) return res.json({ available: false, message: 'เธขเธฑเธเนเธกเนเนเธ”เนเน€เธเธดเธ”เนเธเนเธเธฒเธเธ เธฒเธฉเธตเธกเธนเธฅเธเนเธฒเน€เธเธดเนเธก' });
+        if (!data.vat_enabled) return res.json({ available: false, message: 'ยังไม่ได้เปิดใช้งานภาษีมูลค่าเพิ่ม' });
         const { data: orders } = await db.from('orders').select('total_amount').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end);
         const total = (orders || []).reduce((sum, order) => sum + (Number(order.total_amount) || 0), 0);
         const rate = Number(data.vat_rate) || 0;
         const tax = data.prices_include_vat ? total * rate / (100 + rate) : total * rate / 100;
-        res.json([{ "เธญเธฑเธ•เธฃเธฒเธ เธฒเธฉเธต": `${rate}%`, "เธเธฒเธเธ เธฒเธฉเธต (เธฟ)": (data.prices_include_vat ? total - tax : total).toLocaleString(), "เธ เธฒเธฉเธต (เธฟ)": tax.toLocaleString() }]);
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+        res.json([{ "อัตราภาษี": `${rate}%`, "ฐานภาษี (฿)": (data.prices_include_vat ? total - tax : total).toLocaleString(), "ภาษี (฿)": tax.toLocaleString() }]);
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
-app.get('/api/reports/discounts', (req, res) => res.json({ available: false, message: 'เธขเธฑเธเนเธกเนเธกเธตเธเนเธญเธกเธนเธฅเธชเนเธงเธเธฅเธ”เธ—เธตเนเธเธฑเธเธ—เธถเธเนเธ orders schema เธเธฑเธเธเธธเธเธฑเธ' }));
-app.get('/api/reports/returns', (req, res) => res.json({ available: false, message: 'เธขเธฑเธเนเธกเนเธกเธตเธ•เธฒเธฃเธฒเธเธซเธฃเธทเธญเธชเธ–เธฒเธเธฐเธเธฒเธฃเธเธทเธเธชเธดเธเธเนเธฒเนเธ schema เธเธฑเธเธเธธเธเธฑเธ' }));
+app.get('/api/reports/discounts', (req, res) => res.json({ available: false, message: 'ยังไม่มีข้อมูลส่วนลดที่บันทึกใน orders schema ปัจจุบัน' }));
+app.get('/api/reports/returns', (req, res) => res.json({ available: false, message: 'ยังไม่มีตารางหรือสถานะการคืนสินค้าใน schema ปัจจุบัน' }));
 app.get('/api/reports/expenses', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
         const { data, error } = await db.from('shift_expenses').select('amount, reason, created_at').eq('shop_id', shop_id).gt('amount', 0).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false });
         if (error) throw error;
-        res.json((data || []).map(expense => ({ "เธงเธฑเธเธ—เธตเน": new Date(expense.created_at).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }), "เธฃเธฒเธขเธเธฒเธฃ": expense.reason || 'เนเธกเนเธฃเธฐเธเธธ', "เธเธณเธเธงเธเน€เธเธดเธ (เธฟ)": Number(expense.amount).toLocaleString() })));
-    } catch (e) { res.status(500).json({ error: 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เธ เธฒเธขเนเธเธดเธฐเธเธ' }); }
+        res.json((data || []).map(expense => ({ "วันที่": new Date(expense.created_at).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }), "รายการ": expense.reason || 'ไม่ระบุ', "จำนวนเงิน (฿)": Number(expense.amount).toLocaleString() })));
+    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
-app.get('/api/reports/export', (req, res) => res.send("เธฃเธฐเธเธ Export เธเธณเธฅเธฑเธเธญเธขเธนเนเนเธเธเนเธงเธเธเธฑเธ’เธเธฒ"));
+app.get('/api/reports/export', (req, res) => res.send("ระบบ Export กำลังอยู่ในช่วงพัฒนา"));
 
 // ==========================================
-// --- เน€เธฃเธดเนเธกเธเธฒเธฃเธ—เธณเธเธฒเธเธเธญเธ Server ---
+// --- เริ่มการทำงานของ Server ---
 // ==========================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
@@ -1912,20 +1971,20 @@ app.listen(PORT, () => {
 });
 
 // ==========================================
-// --- 10.5 API เธจเธนเธเธขเนเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ ---
+// --- 10.5 API ศูนย์การแจ้งเตือน ---
 // ==========================================
 app.get('/api/notifications', async (req, res) => {
     try {
         const { shop_id, user_id, unread_only, type, priority, limit = 30, offset = 0 } = req.query;
 
         if (!shop_id || !user_id) {
-            return res.status(400).json({ success: false, error: 'เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธ shop_id เนเธฅเธฐ user_id' });
+            return res.status(400).json({ success: false, error: 'กรุณาระบุ shop_id และ user_id' });
         }
 
         const shopId = Number(shop_id);
         const userId = Number(user_id);
         if (!Number.isFinite(shopId) || !Number.isFinite(userId)) {
-            return res.status(400).json({ success: false, error: 'shop_id เนเธฅเธฐ user_id เธ•เนเธญเธเน€เธเนเธเธ•เธฑเธงเน€เธฅเธ' });
+            return res.status(400).json({ success: false, error: 'shop_id และ user_id ต้องเป็นตัวเลข' });
         }
 
         const { data: inventoryItems, error: inventoryError } = await db.from('inventory_items').select('id').eq('shop_id', shopId);
@@ -1956,8 +2015,8 @@ app.get('/api/notifications', async (req, res) => {
         console.error('GET /api/notifications error:', err);
         return res.status(500).json({
             success: false,
-            error: 'เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เนเธซเธฅเธ”เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธ”เน',
-            hint: 'เธเธฃเธธเธ“เธฒเธฃเธฑเธ backend/notifications.sql เนเธ Supabase เธเนเธญเธเนเธเนเธเธฒเธ'
+            error: 'ไม่สามารถโหลดการแจ้งเตือนได้',
+            hint: 'กรุณารัน backend/notifications.sql ใน Supabase ก่อนใช้งาน'
         });
     }
 });
@@ -1966,7 +2025,7 @@ app.patch('/api/notifications/:id/read', async (req, res) => {
     try {
         const { shop_id } = req.body;
         if (!shop_id) {
-            return res.status(400).json({ success: false, error: 'เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธ shop_id' });
+            return res.status(400).json({ success: false, error: 'กรุณาระบุ shop_id' });
         }
 
         const { data, error } = await db.from('notifications').update({ is_read: true, read_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', req.params.id).eq('shop_id', shop_id).select('*').single();
@@ -1975,7 +2034,7 @@ app.patch('/api/notifications/:id/read', async (req, res) => {
         return res.status(200).json({ success: true, notification: data });
     } catch (err) {
         console.error('PATCH /api/notifications/:id/read error:', err);
-        return res.status(500).json({ success: false, error: 'เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธญเธฑเธเน€เธ”เธ•เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธ”เน' });
+        return res.status(500).json({ success: false, error: 'ไม่สามารถอัปเดตการแจ้งเตือนได้' });
     }
 });
 
@@ -1983,7 +2042,7 @@ app.patch('/api/notifications/read-all', async (req, res) => {
     try {
         const { shop_id } = req.body;
         if (!shop_id) {
-            return res.status(400).json({ success: false, error: 'เธเธฃเธธเธ“เธฒเธฃเธฐเธเธธ shop_id' });
+            return res.status(400).json({ success: false, error: 'กรุณาระบุ shop_id' });
         }
 
         const { error } = await db.from('notifications').update({ is_read: true, read_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('shop_id', shop_id).eq('is_active', true).eq('is_read', false);
@@ -1992,9 +2051,6 @@ app.patch('/api/notifications/read-all', async (req, res) => {
         return res.status(200).json({ success: true });
     } catch (err) {
         console.error('PATCH /api/notifications/read-all error:', err);
-        return res.status(500).json({ success: false, error: 'เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธญเนเธฒเธเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเธ—เธฑเนเธเธซเธกเธ”เนเธ”เน' });
+        return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านการแจ้งเตือนทั้งหมดได้' });
     }
 });
-
-
-
