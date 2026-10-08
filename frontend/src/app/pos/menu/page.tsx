@@ -1,5 +1,24 @@
 "use client";
 import { useToast } from '@/components/shared/ToastProvider';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import React from 'react';
+
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -75,6 +94,44 @@ interface Promotion {
   status: "active" | "inactive";
 }
 
+
+function SortableTableRow({ id, children, className, activeTab }: { id: string | number; children: React.ReactNode; className?: string, activeTab: string }) {
+  if (activeTab !== 'categories') {
+    return <tr className={className}>{children}</tr>;
+  }
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 100 : 'auto',
+    backgroundColor: isDragging ? '#f9fafb' : undefined,
+    boxShadow: isDragging ? '0 5px 15px rgba(0,0,0,0.1)' : undefined,
+    opacity: isDragging ? 0.9 : 1,
+    position: isDragging ? ('relative' as any) : undefined,
+  };
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={`${className || ''} ${isDragging ? 'relative z-50 bg-gray-50' : ''} cursor-grab`}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </tr>
+  );
+}
+
 export default function MenuPromotionsPage() {
   const { showToast } = useToast();
 
@@ -104,6 +161,51 @@ export default function MenuPromotionsPage() {
   
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (activeTab === 'categories' && over && active.id !== over.id) {
+      const oldIndex = categories.findIndex((c) => c.id === active.id);
+      const newIndex = categories.findIndex((c) => c.id === over.id);
+      
+      const newCategories = arrayMove(categories, oldIndex, newIndex);
+      setCategories(newCategories);
+      
+      try {
+        const response = await fetch(`http://localhost:5000/api/categories/reorder`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            shop_id: user?.shop_id || 1,
+            ordered_ids: newCategories.map(c => c.id)
+          }),
+        });
+        if (!response.ok) {
+           showToast('เกิดข้อผิดพลาดในการบันทึกการจัดเรียง', 'error');
+        } else {
+           showToast('อัปเดตการจัดเรียงสำเร็จ', 'success');
+        }
+      } catch (e) {
+        console.error(e);
+        showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+      }
+    }
+  };
   const [editingItem, setEditingItem] = useState<any>(null);
 
   // States สำหรับ Recipe Modal
@@ -783,7 +885,10 @@ export default function MenuPromotionsPage() {
                       </div>
                     ) : (
                       // ---------------- TABLE VIEW ----------------
-                      <table className="w-full text-left border-separate border-spacing-0">
+                      
+<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+  <table className="w-full text-left border-separate border-spacing-0">
+
                         <thead className="sticky top-0 z-10">
                           <tr>
                             {activeTab === "products" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 w-20">รูปภาพ</th>}
@@ -809,9 +914,14 @@ export default function MenuPromotionsPage() {
                             <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 text-right">จัดการ</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {filteredData.map((item: any) => (
-                            <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
+                        
+<SortableContext items={filteredData.map((d: any) => d.id)} strategy={verticalListSortingStrategy}>
+  <tbody className="divide-y divide-gray-100">
+
+                          
+{filteredData.map((item: any) => (
+  <SortableTableRow key={item.id} id={item.id} className="hover:bg-gray-50 transition-colors group" activeTab={activeTab}>
+
                               {activeTab === "products" && (
                                 <td className="px-4 py-3">
                                   <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200 overflow-hidden">
@@ -873,10 +983,14 @@ export default function MenuPromotionsPage() {
                                    </button>
                                  </div>
                               </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                            
+  </SortableTableRow>
+))}
+</tbody>
+</SortableContext>
+</table>
+</DndContext>
+
                     )}
                   </div>
               </div>
