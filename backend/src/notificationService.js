@@ -19,7 +19,7 @@ const createNotification = async ({ shopId, type, priority, title, message, enti
             if (type === 'CANCEL_BILL' && settings.notify_cancel_bill === false) allowNotify = false;
             if (type === 'STOCK_ADJUST' && settings.notify_stock_adjust === false) allowNotify = false;
         }
-    } catch (e) {}
+    } catch (e) { console.error("Fetch Error: ", e); }
 
     if (!allowNotify) return null;
 

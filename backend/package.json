@@ -6,8 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/server.js",
-    "db:seed": "node seed.js",
-    "db:reset": "node seed.js --reset && node seed.js",
+    "db:seed": "node src/scripts/seed.js",
+    "db:reset": "node src/scripts/seed.js --reset && node src/scripts/seed.js",
     "db:validate": "node validate.js"
   },
   "keywords": [],
@@ -15,7 +15,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@supabase/supabase-js": "^2.116.0",
+    "@supabase/supabase-js": "^2.117.3",
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
@@ -25,5 +25,8 @@
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.0",
     "syntax-error": "^1.4.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
   }
 }

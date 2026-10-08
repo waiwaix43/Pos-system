@@ -470,16 +470,7 @@ export default function RegisterPage() {
                                                 {showPassword ? <EyeOff className="w-5 h-5"/> : <Eye className="w-5 h-5"/>}
                                             </button>
                                         </div>
-                                        {formData.password && (
-                                            <div className="mt-2.5 flex items-center gap-1">
-                                                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-gray-200">
-                                                    <div className={`h-full transition-all duration-300 ${passwordStrength >= 25 ? 'bg-red-500' : ''}`} style={{ width: '25%' }}></div>
-                                                    <div className={`h-full transition-all duration-300 ${passwordStrength >= 50 ? 'bg-orange-500' : ''}`} style={{ width: '25%' }}></div>
-                                                    <div className={`h-full transition-all duration-300 ${passwordStrength >= 75 ? 'bg-yellow-500' : ''}`} style={{ width: '25%' }}></div>
-                                                    <div className={`h-full transition-all duration-300 ${passwordStrength >= 100 ? 'bg-black' : ''}`} style={{ width: '25%' }}></div>
-                                                </div>
-                                            </div>
-                                        )}
+
                                         {errors.password && <p className="text-red-500 text-sm mt-1.5">{errors.password}</p>}
                                     </div>
 

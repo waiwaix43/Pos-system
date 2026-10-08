@@ -60,8 +60,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#d6d6d6] flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-md rounded-2xl shadow-lg border border-gray-100 p-8 md:p-10">
-        <div className="text-center mb-10">
-          <h1 className="text-5xl font-black italic tracking-wider text-black">POS</h1>
+        <div className="text-center mb-10 flex justify-center">
+          <img src="/logo.png" alt="POS Logo" className="h-24 object-contain" />
         </div>
         
         {errorMsg && (

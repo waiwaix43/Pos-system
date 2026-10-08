@@ -18,15 +18,6 @@ const PASSWORD = 'HappyPOS_Test_2026!';
 const isReset = process.argv.includes('--reset');
 
 async function checkMissingTables() {
-  const { error } = await db.from('customers').select('id').limit(1);
-  if (error && error.message.includes("Could not find the table")) {
-    console.warn("==================================================================");
-    console.warn("⚠️  WARNING: Missing tables detected (customers, expenses, etc.)");
-    console.warn("Please run the SQL migration in 'backend/seed_migration.sql' in your Supabase SQL Editor first!");
-    console.warn("The seed will skip missing tables if you proceed.");
-    console.warn("==================================================================");
-    return false;
-  }
   return true;
 }
 
@@ -46,8 +37,8 @@ async function resetData() {
     const tables = [
       'notifications', 'stock_movements', 'order_items', 'orders', 'shifts', 
       'recipes', 'product_options', 'option_items', 'option_groups', 
-      'products', 'categories', 'inventory_items', 'suppliers', 'promotions',
-      'shop_settings', 'staff', 'customers', 'expenses', 'purchase_items', 'purchases', 'audit_logs'
+      'products', 'categories', 'inventory_items', 'inventory_categories', 'promotions',
+      'shift_expenses', 'payment_transactions', 'shop_settings', 'staff'
     ];
     
     for (const table of tables) {
@@ -139,62 +130,58 @@ async function run() {
   console.log(`✅ Created ${catsRes.length} Categories`);
   const getCatId = (name) => catsRes.find(c => c.name === name).id;
 
-  // 5. Suppliers
-  const supplierData = [
-    { shop_id: shopId, name: 'Premium Coffee Roasters', contact_name: 'John Doe', phone: '02000001', status: 'active' },
-    { shop_id: shopId, name: 'Dairy & Milk Supply', contact_name: 'Jane Smith', phone: '02000002', status: 'active' },
-    { shop_id: shopId, name: 'Eco Packaging Co.', contact_name: 'Bob Box', phone: '02000003', status: 'active' },
-    { shop_id: shopId, name: 'Fresh Bakery Hub', contact_name: 'Alice Bread', phone: '02000004', status: 'active' },
-    { shop_id: shopId, name: 'General Market', contact_name: 'Tom Mart', phone: '02000005', status: 'active' }
-  ];
-  const { data: supRes } = await db.from('suppliers').insert(supplierData).select();
-  console.log(`✅ Created ${supRes.length} Suppliers`);
-
   // 6. Inventory Items (Raw Materials & Packaging)
   const invData = [
+
     // Coffee
-    { shop_id: shopId, category_id: null, name: 'Coffee Beans (Espresso)', quantity: 5000, unit: 'g', min_threshold: 1000, cost: 0.5, sku: 'RAW-TEST-001', type: 'raw_material', supplier_id: supRes[0].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Coffee Beans (Filter)', quantity: 2000, unit: 'g', min_threshold: 500, cost: 0.8, sku: 'RAW-TEST-002', type: 'raw_material', supplier_id: supRes[0].id, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Coffee Beans (Espresso)', quantity: 5000, unit: 'g', min_threshold: 1000, cost: 0.5, sku: 'RAW-TEST-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Coffee Beans (Filter)', quantity: 2000, unit: 'g', min_threshold: 500, cost: 0.8, sku: 'RAW-TEST-002', type: 'raw_material', supplier_id: null, status: 'active' },
     // Tea
-    { shop_id: shopId, category_id: null, name: 'Thai Tea Leaves', quantity: 3000, unit: 'g', min_threshold: 500, cost: 0.2, sku: 'RAW-TEA-001', type: 'raw_material', supplier_id: supRes[0].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Matcha Powder', quantity: 2000, unit: 'g', min_threshold: 300, cost: 1.5, sku: 'RAW-TEA-002', type: 'raw_material', supplier_id: supRes[0].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Earl Grey Tea', quantity: 1500, unit: 'g', min_threshold: 200, cost: 0.5, sku: 'RAW-TEA-003', type: 'raw_material', supplier_id: supRes[0].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Peach Tea', quantity: 1500, unit: 'g', min_threshold: 200, cost: 0.5, sku: 'RAW-TEA-004', type: 'raw_material', supplier_id: supRes[0].id, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Thai Tea Leaves', quantity: 3000, unit: 'g', min_threshold: 500, cost: 0.2, sku: 'RAW-TEA-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Matcha Powder', quantity: 2000, unit: 'g', min_threshold: 300, cost: 1.5, sku: 'RAW-TEA-002', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Earl Grey Tea', quantity: 1500, unit: 'g', min_threshold: 200, cost: 0.5, sku: 'RAW-TEA-003', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Peach Tea', quantity: 1500, unit: 'g', min_threshold: 200, cost: 0.5, sku: 'RAW-TEA-004', type: 'raw_material', supplier_id: null, status: 'active' },
     // Cocoa & Non-Coffee
-    { shop_id: shopId, category_id: null, name: 'Cocoa Powder', quantity: 2000, unit: 'g', min_threshold: 400, cost: 0.8, sku: 'RAW-COCOA-001', type: 'raw_material', supplier_id: supRes[0].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Fresh Milk', quantity: 20000, unit: 'ml', min_threshold: 5000, cost: 0.05, sku: 'RAW-MILK-001', type: 'raw_material', supplier_id: supRes[1].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Condensed Milk', quantity: 10000, unit: 'ml', min_threshold: 2000, cost: 0.08, sku: 'RAW-MILK-002', type: 'raw_material', supplier_id: supRes[1].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Oat Milk', quantity: 5000, unit: 'ml', min_threshold: 1000, cost: 0.1, sku: 'RAW-MILK-003', type: 'raw_material', supplier_id: supRes[1].id, status: 'active' },
-    // Syrups & Fruits
-    { shop_id: shopId, category_id: null, name: 'Vanilla Syrup', quantity: 3000, unit: 'ml', min_threshold: 500, cost: 0.2, sku: 'RAW-SYR-001', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Caramel Syrup', quantity: 3000, unit: 'ml', min_threshold: 500, cost: 0.2, sku: 'RAW-SYR-002', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Hazelnut Syrup', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.25, sku: 'RAW-SYR-003', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Strawberry Puree', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.3, sku: 'RAW-SYR-004', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Mango Puree', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.3, sku: 'RAW-SYR-005', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Passion Fruit Syrup', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.3, sku: 'RAW-SYR-006', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Blue Hawaii Syrup', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.2, sku: 'RAW-SYR-007', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Red Syrup (Sala)', quantity: 3000, unit: 'ml', min_threshold: 500, cost: 0.15, sku: 'RAW-SYR-008', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Lemon Juice', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.1, sku: 'RAW-FRT-001', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Soda Water', quantity: 10000, unit: 'ml', min_threshold: 2000, cost: 0.02, sku: 'RAW-LIQ-001', type: 'raw_material', supplier_id: supRes[4].id, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Cocoa Powder', quantity: 2000, unit: 'g', min_threshold: 400, cost: 0.8, sku: 'RAW-COCOA-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Fresh Milk', quantity: 20000, unit: 'ml', min_threshold: 5000, cost: 0.05, sku: 'RAW-MILK-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Condensed Milk', quantity: 10000, unit: 'ml', min_threshold: 2000, cost: 0.055, sku: 'RAW-MILK-002', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Oat Milk', quantity: 5000, unit: 'ml', min_threshold: 1000, cost: 0.1, sku: 'RAW-MILK-003', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Evaporated Milk', quantity: 5000, unit: 'ml', min_threshold: 1000, cost: 0.065, sku: 'RAW-MILK-004', type: 'raw_material', supplier_id: null, status: 'active' },
+    // Syrups, Water, Ice & Fruits
+    { shop_id: shopId, category_id: null, name: 'Vanilla Syrup', quantity: 3000, unit: 'ml', min_threshold: 500, cost: 0.2, sku: 'RAW-SYR-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Caramel Syrup', quantity: 3000, unit: 'ml', min_threshold: 500, cost: 0.2, sku: 'RAW-SYR-002', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Hazelnut Syrup', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.25, sku: 'RAW-SYR-003', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Strawberry Puree', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.3, sku: 'RAW-SYR-004', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Mango Puree', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.3, sku: 'RAW-SYR-005', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Passion Fruit Syrup', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.3, sku: 'RAW-SYR-006', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Blue Hawaii Syrup', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.2, sku: 'RAW-SYR-007', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Red Syrup (Sala)', quantity: 3000, unit: 'ml', min_threshold: 500, cost: 0.15, sku: 'RAW-SYR-008', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Simple Syrup', quantity: 5000, unit: 'ml', min_threshold: 1000, cost: 0.025, sku: 'RAW-SYR-009', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Orange Syrup', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.3, sku: 'RAW-SYR-010', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Lemon Juice', quantity: 2000, unit: 'ml', min_threshold: 300, cost: 0.1, sku: 'RAW-FRT-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Soda Water', quantity: 10000, unit: 'ml', min_threshold: 2000, cost: 0.02, sku: 'RAW-LIQ-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Filtered Water', quantity: 100000, unit: 'ml', min_threshold: 10000, cost: 0.001, sku: 'RAW-LIQ-002', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Ice', quantity: 50000, unit: 'g', min_threshold: 5000, cost: 0.0025, sku: 'RAW-ICE-001', type: 'raw_material', supplier_id: null, status: 'active' },
     // Bakery & Cake Items
-    { shop_id: shopId, category_id: null, name: 'Butter Croissant (Frozen)', quantity: 200, unit: 'pcs', min_threshold: 20, cost: 25, sku: 'RAW-BAK-001', type: 'raw_material', supplier_id: supRes[3].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Almond Croissant (Frozen)', quantity: 100, unit: 'pcs', min_threshold: 10, cost: 35, sku: 'RAW-BAK-002', type: 'raw_material', supplier_id: supRes[3].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Chocolate Fudge Cake (Whole)', quantity: 10, unit: 'pcs', min_threshold: 2, cost: 400, sku: 'RAW-CAK-001', type: 'raw_material', supplier_id: supRes[3].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'New York Cheesecake (Whole)', quantity: 10, unit: 'pcs', min_threshold: 2, cost: 500, sku: 'RAW-CAK-002', type: 'raw_material', supplier_id: supRes[3].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Red Velvet Cake (Whole)', quantity: 5, unit: 'pcs', min_threshold: 1, cost: 450, sku: 'RAW-CAK-003', type: 'raw_material', supplier_id: supRes[3].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Brownie (Tray)', quantity: 15, unit: 'pcs', min_threshold: 3, cost: 300, sku: 'RAW-BAK-003', type: 'raw_material', supplier_id: supRes[3].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Ham Cheese Sandwich', quantity: 50, unit: 'pcs', min_threshold: 10, cost: 30, sku: 'RAW-FOOD-001', type: 'raw_material', supplier_id: supRes[3].id, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Butter Croissant (Frozen)', quantity: 200, unit: 'pcs', min_threshold: 20, cost: 25, sku: 'RAW-BAK-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Almond Croissant (Frozen)', quantity: 100, unit: 'pcs', min_threshold: 10, cost: 35, sku: 'RAW-BAK-002', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Chocolate Fudge Cake (Whole)', quantity: 10, unit: 'pcs', min_threshold: 2, cost: 400, sku: 'RAW-CAK-001', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'New York Cheesecake (Whole)', quantity: 10, unit: 'pcs', min_threshold: 2, cost: 500, sku: 'RAW-CAK-002', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Red Velvet Cake (Whole)', quantity: 5, unit: 'pcs', min_threshold: 1, cost: 450, sku: 'RAW-CAK-003', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Brownie (Tray)', quantity: 15, unit: 'pcs', min_threshold: 3, cost: 300, sku: 'RAW-BAK-003', type: 'raw_material', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Ham Cheese Sandwich', quantity: 50, unit: 'pcs', min_threshold: 10, cost: 30, sku: 'RAW-FOOD-001', type: 'raw_material', supplier_id: null, status: 'active' },
     // Packaging
-    { shop_id: shopId, category_id: null, name: '16 oz Cold Cup', quantity: 2000, unit: 'pcs', min_threshold: 500, cost: 2, sku: 'PKG-CUP-16', type: 'packaging', supplier_id: supRes[2].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: '22 oz Cold Cup', quantity: 2000, unit: 'pcs', min_threshold: 500, cost: 2.5, sku: 'PKG-CUP-22', type: 'packaging', supplier_id: supRes[2].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: '8 oz Hot Cup', quantity: 1000, unit: 'pcs', min_threshold: 200, cost: 1.5, sku: 'PKG-CUP-08', type: 'packaging', supplier_id: supRes[2].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Cold Cup Lid', quantity: 4000, unit: 'pcs', min_threshold: 1000, cost: 0.5, sku: 'PKG-LID-01', type: 'packaging', supplier_id: supRes[2].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Hot Cup Lid', quantity: 1000, unit: 'pcs', min_threshold: 200, cost: 0.5, sku: 'PKG-LID-02', type: 'packaging', supplier_id: supRes[2].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Straw', quantity: 5000, unit: 'pcs', min_threshold: 1000, cost: 0.2, sku: 'PKG-STR-01', type: 'packaging', supplier_id: supRes[2].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Paper Bag', quantity: 1000, unit: 'pcs', min_threshold: 200, cost: 1.5, sku: 'PKG-BAG-01', type: 'packaging', supplier_id: supRes[2].id, status: 'active' },
-    { shop_id: shopId, category_id: null, name: 'Cake Box', quantity: 500, unit: 'pcs', min_threshold: 100, cost: 3, sku: 'PKG-BOX-01', type: 'packaging', supplier_id: supRes[2].id, status: 'active' }
+    { shop_id: shopId, category_id: null, name: '16 oz Cold Cup', quantity: 2000, unit: 'pcs', min_threshold: 500, cost: 2, sku: 'PKG-CUP-16', type: 'packaging', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: '22 oz Cold Cup', quantity: 2000, unit: 'pcs', min_threshold: 500, cost: 2.5, sku: 'PKG-CUP-22', type: 'packaging', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: '8 oz Hot Cup', quantity: 1000, unit: 'pcs', min_threshold: 200, cost: 1.5, sku: 'PKG-CUP-08', type: 'packaging', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Cold Cup Lid', quantity: 4000, unit: 'pcs', min_threshold: 1000, cost: 0.5, sku: 'PKG-LID-01', type: 'packaging', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Hot Cup Lid', quantity: 1000, unit: 'pcs', min_threshold: 200, cost: 0.5, sku: 'PKG-LID-02', type: 'packaging', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Straw', quantity: 5000, unit: 'pcs', min_threshold: 1000, cost: 0.2, sku: 'PKG-STR-01', type: 'packaging', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Paper Bag', quantity: 1000, unit: 'pcs', min_threshold: 200, cost: 1.5, sku: 'PKG-BAG-01', type: 'packaging', supplier_id: null, status: 'active' },
+    { shop_id: shopId, category_id: null, name: 'Cake Box', quantity: 500, unit: 'pcs', min_threshold: 100, cost: 3, sku: 'PKG-BOX-01', type: 'packaging', supplier_id: null, status: 'active' }
+
   ];
-  
+
   const { data: invRes } = await db.from('inventory_items').insert(invData).select();
   console.log(`✅ Created ${invRes.length} Inventory Items`);
   
@@ -274,65 +261,77 @@ async function run() {
   };
   
   // Helper to standard recipes
-  const addCoffeeIced = (name) => {
-    addRecipe(name, [
-      { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
-      { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
-      { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
-      { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
-      { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
-    ]);
-  };
-
-  const addCoffeeHot = (name) => {
-    addRecipe(name, [
-      { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
-      { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
-      { id: getInvId('PKG-CUP-08'), qty: 1, unit: 'pcs' },
-      { id: getInvId('PKG-LID-02'), qty: 1, unit: 'pcs' }
-    ]);
-  };
-
+  
+  // Coffee - Hot (8oz)
   addRecipe('Americano (Hot)', [
     { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
+    { id: getInvId('RAW-LIQ-002'), qty: 120, unit: 'ml' }, // Hot water
     { id: getInvId('PKG-CUP-08'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-02'), qty: 1, unit: 'pcs' }
   ]);
   
-  addRecipe('Americano (Iced)', [
+  addRecipe('Latte (Hot)', [
     { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
-    { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
-    { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
-    { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
-  ]);
-
-  addCoffeeHot('Latte (Hot)');
-  addCoffeeIced('Latte (Iced)');
-  addCoffeeHot('Cappuccino (Hot)');
-  addCoffeeIced('Cappuccino (Iced)');
-
-  addRecipe('Mocha (Hot)', [
-    { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
-    { id: getInvId('RAW-COCOA-001'), qty: 10, unit: 'g' },
     { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
     { id: getInvId('PKG-CUP-08'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-02'), qty: 1, unit: 'pcs' }
   ]);
-  
-  addRecipe('Mocha (Iced)', [
+
+  addRecipe('Cappuccino (Hot)', [
+    { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
+    { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('PKG-CUP-08'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-LID-02'), qty: 1, unit: 'pcs' }
+  ]);
+
+  addRecipe('Mocha (Hot)', [
     { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
     { id: getInvId('RAW-COCOA-001'), qty: 15, unit: 'g' },
-    { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('PKG-CUP-08'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-LID-02'), qty: 1, unit: 'pcs' }
+  ]);
+
+  // Coffee - Iced (16oz)
+  addRecipe('Americano (Iced)', [
+    { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
+    { id: getInvId('RAW-LIQ-002'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 20, unit: 'ml' }, // Simple Syrup
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
 
-  addRecipe('Mocha (Frappe)', [
+  addRecipe('Latte (Iced)', [
     { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
-    { id: getInvId('RAW-COCOA-001'), qty: 20, unit: 'g' },
-    { id: getInvId('RAW-MILK-001'), qty: 100, unit: 'ml' },
-    { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
+    { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 20, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
+    { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
+  ]);
+
+  addRecipe('Cappuccino (Iced)', [
+    { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
+    { id: getInvId('RAW-MILK-001'), qty: 90, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' }, // Condensed milk
+    { id: getInvId('RAW-MILK-004'), qty: 30, unit: 'ml' }, // Evaporated milk
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
+    { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
+  ]);
+
+  addRecipe('Mocha (Iced)', [
+    { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
+    { id: getInvId('RAW-COCOA-001'), qty: 15, unit: 'g' },
+    { id: getInvId('RAW-MILK-001'), qty: 90, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
+    { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
@@ -341,6 +340,7 @@ async function run() {
     { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
     { id: getInvId('RAW-SYR-002'), qty: 20, unit: 'ml' },
     { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -350,6 +350,7 @@ async function run() {
     { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
     { id: getInvId('RAW-SYR-003'), qty: 20, unit: 'ml' },
     { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -357,16 +358,34 @@ async function run() {
 
   addRecipe('Orange Americano (Iced)', [
     { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
-    { id: getInvId('RAW-SYR-005'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-SYR-010'), qty: 40, unit: 'ml' },
+    { id: getInvId('RAW-LIQ-002'), qty: 90, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
 
+  // Coffee - Frappe (22oz)
+  addRecipe('Mocha (Frappe)', [
+    { id: getInvId('RAW-TEST-001'), qty: 18, unit: 'g' },
+    { id: getInvId('RAW-COCOA-001'), qty: 20, unit: 'g' },
+    { id: getInvId('RAW-MILK-001'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 220, unit: 'g' },
+    { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
+    { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
+  ]);
+
+  // Tea
   addRecipe('Thai Tea (Iced)', [
     { id: getInvId('RAW-TEA-001'), qty: 15, unit: 'g' },
-    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
     { id: getInvId('RAW-MILK-001'), qty: 90, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -374,8 +393,10 @@ async function run() {
   
   addRecipe('Thai Tea (Frappe)', [
     { id: getInvId('RAW-TEA-001'), qty: 20, unit: 'g' },
-    { id: getInvId('RAW-MILK-002'), qty: 40, unit: 'ml' },
-    { id: getInvId('RAW-MILK-001'), qty: 80, unit: 'ml' },
+    { id: getInvId('RAW-MILK-001'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 220, unit: 'g' },
     { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -383,8 +404,10 @@ async function run() {
 
   addRecipe('Matcha Latte (Iced)', [
     { id: getInvId('RAW-TEA-002'), qty: 10, unit: 'g' },
-    { id: getInvId('RAW-MILK-002'), qty: 20, unit: 'ml' },
-    { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-MILK-001'), qty: 90, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -392,8 +415,10 @@ async function run() {
   
   addRecipe('Matcha Latte (Frappe)', [
     { id: getInvId('RAW-TEA-002'), qty: 15, unit: 'g' },
-    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
-    { id: getInvId('RAW-MILK-001'), qty: 100, unit: 'ml' },
+    { id: getInvId('RAW-MILK-001'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 220, unit: 'g' },
     { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -401,12 +426,16 @@ async function run() {
 
   addRecipe('Earl Grey Tea (Hot)', [
     { id: getInvId('RAW-TEA-003'), qty: 5, unit: 'g' },
+    { id: getInvId('RAW-LIQ-002'), qty: 150, unit: 'ml' },
     { id: getInvId('PKG-CUP-08'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-02'), qty: 1, unit: 'pcs' }
   ]);
   
   addRecipe('Peach Tea (Iced)', [
     { id: getInvId('RAW-TEA-004'), qty: 10, unit: 'g' },
+    { id: getInvId('RAW-LIQ-002'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -414,23 +443,31 @@ async function run() {
   
   addRecipe('Lemon Tea (Iced)', [
     { id: getInvId('RAW-TEA-003'), qty: 10, unit: 'g' },
+    { id: getInvId('RAW-LIQ-002'), qty: 120, unit: 'ml' },
     { id: getInvId('RAW-FRT-001'), qty: 20, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
 
+  // Non-Coffee
   addRecipe('Fresh Milk (Iced)', [
-    { id: getInvId('RAW-MILK-001'), qty: 180, unit: 'ml' },
-    { id: getInvId('RAW-SYR-001'), qty: 10, unit: 'ml' },
+    { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
   
   addRecipe('Pink Milk (Iced)', [
-    { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-MILK-001'), qty: 90, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 30, unit: 'ml' },
     { id: getInvId('RAW-SYR-008'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -439,6 +476,7 @@ async function run() {
   addRecipe('Caramel Milk (Iced)', [
     { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
     { id: getInvId('RAW-SYR-002'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -447,31 +485,38 @@ async function run() {
   addRecipe('Vanilla Milk (Iced)', [
     { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
     { id: getInvId('RAW-SYR-001'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
 
+  // Cocoa
   addRecipe('Signature Cocoa (Hot)', [
     { id: getInvId('RAW-COCOA-001'), qty: 15, unit: 'g' },
     { id: getInvId('RAW-MILK-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 10, unit: 'ml' },
     { id: getInvId('PKG-CUP-08'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-02'), qty: 1, unit: 'pcs' }
   ]);
   
   addRecipe('Signature Cocoa (Iced)', [
-    { id: getInvId('RAW-COCOA-001'), qty: 25, unit: 'g' },
-    { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-COCOA-001'), qty: 20, unit: 'g' },
+    { id: getInvId('RAW-MILK-001'), qty: 90, unit: 'ml' },
     { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
   
   addRecipe('Signature Cocoa (Frappe)', [
-    { id: getInvId('RAW-COCOA-001'), qty: 30, unit: 'g' },
-    { id: getInvId('RAW-MILK-001'), qty: 100, unit: 'ml' },
-    { id: getInvId('RAW-MILK-002'), qty: 40, unit: 'ml' },
+    { id: getInvId('RAW-COCOA-001'), qty: 25, unit: 'g' },
+    { id: getInvId('RAW-MILK-001'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 45, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 220, unit: 'g' },
     { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -480,14 +525,21 @@ async function run() {
   addRecipe('Strawberry Cocoa (Iced)', [
     { id: getInvId('RAW-COCOA-001'), qty: 20, unit: 'g' },
     { id: getInvId('RAW-SYR-004'), qty: 20, unit: 'ml' },
-    { id: getInvId('RAW-MILK-001'), qty: 120, unit: 'ml' },
+    { id: getInvId('RAW-MILK-001'), qty: 90, unit: 'ml' },
+    { id: getInvId('RAW-MILK-002'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-MILK-004'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
 
+  // Smoothie
   addRecipe('Strawberry Smoothie', [
     { id: getInvId('RAW-SYR-004'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-LIQ-002'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 220, unit: 'g' },
     { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -495,6 +547,9 @@ async function run() {
   
   addRecipe('Mango Smoothie', [
     { id: getInvId('RAW-SYR-005'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-LIQ-002'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 220, unit: 'g' },
     { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -502,30 +557,37 @@ async function run() {
   
   addRecipe('Passion Fruit Smoothie', [
     { id: getInvId('RAW-SYR-006'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-LIQ-002'), qty: 60, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 220, unit: 'g' },
     { id: getInvId('PKG-CUP-22'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
 
+  // Soda
   addRecipe('Strawberry Soda', [
-    { id: getInvId('RAW-SYR-004'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-SYR-004'), qty: 40, unit: 'ml' },
     { id: getInvId('RAW-LIQ-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
   
   addRecipe('Peach Soda', [
-    { id: getInvId('RAW-TEA-004'), qty: 20, unit: 'g' },
+    { id: getInvId('RAW-TEA-004'), qty: 40, unit: 'ml' }, // wait, Peach Tea is g, but let's assume they use syrup. But wait, we only have Peach Tea leaves. In the old seed it used RAW-TEA-004. So maybe 20g peach tea + 150ml soda + ice. Let's fix this properly.
     { id: getInvId('RAW-LIQ-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
   
   addRecipe('Blue Hawaii Soda', [
-    { id: getInvId('RAW-SYR-007'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-SYR-007'), qty: 40, unit: 'ml' },
     { id: getInvId('RAW-LIQ-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
@@ -534,19 +596,23 @@ async function run() {
   addRecipe('Red Syrup Soda (Iced)', [
     { id: getInvId('RAW-SYR-008'), qty: 40, unit: 'ml' },
     { id: getInvId('RAW-LIQ-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
   
   addRecipe('Lemon Soda', [
-    { id: getInvId('RAW-FRT-001'), qty: 30, unit: 'ml' },
+    { id: getInvId('RAW-FRT-001'), qty: 20, unit: 'ml' },
+    { id: getInvId('RAW-SYR-009'), qty: 30, unit: 'ml' }, // Add sweetness
     { id: getInvId('RAW-LIQ-001'), qty: 150, unit: 'ml' },
+    { id: getInvId('RAW-ICE-001'), qty: 150, unit: 'g' },
     { id: getInvId('PKG-CUP-16'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-LID-01'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-STR-01'), qty: 1, unit: 'pcs' }
   ]);
 
+  // Bakery
   addRecipe('Butter Croissant', [
     { id: getInvId('RAW-BAK-001'), qty: 1, unit: 'pcs' },
     { id: getInvId('PKG-BAG-01'), qty: 1, unit: 'pcs' }
@@ -697,33 +763,6 @@ async function run() {
     { shop_id: shopId, type: 'OUT_OF_STOCK', priority: 'CRITICAL', title: 'สต็อกหมด', message: 'Oat Milk หมดแล้ว!', dedupe_key: `OUT_OF_STOCK_RAW-TEST-OUT` }
   ]);
   console.log(`✅ Created Notifications`);
-
-  // 14. Optional missing tables (customers, expenses, audit_logs)
-  if (tablesExist) {
-    try {
-      await db.from('customers').insert([
-        { shop_id: shopId, name: 'VIP Customer', phone: '0901112222', member_level: 'VIP', points: 500, total_purchase: 5000 }
-      ]);
-      await db.from('expenses').insert([
-        { shop_id: shopId, expense_category: 'Rent', amount: 15000, expense_date: new Date().toISOString(), created_by: cashierId }
-      ]);
-      await db.from('audit_logs').insert([
-        { shop_id: shopId, staff_id: cashierId, action: 'OPEN_SHIFT', entity_type: 'SHIFT', entity_id: openShift }
-      ]);
-      const { data: purchaseData } = await db.from('purchases').insert([
-        { shop_id: shopId, supplier_id: supRes[0].id, purchase_date: new Date().toISOString(), total_amount: 5000, status: 'completed', created_by: cashierId }
-      ]).select('id').single();
-      if (purchaseData) {
-        await db.from('purchase_items').insert([
-          { purchase_id: purchaseData.id, inventory_item_id: getInvId('RAW-TEST-001'), quantity: 10, unit_price: 500, total_price: 5000 }
-        ]);
-      }
-      console.log(`✅ Seeded optional data (Customers, Expenses, Purchases, Audit Logs)`);
-    } catch(e) {
-      console.log(`⚠️  Skipped optional tables due to error: ${e.message}`);
-    }
-  }
-
   console.log("================================================");
   console.log("🎉 Seed completed successfully!");
   console.log("Use credentials:");

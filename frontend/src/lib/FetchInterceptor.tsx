@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import { API_BASE_URL, isApiUrl } from "@/lib/api";
 
 export default function FetchInterceptor() {
   useEffect(() => {
@@ -12,7 +13,7 @@ export default function FetchInterceptor() {
       try {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
 
-        if (url.includes('localhost:5000')) {
+        if (isApiUrl(url)) {
           const userContext = localStorage.getItem('userContext');
           let token = '';
           if (userContext) {
@@ -22,21 +23,11 @@ export default function FetchInterceptor() {
           }
 
           if (token) {
-            // Use plain object for headers to avoid any compatibility issues
-            const existingHeaders: Record<string, string> = {};
-            if (init?.headers) {
-              if (init.headers instanceof Headers) {
-                init.headers.forEach((value, key) => { existingHeaders[key] = value; });
-              } else if (Array.isArray(init.headers)) {
-                init.headers.forEach(([key, value]) => { existingHeaders[key] = value; });
-              } else {
-                Object.assign(existingHeaders, init.headers);
-              }
+            const headers = new Headers(init?.headers);
+            if (!headers.has('Authorization')) {
+              headers.set('Authorization', `Bearer ${token}`);
             }
-            if (!existingHeaders['Authorization'] && !existingHeaders['authorization']) {
-              existingHeaders['Authorization'] = `Bearer ${token}`;
-            }
-            init = { ...init, headers: existingHeaders };
+            init = { ...init, headers };
           }
         }
 

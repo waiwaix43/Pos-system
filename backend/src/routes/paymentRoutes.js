@@ -36,7 +36,7 @@ router.post('/create-qr', async (req, res) => {
         let qrData = '';
         let txId = 'TX-' + Date.now();
         
-        if (config.qr_reference_number && config.qr_reference_number.length === 15) {
+        if (config.payment_qr_type !== 'promptpay' && config.qr_reference_number && config.qr_reference_number.length === 15) {
             let payload = '00020101021229390016A0000006770101110315' + config.qr_reference_number + '53037645802TH';
             const amtStr = amount.toFixed(2);
             const tag54 = '54' + amtStr.length.toString().padStart(2, '0') + amtStr;
