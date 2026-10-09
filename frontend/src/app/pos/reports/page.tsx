@@ -368,7 +368,7 @@ export default function ReportsDashboardPage() {
  <div className="z-20 flex max-h-[34vh] w-full shrink-0 flex-col justify-between overflow-y-auto bg-[#4d4d4d] text-white shadow-lg print:hidden md:max-h-none md:w-[240px]">
  <div>
  <div className="flex h-[54px] items-center justify-center gap-3 md:h-[90px] md:translate-x-3">
- <h1 className="text-3xl font-black tracking-widest text-white">POS</h1>
+ <h1 className="text-[36px] font-black italic tracking-widest text-white">POS</h1>
  <NotificationBell />
  </div>
  <nav className="sidebar-menu grid grid-cols-2 text-[12px] md:flex md:flex-col md:text-[16px] border-y border-[#666666]">

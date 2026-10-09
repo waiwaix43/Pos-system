@@ -165,7 +165,7 @@ export default function UnifiedDateRangePicker({ value, onChange, className = ""
     <div ref={containerRef} className={`relative ${className}`}>
       <button ref={triggerRef} type="button" onClick={openPicker} className="flex min-h-[48px] max-w-full flex-wrap items-center gap-y-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] font-bold text-gray-700 shadow-sm sm:px-4 sm:text-[14px]">
         <Calendar className="w-5 h-5 text-gray-400 mr-2 shrink-0" />
-        <span className="min-w-0 whitespace-normal break-words">{formatDisplay(value)}</span>
+        <span className="min-w-0 whitespace-normal break-words" suppressHydrationWarning>{formatDisplay(value)}</span>
         <ChevronDown className="ml-1 h-4 w-4 shrink-0 text-gray-400" />
       </button>
       {open && typeof document !== "undefined" && createPortal((

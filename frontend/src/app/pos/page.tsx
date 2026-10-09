@@ -521,7 +521,7 @@ export default function POSPage() {
  <div className="w-[240px] bg-[#4d4d4d] text-white flex flex-col justify-between shrink-0 shadow-lg z-20">
  <div>
  <div className="h-[90px] flex items-center justify-center gap-3 translate-x-3">
- <h1 className="text-3xl font-black tracking-widest text-white">POS</h1>
+ <h1 className="text-[36px] font-black italic tracking-widest text-white">POS</h1>
  <NotificationBell />
  </div>
  <nav className="sidebar-menu flex flex-col text-[16px] border-y border-[#666666]">

@@ -144,6 +144,7 @@ export default function MenuPromotionsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [options, setOptions] = useState<any[]>([]); 
+  const [selectedItems, setSelectedItems] = useState<number[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -220,6 +221,7 @@ export default function MenuPromotionsPage() {
   const [isProductOptionsModalOpen, setIsProductOptionsModalOpen] = useState(false);
   const [selectedProductForOptions, setSelectedProductForOptions] = useState<any>(null);
   const [productSelectedOptions, setProductSelectedOptions] = useState<number[]>([]);
+  const [isBulkOptionsMode, setIsBulkOptionsMode] = useState(false);
 
   // ==========================================
   // FETCH ALL DATA
@@ -398,9 +400,24 @@ export default function MenuPromotionsPage() {
        if (!res.ok) throw new Error(data.error || data.message || `HTTP Error ${res.status}`);
 
        showToast("ลบข้อมูลเรียบร้อยแล้ว", "success");
+       setSelectedItems(prev => prev.filter(itemId => itemId !== id));
        fetchAllData(user?.shop_id || 1);
     } catch (error: any) {
        showToast(error.message || "ลบข้อมูลไม่สำเร็จ", "error");
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if(!confirm(`คุณต้องการลบรายการที่เลือกจำนวน ${selectedItems.length} รายการใช่หรือไม่? การเปลี่ยนแปลงนี้ไม่สามารถย้อนกลับได้`)) return;
+    try {
+       await Promise.all(selectedItems.map(id => 
+          fetch(`http://localhost:5000/api/${activeTab}/${id}`, { method: 'DELETE' })
+       ));
+       showToast("ลบข้อมูลทั้งหมดที่เลือกเรียบร้อยแล้ว", "success");
+       setSelectedItems([]);
+       fetchAllData(user?.shop_id || 1);
+    } catch (error: any) {
+       showToast("ลบข้อมูลไม่สำเร็จบางรายการ", "error");
     }
   };
 
@@ -428,6 +445,7 @@ export default function MenuPromotionsPage() {
   // PRODUCT OPTIONS BINDING 
   // ==========================================
   const handleOpenProductOptionsModal = async (product: any) => {
+    setIsBulkOptionsMode(false);
     setSelectedProductForOptions(product);
     try {
       const res = await fetch(`http://localhost:5000/api/product_options?product_id=${product.id}`);
@@ -443,24 +461,48 @@ export default function MenuPromotionsPage() {
     setIsProductOptionsModalOpen(true);
   };
 
+  const handleOpenBulkProductOptionsModal = () => {
+    setIsBulkOptionsMode(true);
+    setSelectedProductForOptions({ name: `${selectedItems.length} รายการที่เลือก` });
+    setProductSelectedOptions([]);
+    setIsProductOptionsModalOpen(true);
+  };
+
   const handleSaveProductOptions = async () => {
     setIsSaving(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/product_options`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shop_id: user?.shop_id || 1,
-          product_id: selectedProductForOptions.id,
-          option_group_ids: productSelectedOptions
-        })
-      });
-      
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาดในการผูกตัวเลือก");
+      if (isBulkOptionsMode) {
+        await Promise.all(selectedItems.map(id => 
+          fetch(`http://localhost:5000/api/product_options`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              shop_id: user?.shop_id || 1,
+              product_id: id,
+              option_group_ids: productSelectedOptions
+            })
+          })
+        ));
+        showToast("ผูกตัวเลือกสินค้าทั้งหมดเรียบร้อยแล้ว", "success");
+        setSelectedItems([]);
+      } else {
+        const res = await fetch(`http://localhost:5000/api/product_options`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shop_id: user?.shop_id || 1,
+            product_id: selectedProductForOptions.id,
+            option_group_ids: productSelectedOptions
+          })
+        });
+        
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "เกิดข้อผิดพลาดในการผูกตัวเลือก");
 
-      showToast("ผูกตัวเลือกสินค้าเรียบร้อยแล้ว", "success");
+        showToast("ผูกตัวเลือกสินค้าเรียบร้อยแล้ว", "success");
+      }
       setIsProductOptionsModalOpen(false);
+      setIsBulkOptionsMode(false);
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
@@ -698,6 +740,7 @@ export default function MenuPromotionsPage() {
                      setActiveTab(tab.id);
                      setSearchTerm(""); // Reset Search
                      setFilters({ category: "", status: "", price: "" }); // Reset Filters
+                     setSelectedItems([]); // Reset Selection
                    }}
                    className={`w-full flex items-center gap-3 px-4 py-3.5 mb-1 rounded-[12px] text-[15px] font-medium transition-colors ${
                      isActive ? "bg-[#7a5c4e] text-white shadow-sm" : "text-slate-600 hover:bg-gray-50 hover:text-slate-900"
@@ -803,6 +846,22 @@ export default function MenuPromotionsPage() {
                     </div>
                     
                     <div className="flex items-center gap-3 shrink-0">
+                      {selectedItems.length > 0 && (
+                        <div className="flex items-center gap-2 mr-2">
+                           <span className="text-[13px] font-bold text-[#7a5c4e]">เลือก {selectedItems.length} รายการ</span>
+                           {activeTab === 'products' && (
+                             <button onClick={handleOpenBulkProductOptionsModal} className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg font-bold text-[13px] hover:bg-purple-100 transition-all border border-purple-200 shadow-sm">
+                               <Settings2 className="w-4 h-4" />
+                               จัดการตัวเลือก
+                             </button>
+                           )}
+                           <button onClick={handleBulkDelete} className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg font-bold text-[13px] hover:bg-red-100 transition-all border border-red-200 shadow-sm">
+                             <Trash2 className="w-4 h-4" />
+                             ลบทั้งหมด
+                           </button>
+                        </div>
+                      )}
+                      
                       {/* View Switch (เฉพาะเมนูรายการสินค้า) */}
                       {activeTab === "products" && (
                         <div className="flex items-center bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
@@ -848,7 +907,16 @@ export default function MenuPromotionsPage() {
                         'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4'
                       }`}>
                         {filteredData.map((item: any) => (
-                          <div key={item.id} className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 p-4 flex flex-col group">
+                          <div key={item.id} className="bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 p-4 flex flex-col group relative">
+                            <div className="absolute top-6 left-6 z-10">
+                              <input type="checkbox" className="w-5 h-5 rounded border-gray-300 text-[#7a5c4e] focus:ring-[#7a5c4e] cursor-pointer shadow-sm"
+                                     checked={selectedItems.includes(item.id)}
+                                     onChange={(e) => {
+                                       if(e.target.checked) setSelectedItems(prev => [...prev, item.id]);
+                                       else setSelectedItems(prev => prev.filter(id => id !== item.id));
+                                     }}
+                              />
+                            </div>
                             <div className="w-full aspect-square bg-gray-50 rounded-lg flex items-center justify-center border border-gray-100 overflow-hidden mb-3 relative shrink-0">
                                {item.image_url ? <img src={item.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" /> : <ImageIcon className="w-8 h-8 text-gray-300" />}
                                <span className={`absolute top-2 right-2 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border bg-white shadow-sm ${item.status === 'active' || !item.status ? 'text-emerald-600 border-emerald-100' : 'text-gray-400 border-gray-200'}`}>
@@ -891,6 +959,15 @@ export default function MenuPromotionsPage() {
 
                         <thead className="sticky top-0 z-10">
                           <tr>
+                            <th className="bg-white px-4 py-3 border-b border-gray-200 w-12 text-center">
+                              <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-[#7a5c4e] focus:ring-[#7a5c4e] cursor-pointer"
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedItems(filteredData.map((d: any) => d.id));
+                                  else setSelectedItems([]);
+                                }}
+                                checked={filteredData.length > 0 && selectedItems.length === filteredData.length}
+                              />
+                            </th>
                             {activeTab === "products" && <th className="bg-white px-4 py-3 text-[13px] font-bold text-gray-400 uppercase border-b border-gray-200 w-20">รูปภาพ</th>}
                             
                             {activeTab === "options" ? (
@@ -920,7 +997,17 @@ export default function MenuPromotionsPage() {
 
                           
 {filteredData.map((item: any) => (
-  <SortableTableRow key={item.id} id={item.id} className="hover:bg-gray-50 transition-colors group" activeTab={activeTab}>
+  <SortableTableRow key={item.id} id={item.id} className={`hover:bg-gray-50 transition-colors group ${selectedItems.includes(item.id) ? 'bg-[#fdfbf9]' : ''}`} activeTab={activeTab}>
+
+                              <td className="px-4 py-3 text-center w-12">
+                                <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-[#7a5c4e] focus:ring-[#7a5c4e] cursor-pointer"
+                                  checked={selectedItems.includes(item.id)}
+                                  onChange={(e) => {
+                                    if(e.target.checked) setSelectedItems(prev => [...prev, item.id]);
+                                    else setSelectedItems(prev => prev.filter(id => id !== item.id));
+                                  }}
+                                />
+                              </td>
 
                               {activeTab === "products" && (
                                 <td className="px-4 py-3">

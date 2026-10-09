@@ -5,6 +5,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_pos_key_2026';
 require('dotenv').config();
 const db = require('./db'); // Supabase client
 const bcrypt = require('bcryptjs');
+const cron = require('node-cron');
 const { syncInventoryNotification, createNotification } = require('./notificationService');
 
 const app = express();
@@ -847,7 +848,7 @@ app.post('/api/shifts/close', async (req, res) => {
         const { error } = await db.from('shifts').update({ closing_cash: Number(closing_cash), expected_cash: Number(expected_cash), cash_difference: Number(cash_difference), status: 'CLOSED', closed_at: new Date().toISOString() }).eq('id', shift_id);
         if (error) throw error;
         
-        const { data: orders } = await db.from('orders').select('total_amount').eq('shift_id', shift_id).neq('status', 'cancelled');
+        const orders = await fetchAll(() => db.from('orders').select('total_amount').eq('shift_id', shift_id).neq('status', 'cancelled'));
         const totalSales = orders ? orders.reduce((sum, order) => sum + Number(order.total_amount), 0) : 0;
         await db.from('shifts').update({ total_sales: totalSales }).eq('id', shift_id);
         
@@ -876,7 +877,7 @@ app.post('/api/shifts/expense', async (req, res) => {
 app.get('/api/shifts/:id/summary', async (req, res) => {
     try {
         const shiftId = req.params.id;
-        const { data: orders } = await db.from('orders').select('*').eq('shift_id', shiftId).neq('status', 'cancelled');
+        const orders = await fetchAll(() => db.from('orders').select('*').eq('shift_id', shiftId).neq('status', 'cancelled'));
         const { data: expenses } = await db.from('shift_expenses').select('*').eq('shift_id', shiftId);
         const { data: shift } = await db.from('shifts').select('*').eq('id', shiftId).single();
         const orderIds = (orders || []).map(order => order.id);
@@ -1562,12 +1563,12 @@ app.get('/api/staff/:id/activity', async (req, res) => {
     try {
         let activities = [];
 
-        const { data: orders } = await db.from('orders')
+        const orders = await fetchAll(() => db.from('orders')
             .select('bill_number, total_amount, created_at')
             .eq('staff_id', staffId)
             .eq('shop_id', shopId)
             .order('created_at', { ascending: false })
-            .limit(10);
+            .limit(10));
             
         if (orders) {
             orders.forEach(o => activities.push({
@@ -1652,22 +1653,46 @@ const getDateRange = (period, customStart, customEnd) => {
     return { start: startDate.toISOString(), end: endDate.toISOString() };
 };
 
+const fetchAllInChunks = async (qFn, col, vals) => {
+    if (!vals || vals.length === 0) return [];
+    let all = [];
+    const sz = 200;
+    for(let i=0; i<vals.length; i+=sz) {
+        let c = vals.slice(i, i+sz);
+        all = all.concat(await fetchAll(() => qFn().in(col, c)));
+    }
+    return all;
+};
+
+const fetchAll = async (qFn) => {
+    let all = [], from = 0, limit = 1000;
+    while(true) {
+        const {data, error} = await qFn().range(from, from + limit - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all = all.concat(data);
+        if (data.length < limit) break;
+        from += limit;
+    }
+    return all;
+};
+
 app.get('/api/reports/summary', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
         
-        const { data: orders } = await db.from('orders').select('id, total_amount')
+        const orders = await fetchAll(() => db.from('orders').select('id, total_amount')
             .eq('shop_id', shop_id).eq('status', 'completed')
-            .gte('created_at', start).lte('created_at', end);
+            .gte('created_at', start).lte('created_at', end));
             
         const totalBills = orders ? orders.length : 0;
         const netSales = orders ? orders.reduce((sum, o) => sum + Number(o.total_amount), 0) : 0;
         const avgBill = totalBills > 0 ? netSales / totalBills : 0;
         
-        const { data: items } = orders && orders.length > 0
-            ? await db.from('order_items').select('quantity').in('order_id', orders.map(o => o.id))
-            : { data: [] };
+        const items = orders && orders.length > 0
+            ? await fetchAllInChunks(() => db.from('order_items').select('quantity'), 'order_id', orders.map(o => o.id))
+            : [];
         const totalItems = items ? items.reduce((sum, i) => sum + Number(i.quantity), 0) : 0;
 
         res.json({ summary: { netSales, totalBills, avgBill, totalItems } });
@@ -1678,14 +1703,14 @@ app.get('/api/reports/sales', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const { data: orders } = await db.from('orders').select('id, bill_number, created_at, total_amount, payment_method, staff(name)')
+        const orders = await fetchAll(() => db.from('orders').select('id, bill_number, created_at, total_amount, payment_method, staff(name)')
             .eq('shop_id', shop_id).eq('status', 'completed')
-            .gte('created_at', start).lte('created_at', end).order('created_at', { ascending: true });
+            .gte('created_at', start).lte('created_at', end).order('created_at', { ascending: true }));
         
         const orderIds = (orders || []).map(order => order.id);
-        const { data: orderItems } = orderIds.length > 0
-            ? await db.from('order_items').select('order_id, quantity').in('order_id', orderIds)
-            : { data: [] };
+        const orderItems = orderIds.length > 0
+            ? await fetchAllInChunks(() => db.from('order_items').select('order_id, quantity'), 'order_id', orderIds)
+            : [];
         const itemCountsByOrder = (orderItems || []).reduce((counts, item) => {
             counts[item.order_id] = (counts[item.order_id] || 0) + (Number(item.quantity) || 0);
             return counts;
@@ -1761,8 +1786,8 @@ app.get('/api/reports/payments', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const { data: orders } = await db.from('orders').select('payment_method, total_amount')
-            .eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end);
+        const orders = await fetchAll(() => db.from('orders').select('payment_method, total_amount')
+            .eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
         
         if (!orders || orders.length === 0) return res.json([]);
         const grouped = orders.reduce((acc, o) => {
@@ -1783,10 +1808,10 @@ app.get('/api/reports/products', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const { data: orders } = await db.from('orders').select('id').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end);
+        const orders = await fetchAll(() => db.from('orders').select('id').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
         
         if (!orders || orders.length === 0) return res.json([]);
-        const { data: items } = await db.from('order_items').select('quantity, price, products(name, category_id)').in('order_id', orders.map(o => o.id));
+        const items = await fetchAllInChunks(() => db.from('order_items').select('quantity, price, products(name, category_id)'), 'order_id', orders.map(o => o.id));
         if (!items || items.length === 0) return res.json([]);
 
         const productSales = {};
@@ -1862,8 +1887,8 @@ app.get('/api/reports/employees', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const { data: orders } = await db.from('orders').select('staff_id, total_amount, staff(name)')
-            .eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end);
+        const orders = await fetchAll(() => db.from('orders').select('staff_id, total_amount, staff(name)')
+            .eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
         
         if (!orders || orders.length === 0) return res.json([]);
         const grouped = orders.reduce((acc, o) => {
@@ -1900,20 +1925,16 @@ app.get('/api/reports/profit', async (req, res) => {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
         
-        const { data: orders } = await db.from('orders').select('id, total_amount').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end);
+        const orders = await fetchAll(() => db.from('orders').select('id, total_amount').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
         const revenue = orders ? orders.reduce((sum, o) => sum + Number(o.total_amount), 0) : 0;
 
         const { data: exps } = await db.from('shift_expenses').select('amount').eq('shop_id', shop_id).gte('created_at', start).lte('created_at', end);
         const expenses = exps ? exps.filter(e => Number(e.amount) > 0).reduce((sum, e) => sum + Number(e.amount), 0) : 0;
 
         const orderIds = (orders || []).map(order => order.id);
-        const { data: soldItems } = orderIds.length > 0
-            ? await db.from('order_items').select('product_id, quantity').in('order_id', orderIds)
-            : { data: [] };
+        const soldItems = await fetchAllInChunks(() => db.from('order_items').select('product_id, quantity'), 'order_id', orderIds);
         const productIds = [...new Set((soldItems || []).map(item => item.product_id).filter(Boolean))];
-        const { data: recipes } = productIds.length > 0
-            ? await db.from('recipes').select('product_id, quantity, inventory_items(cost, unit)').in('product_id', productIds)
-            : { data: [] };
+        const recipes = await fetchAllInChunks(() => db.from('recipes').select('product_id, quantity, inventory_items(cost, unit)'), 'product_id', productIds);
         const recipesByProduct = (recipes || []).reduce((map, recipe) => {
             if (!map[recipe.product_id]) map[recipe.product_id] = [];
             map[recipe.product_id].push(recipe);
@@ -1947,7 +1968,7 @@ app.get('/api/reports/tax', async (req, res) => {
         const { data: settings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
         const data = settings?.settings_data || {};
         if (!data.vat_enabled) return res.json({ available: false, message: 'ยังไม่ได้เปิดใช้งานภาษีมูลค่าเพิ่ม' });
-        const { data: orders } = await db.from('orders').select('total_amount').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end);
+        const orders = await fetchAll(() => db.from('orders').select('total_amount').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
         const total = (orders || []).reduce((sum, order) => sum + (Number(order.total_amount) || 0), 0);
         const rate = Number(data.vat_rate) || 0;
         const tax = data.prices_include_vat ? total * rate / (100 + rate) : total * rate / 100;
@@ -2007,6 +2028,29 @@ app.delete('/api/shops/close', async (req, res) => {
     } catch (err) {
         console.error('DELETE /api/shops/close error:', err);
         res.status(500).json({ error: "ไม่สามารถลบบัญชีได้: " + err.message });
+    }
+});
+
+// ==========================================
+// --- ตั้งเวลาทำงานอัตโนมัติ (Cron Jobs) ---
+// ==========================================
+// เคลียร์การแจ้งเตือนที่เก่ากว่า 30 วัน (ทำงานทุกเที่ยงคืน)
+cron.schedule('0 0 * * *', async () => {
+    try {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const { error } = await db.from('notifications')
+            .delete()
+            .lt('created_at', thirtyDaysAgo.toISOString());
+            
+        if (error) {
+            console.error('Cron: Error deleting old notifications:', error);
+        } else {
+            console.log('Cron: Successfully deleted notifications older than 30 days');
+        }
+    } catch (err) {
+        console.error('Cron: Exception in deleting old notifications:', err);
     }
 });
 
