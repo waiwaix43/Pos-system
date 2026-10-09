@@ -566,7 +566,7 @@ app.get('/api/next-bill-number', async (req, res) => {
     const { shop_id, shift_id } = req.query;
     if (!shift_id || shift_id === 'undefined') return res.json({ billCode: "0001" });
     try {
-        const { count, error } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id);
+        const { count, error } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id).eq('shift_id', shift_id);
         if (error) throw error;
         const { data: shopSettings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
         const settings = shopSettings?.settings_data || {};
@@ -584,7 +584,7 @@ app.post('/api/orders', async (req, res) => {
         if (!shift_id) return res.status(400).json({ success: false, error: "ไม่พบรหัสรอบการขาย" });
         const [shiftResult, countResult, shopSettingsResult] = await Promise.all([
             db.from('shifts').select('status').eq('id', shift_id).single(),
-            db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id),
+            db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id).eq('shift_id', shift_id),
             db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single()
         ]);
         const { data: activeShift, error: shiftErr } = shiftResult;
