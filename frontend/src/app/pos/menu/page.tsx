@@ -539,6 +539,38 @@ export default function MenuPromotionsPage() {
     }
   };
 
+  const getInventoryPackageInfo = (unitValue?: string) => {
+    const value = String(unitValue || '');
+    const parts = value.split('|');
+    if (parts.length === 3 && Number(parts[1]) > 0) {
+      return {
+        baseUnit: parts[0] || 'หน่วย',
+        packageSize: Number(parts[1]),
+        subUnit: parts[2] || 'ชิ้น'
+      };
+    }
+    return {
+      baseUnit: value || 'หน่วย',
+      packageSize: 1,
+      subUnit: value || 'ชิ้น'
+    };
+  };
+
+  const getIngredientCostPerSubUnit = (item: any) => {
+    const source = item?.inventory_items ?? item ?? {};
+    const cost = Number(source?.cost ?? 0);
+    const unitValue = source?.package_unit ? `${source?.unit || 'หน่วย'}|${source?.package_size || 1}|${source?.package_unit}` : (source?.unit ?? '');
+    const { packageSize } = getInventoryPackageInfo(unitValue);
+    return packageSize > 0 ? cost / packageSize : cost;
+  };
+
+  const getDisplayUnit = (item: any) => {
+    if (item?.inventory_items?.package_unit) return item.inventory_items.package_unit;
+    if (item?.package_unit) return item.package_unit;
+    if (item?.inventory_items?.unit) return item.inventory_items.unit;
+    return item?.unit || 'ชิ้น';
+  };
+
   const handleOpenRecipeModal = (product: any) => {
     setSelectedProductForRecipe(product);
     setRecipeSearch("");
@@ -552,7 +584,7 @@ export default function MenuPromotionsPage() {
           inventory_item_id: ing.id,
           inventory_items: ing,
           quantity: "",
-          unit: ing.unit
+          unit: ing.package_unit || ing.unit || 'ชิ้น'
        }]);
     }
   };
@@ -574,7 +606,7 @@ export default function MenuPromotionsPage() {
           items: editingRecipeItems.map(item => ({
              inventory_item_id: item.inventory_item_id,
              quantity: Number(item.quantity),
-             unit: item.unit
+             unit: getDisplayUnit(item)
           }))
        };
 
@@ -1022,7 +1054,7 @@ export default function MenuPromotionsPage() {
                               {activeTab === "products" && <td className="px-4 py-3 text-[14px] text-gray-500">{categories.find(c => c.id === item.category_id)?.name || item.category_name || "-"}</td>}
                               {activeTab === "products" && <td className="px-4 py-3 text-[14px] font-bold text-[#7a5c4e] text-right">฿{item.price?.toLocaleString()}</td>}
                               
-                              {activeTab === "categories" && <td className="px-4 py-3 text-[14px] text-gray-500 text-right">{item.item_count || 0} รายการ</td>}
+                              {activeTab === "categories" && <td className="px-4 py-3 text-[14px] text-gray-500 text-right">{products.filter((product: any) => String(product.category_id) === String(item.id)).length} รายการ</td>}
                               
                               {activeTab === "options" && (
                                 <td className="px-4 py-3 text-[14px] text-gray-500">
@@ -1410,7 +1442,7 @@ export default function MenuPromotionsPage() {
                         <div key={ing.id} onClick={() => handleSelectIngredientForRecipe(ing)} className="flex items-center justify-between p-3 rounded-xl bg-white border border-gray-200 cursor-pointer hover:border-[#7a5c4e] hover:shadow-sm transition-all group">
                           <div>
                             <div className="font-bold text-[13px] text-gray-800 group-hover:text-[#7a5c4e] transition-colors">{ing.name}</div>
-                            <div className="text-[11px] text-gray-500 mt-0.5">ต้นทุน ฿{ing.cost} / {ing.unit}</div>
+                            <div className="text-[11px] text-gray-500 mt-0.5">ต้นทุน ฿{(Number(ing.cost || 0) / Math.max(1, Number(ing.package_size || 1))).toFixed(2)} / {ing.package_unit || ing.unit || 'ชิ้น'}</div>
                           </div>
                           <div className="w-7 h-7 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover:text-[#7a5c4e] group-hover:bg-[#7a5c4e]/10 transition-colors"><Plus className="w-4 h-4" /></div>
                         </div>
@@ -1425,7 +1457,7 @@ export default function MenuPromotionsPage() {
                         <div key={ing.id} onClick={() => handleSelectIngredientForRecipe(ing)} className="flex items-center justify-between p-3 rounded-xl bg-white border border-gray-200 cursor-pointer hover:border-[#7a5c4e] hover:shadow-sm transition-all group">
                           <div>
                             <div className="font-bold text-[13px] text-gray-800 group-hover:text-[#7a5c4e] transition-colors">{ing.name}</div>
-                            <div className="text-[11px] text-gray-500 mt-0.5">ต้นทุน ฿{ing.cost} / {ing.unit}</div>
+                            <div className="text-[11px] text-gray-500 mt-0.5">ต้นทุน ฿{(Number(ing.cost || 0) / Math.max(1, Number(ing.package_size || 1))).toFixed(2)} / {ing.package_unit || ing.unit || 'ชิ้น'}</div>
                           </div>
                           <div className="w-7 h-7 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover:text-[#7a5c4e] group-hover:bg-[#7a5c4e]/10 transition-colors"><Plus className="w-4 h-4" /></div>
                         </div>
@@ -1462,7 +1494,7 @@ export default function MenuPromotionsPage() {
                              <tr key={idx} className="group">
                                 <td className="py-3 pr-2">
                                    <div className="font-bold text-[14px] text-gray-800">{item.inventory_items?.name}</div>
-                                   <div className="text-[11px] text-gray-500">฿{item.inventory_items?.cost}/{item.inventory_items?.unit}</div>
+                                   <div className="text-[11px] text-gray-500">฿{getIngredientCostPerSubUnit(item).toFixed(2)}/{getDisplayUnit(item)}</div>
                                 </td>
                                 <td className="py-3 px-2">
                                    <div className="flex items-center justify-center gap-1.5">
@@ -1473,11 +1505,11 @@ export default function MenuPromotionsPage() {
                                          className="w-16 h-8 text-center border border-gray-300 rounded-md outline-none focus:border-[#7a5c4e] font-bold text-[13px] bg-gray-50" 
                                          placeholder="0"
                                       />
-                                      <span className="text-[12px] text-gray-500 w-8">{item.unit}</span>
+                                      <span className="text-[12px] text-gray-500 w-8">{getDisplayUnit(item)}</span>
                                    </div>
                                 </td>
                                 <td className="py-3 pl-2 text-right font-bold text-gray-800 text-[14px]">
-                                   {(Number(item.quantity || 0) * Number(item.inventory_items?.cost || 0)).toFixed(2)}
+                                   {(Number(item.quantity || 0) * getIngredientCostPerSubUnit(item)).toFixed(2)}
                                 </td>
                                 <td className="py-3 text-center">
                                    <button onClick={() => handleRemoveRecipeItemLocal(item.inventory_item_id)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors opacity-0 group-hover:opacity-100">
@@ -1496,7 +1528,7 @@ export default function MenuPromotionsPage() {
                   <div className="grid grid-cols-3 gap-4">
                      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">ต้นทุนสูตร</span>
-                        <span className="text-[20px] font-black text-gray-800">฿{editingRecipeItems.reduce((s, i) => s + (Number(i.quantity||0) * Number(i.inventory_items?.cost||0)), 0).toFixed(2)}</span>
+                        <span className="text-[20px] font-black text-gray-800">฿{editingRecipeItems.reduce((s, i) => s + (Number(i.quantity || 0) * getIngredientCostPerSubUnit(i)), 0).toFixed(2)}</span>
                      </div>
                      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">ราคาขาย</span>
@@ -1504,8 +1536,8 @@ export default function MenuPromotionsPage() {
                      </div>
                      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center">
                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Margin</span>
-                        <span className={`text-[20px] font-black ${selectedProductForRecipe.price > 0 && (((selectedProductForRecipe.price - editingRecipeItems.reduce((s, i) => s + (Number(i.quantity||0) * Number(i.inventory_items?.cost||0)), 0)) / selectedProductForRecipe.price) * 100) > 0 ? 'text-blue-600' : 'text-red-500'}`}>
-                           {selectedProductForRecipe.price > 0 ? (((selectedProductForRecipe.price - editingRecipeItems.reduce((s, i) => s + (Number(i.quantity||0) * Number(i.inventory_items?.cost||0)), 0)) / selectedProductForRecipe.price) * 100).toFixed(1) : 0}%
+                        <span className={`text-[20px] font-black ${(selectedProductForRecipe.price > 0 && (((selectedProductForRecipe.price - editingRecipeItems.reduce((s, i) => s + (Number(i.quantity || 0) * getIngredientCostPerSubUnit(i)), 0)) / selectedProductForRecipe.price) * 100) > 0) ? 'text-blue-600' : 'text-red-500'}`}>
+                           {selectedProductForRecipe.price > 0 ? (((selectedProductForRecipe.price - editingRecipeItems.reduce((s, i) => s + (Number(i.quantity || 0) * getIngredientCostPerSubUnit(i)), 0)) / selectedProductForRecipe.price) * 100).toFixed(1) : 0}%
                         </span>
                      </div>
                   </div>

@@ -74,12 +74,13 @@ const formatAxisLabel = (key: string, granularity: string, timeZone: string) => 
  return new Date(`${dateKey}T00:00:00+07:00`).toLocaleDateString("th-TH", { timeZone, day: "numeric", month: "short", year: "2-digit" });
 };
 const getDateKeyInBangkok = (date: string) => {
+ const timestamp = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(date) ? date : `${date}Z`;
  const parts = new Intl.DateTimeFormat("en-CA", {
  timeZone: "Asia/Bangkok",
  year: "numeric",
  month: "2-digit",
  day: "2-digit",
- }).formatToParts(new Date(date));
+ }).formatToParts(new Date(timestamp));
  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
  return `${values.year}-${values.month}-${values.day}`;
 };

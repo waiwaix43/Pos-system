@@ -102,10 +102,23 @@ export default function NotificationBell() {
   useEffect(() => {
     void loadNotifications();
     const intervalId = window.setInterval(() => {
-      void loadNotifications();
-    }, 15000);
+      if (document.visibilityState === "visible") void loadNotifications();
+    }, 5000);
+    const refreshNotifications = () => void loadNotifications();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadNotifications();
+    };
 
-    return () => window.clearInterval(intervalId);
+    window.addEventListener("notifications:refresh", refreshNotifications);
+    window.addEventListener("focus", refreshNotifications);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("notifications:refresh", refreshNotifications);
+      window.removeEventListener("focus", refreshNotifications);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [filter]);
 
   const markRead = async (item: NotificationItem) => {

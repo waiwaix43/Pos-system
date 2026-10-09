@@ -48,7 +48,8 @@ const syncInventoryNotification = async ({ shopId, itemId, userId = null }) => {
     const { data: item, error } = await db.from('inventory_items')
         .select('id, name, quantity, unit, min_threshold')
         .eq('id', itemId).eq('shop_id', shopId).single();
-    if (error || !item) return null;
+    if (error) throw error;
+    if (!item) return null;
 
     const minimum = Number(item.min_threshold || 0);
     const state = getState(item.quantity, minimum);

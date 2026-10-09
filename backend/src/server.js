@@ -566,7 +566,7 @@ app.get('/api/next-bill-number', async (req, res) => {
     const { shop_id, shift_id } = req.query;
     if (!shift_id || shift_id === 'undefined') return res.json({ billCode: "0001" });
     try {
-        const { count, error } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shift_id', shift_id);
+        const { count, error } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id);
         if (error) throw error;
         const { data: shopSettings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
         const settings = shopSettings?.settings_data || {};
@@ -582,10 +582,15 @@ app.post('/api/orders', async (req, res) => {
     const { shop_id, staff_id, shift_id, order_type, total_amount, payment_method, received_amount, change_amount, cart } = req.body;
     try {
         if (!shift_id) return res.status(400).json({ success: false, error: "ไม่พบรหัสรอบการขาย" });
-        const { data: activeShift, error: shiftErr } = await db.from('shifts').select('status').eq('id', shift_id).single();
+        const [shiftResult, countResult, shopSettingsResult] = await Promise.all([
+            db.from('shifts').select('status').eq('id', shift_id).single(),
+            db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id),
+            db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single()
+        ]);
+        const { data: activeShift, error: shiftErr } = shiftResult;
         if (shiftErr || !activeShift || activeShift.status !== 'OPEN') return res.status(400).json({ success: false, error: "รอบการขายนี้ถูกปิดแล้ว กรุณาเปิดรอบการขายใหม่" });
 
-        const { count, error: countErr } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shift_id', shift_id);
+        const { count, error: countErr } = countResult;
         if (countErr) throw countErr;
 
         
@@ -596,7 +601,7 @@ app.post('/api/orders', async (req, res) => {
         else if (isTransfer) orderStatus = 'PENDING_VERIFICATION';
 
         let receiptSettingsSnapshot = null;
-        const { data: shopSettings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
+        const { data: shopSettings } = shopSettingsResult;
         if (shopSettings?.settings_data) {
             receiptSettingsSnapshot = typeof shopSettings.settings_data === 'string'
                 ? JSON.parse(shopSettings.settings_data)
@@ -620,11 +625,28 @@ app.post('/api/orders', async (req, res) => {
         }
         const getPkgSize = (u) => { const p = String(u||'').split('|'); return (p.length===3 && Number(p[1])>0) ? Number(p[1]) : 1; };
         if (receiptSettingsSnapshot?.allow_negative_stock === false) {
-            for (const item of cart || []) {
+            const cartItems = cart || [];
+            const productIds = [...new Set(cartItems.map(item => item.id || item.product_id).filter(Boolean))];
+            const { data: allRecipes } = productIds.length > 0
+                ? await db.from('recipes').select('product_id, inventory_item_id, quantity').in('product_id', productIds)
+                : { data: [] };
+            const recipesByProduct = new Map();
+            for (const recipe of allRecipes || []) {
+                const productRecipes = recipesByProduct.get(recipe.product_id) || [];
+                productRecipes.push(recipe);
+                recipesByProduct.set(recipe.product_id, productRecipes);
+            }
+            const inventoryIds = [...new Set((allRecipes || []).map(recipe => recipe.inventory_item_id).filter(Boolean))];
+            const { data: inventoryItems } = inventoryIds.length > 0
+                ? await db.from('inventory_items').select('id, quantity, name, unit').in('id', inventoryIds)
+                : { data: [] };
+            const inventoryItemsById = new Map((inventoryItems || []).map(item => [item.id, item]));
+
+            for (const item of cartItems) {
                 const productId = item.id || item.product_id;
-                const { data: recipes } = await db.from('recipes').select('inventory_item_id, quantity').eq('product_id', productId);
+                const recipes = recipesByProduct.get(productId) || [];
                 for (const recipe of recipes || []) {
-                    const { data: inventoryItem } = await db.from('inventory_items').select('quantity, name, unit').eq('id', recipe.inventory_item_id).single();
+                    const inventoryItem = inventoryItemsById.get(recipe.inventory_item_id);
                     const requiredQuantity = Number(recipe.quantity || 0) * Number(item.quantity || 0);
                     if (inventoryItem) {
                         const pkgSize = getPkgSize(inventoryItem.unit);
@@ -651,10 +673,6 @@ app.post('/api/orders', async (req, res) => {
         const orderId = orderRes.id;
 
         // Preserve the receipt configuration used at checkout for historical bills.
-        if (receiptSettingsSnapshot) {
-            await db.from('orders').update({ receipt_settings: receiptSettingsSnapshot }).eq('id', orderId);
-        }
-
         const itemsValues = cart.map(item => ({
             order_id: orderId, 
             product_id: item.id || item.product_id, 
@@ -664,44 +682,122 @@ app.post('/api/orders', async (req, res) => {
             addon_price: item.addon_price || 0, 
             note: item.note || null
         }));
-        const { error: itemsErr } = await db.from('order_items').insert(itemsValues);
+        const [, itemsResult] = await Promise.all([
+            receiptSettingsSnapshot
+                ? db.from('orders').update({ receipt_settings: receiptSettingsSnapshot }).eq('id', orderId)
+                : Promise.resolve(null),
+            db.from('order_items').insert(itemsValues)
+        ]);
+        const { error: itemsErr } = itemsResult;
         if (itemsErr) throw itemsErr;
 
         let autoDeduct = true;
-        try {
-            const { data: settings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-            if (settings && settings.settings_data) {
-                const sData = typeof settings.settings_data === 'string' ? JSON.parse(settings.settings_data) : settings.settings_data;
-                if (sData.auto_deduct_stock === false) autoDeduct = false;
-            }
-        } catch (e) { console.error("Fetch Error: ", e); }
+        if (receiptSettingsSnapshot?.auto_deduct_stock === false) autoDeduct = false;
 
         if (autoDeduct && orderStatus === 'completed') {
+            const productIds = [...new Set(cart.map(item => item.id || item.product_id))];
+            const recipeResults = await Promise.all(productIds.map(productId =>
+                db.from('recipes').select('product_id, inventory_item_id, quantity').eq('product_id', productId)
+            ));
+            const recipesByProduct = new Map();
+            recipeResults.forEach(({ data, error }) => {
+                if (error) throw error;
+                for (const recipe of data || []) {
+                    const productRecipes = recipesByProduct.get(recipe.product_id) || [];
+                    productRecipes.push(recipe);
+                    recipesByProduct.set(recipe.product_id, productRecipes);
+                }
+            });
+
+            const requiredByInventory = new Map();
             for (const item of cart) {
                 const productId = item.id || item.product_id;
-                const { data: recipes } = await db.from('recipes').select('*').eq('product_id', productId);
-                if (recipes && recipes.length > 0) {
-                    for (const recipe of recipes) {
-                        const totalDeduct = recipe.quantity * item.quantity;
-                        const { data: invItem } = await db.from('inventory_items').select('quantity, unit').eq('id', recipe.inventory_item_id).single();
-                        if (invItem) {
-                            const pkgSize = getPkgSize(invItem.unit);
-                            const deductStorageUnit = totalDeduct / pkgSize;
-                            const newStock = Number(invItem.quantity) - deductStorageUnit;
-                            await db.from('inventory_items').update({ quantity: newStock }).eq('id', recipe.inventory_item_id);
-                            
-                            await db.from('stock_movements').insert([{
-                                shop_id, inventory_item_id: recipe.inventory_item_id, movement_type: 'SALE',
-                                quantity: -deductStorageUnit, balance_after: newStock, reference_id: orderId, reason: `ขายสินค้า POS (บิล ${billNumber})`
-                            }]);
-                            await syncInventoryNotification({ shopId: shop_id, itemId: recipe.inventory_item_id, userId: staff_id || null });
-                        }
+                for (const recipe of recipesByProduct.get(productId) || []) {
+                    const requiredQuantity = Number(recipe.quantity || 0) * Number(item.quantity || 0);
+                    if (requiredQuantity <= 0) continue;
+                    requiredByInventory.set(
+                        recipe.inventory_item_id,
+                        (requiredByInventory.get(recipe.inventory_item_id) || 0) + requiredQuantity
+                    );
+                }
+            }
+
+            const inventoryItemIds = [...requiredByInventory.keys()];
+            if (inventoryItemIds.length > 0) {
+                const { data: inventoryItems, error: inventoryReadError } = await db.from('inventory_items')
+                    .select('id, quantity, unit')
+                    .eq('shop_id', shop_id)
+                    .in('id', inventoryItemIds);
+                if (inventoryReadError) throw inventoryReadError;
+
+                const stockMovements = await Promise.all((inventoryItems || []).map(async invItem => {
+                    const requiredQuantity = requiredByInventory.get(invItem.id);
+                    const pkgSize = getPkgSize(invItem.unit);
+                    const previousStock = Number(invItem.quantity || 0);
+                    const newStock = Number((previousStock - requiredQuantity / pkgSize).toFixed(6));
+                    const { data: updatedInventory, error: inventoryUpdateError } = await db.from('inventory_items')
+                        .update({ quantity: newStock })
+                        .eq('id', invItem.id)
+                        .select('quantity')
+                        .single();
+                    if (inventoryUpdateError) throw inventoryUpdateError;
+                    if (Math.abs(Number(updatedInventory.quantity) - newStock) > 0.000000001) {
+                        throw new Error(`Inventory quantity was not stored accurately for item ${invItem.id}`);
                     }
+                    return {
+                        shop_id,
+                        inventory_item_id: invItem.id,
+                        movement_type: 'SALE',
+                        quantity: newStock - previousStock,
+                        balance_after: Number(updatedInventory.quantity),
+                        reference_id: orderId,
+                        reason: `ขายสินค้า POS (บิล ${billNumber})`
+                    };
+                }));
+
+                if (stockMovements.length > 0) {
+                    const { error: movementError } = await db.from('stock_movements').insert(stockMovements);
+                    if (movementError) throw movementError;
+                    void Promise.all(inventoryItems.map(item =>
+                        syncInventoryNotification({ shopId: shop_id, itemId: item.id, userId: staff_id || null })
+                    )).catch(error => console.error('Inventory notification sync error:', error));
                 }
             }
         }
         res.status(201).json({ success: true, message: "สร้างออเดอร์สำเร็จ", billNumber, orderId, orderStatus });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
+});
+
+app.post('/api/orders/:id/confirm-transfer', async (req, res) => {
+    const { shop_id } = req.body;
+    if (!shop_id || String(req.user.shop_id) !== String(shop_id)) {
+        return res.status(403).json({ success: false, error: 'ไม่มีสิทธิ์ยืนยันรายการของร้านนี้' });
+    }
+
+    try {
+        const { data: order, error } = await db.from('orders').select('*')
+            .eq('id', req.params.id)
+            .eq('shop_id', shop_id)
+            .maybeSingle();
+        if (error) throw error;
+        if (!order) return res.status(404).json({ success: false, error: 'ไม่พบบิลนี้' });
+
+        const paymentMethod = String(order.payment_method || '');
+        const isTransfer = ['TRANSFER', 'โอนเงิน'].includes(paymentMethod) || paymentMethod.includes('โอนเงิน');
+        if (!isTransfer) return res.status(400).json({ success: false, error: 'บิลนี้ไม่ได้ชำระด้วยการโอนเงิน' });
+        if (order.status === 'completed') return res.json({ success: true, alreadyConfirmed: true });
+        if (order.status !== 'PENDING_VERIFICATION') {
+            return res.status(409).json({ success: false, error: 'บิลนี้ไม่อยู่ในสถานะรอตรวจสอบ' });
+        }
+
+        const confirmed = await paymentRoutes.completeOrder(order, order.total_amount, 'PENDING_VERIFICATION');
+        if (!confirmed) return res.status(409).json({ success: false, error: 'รายการนี้ถูกยืนยันไปแล้ว' });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Confirm transfer error:', err);
+        res.status(500).json({ success: false, error: 'ยืนยันรายการโอนไม่สำเร็จ กรุณาลองอีกครั้ง' });
+    }
 });
 
 app.get('/api/orders', async (req, res) => {
@@ -1145,6 +1241,9 @@ app.post('/api/inventory/items', async (req, res) => {
             }]);
             if (movementError) throw movementError;
         }
+        if (createdItem) {
+            await syncInventoryNotification({ shopId: shop_id, itemId: createdItem.id, userId: null });
+        }
         res.json({ success: true, message: "เพิ่มรายการเข้าคลังสำเร็จ" });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -1192,6 +1291,7 @@ app.put('/api/inventory/items/:id', async (req, res) => {
 
         const { error } = await db.from('inventory_items').update(updates).eq('id', req.params.id).eq('shop_id', shop_id);
         if (error) throw error;
+        await syncInventoryNotification({ shopId: shop_id, itemId: req.params.id, userId: req.body.user_id || null });
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -1252,21 +1352,37 @@ app.post('/api/inventory/adjust', async (req, res) => {
             });
         }
 
-        res.json({ success: true, message: "ปรับสต็อกสำเร็จ", new_stock: updatedItem.quantity, movement });
-        Promise.all([
+        const [stockNotificationResult, adjustmentNotificationResult] = await Promise.allSettled([
             syncInventoryNotification({ shopId: shop_id, itemId: item_id, userId: user_id || null }),
-            (async () => {
-                const { data: settingsRow, error: settingsError } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-                if (settingsError) throw settingsError;
-                if (settingsRow?.settings_data) {
-                    const sData = typeof settingsRow.settings_data === 'string' ? JSON.parse(settingsRow.settings_data) : settingsRow.settings_data;
-                    if (sData.notify_stock_adjust !== false) {
-                        await createNotification({ shopId: shop_id, type: 'STOCK_ADJUST', priority: 'INFO', title: 'ปรับสต็อก', message: `ปรับสต็อก ${item.name} (${amount > 0 ? '+' : ''}${amount})`, entityType: 'inventory_item', entityId: item_id, userId: user_id || null });
-                    }
-                }
-            })()
-        ]).catch((notificationError) => {
-            console.error('Inventory adjustment saved, but notification sync failed:', notificationError);
+            createNotification({
+                shopId: shop_id,
+                type: 'STOCK_ADJUST',
+                priority: 'INFO',
+                title: 'ปรับสต็อก',
+                message: `ปรับสต็อก ${item.name} (${amount > 0 ? '+' : ''}${amount})`,
+                entityType: 'inventory_item',
+                entityId: item_id,
+                metadata: { eventState: movement.id },
+                userId: user_id || null
+            })
+        ]);
+        if (stockNotificationResult.status === 'rejected') {
+            console.error('Inventory adjustment saved, but stock alert sync failed:', stockNotificationResult.reason);
+        }
+        if (adjustmentNotificationResult.status === 'rejected') {
+            console.error('Inventory adjustment saved, but adjustment notification failed:', adjustmentNotificationResult.reason);
+        }
+        res.json({
+            success: true,
+            message: "ปรับสต็อกสำเร็จ",
+            new_stock: updatedItem.quantity,
+            movement,
+            notification_status: {
+                stock_alert: stockNotificationResult.status === 'fulfilled' ? 'ok' : 'failed',
+                stock_adjust: adjustmentNotificationResult.status === 'rejected'
+                    ? 'failed'
+                    : adjustmentNotificationResult.value ? 'active' : 'disabled'
+            }
         });
     } catch (err) {
         console.error('Inventory stock adjustment failed:', err);
@@ -1612,9 +1728,19 @@ app.get('/api/staff/:id/activity', async (req, res) => {
 // --- 14. API สำหรับหน้า Dashboard Reports ---
 // ==========================================
 
-const getBangkokDateKey = (date) => {
-    const shifted = new Date(date.getTime() + (7 * 60 * 60 * 1000));
-    return shifted.toISOString().slice(0, 10);
+const parseReportTimestamp = (value) => {
+    if (value instanceof Date) return value;
+    const timestamp = String(value);
+    const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(timestamp);
+    return new Date(hasTimezone ? timestamp : `${timestamp}Z`);
+};
+
+const getBangkokDateKey = (value) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(parseReportTimestamp(value));
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
 };
 
 const getDateRange = (period, customStart, customEnd) => {
@@ -1723,9 +1849,10 @@ app.get('/api/reports/sales', async (req, res) => {
         const rangeDays = Math.floor((rangeEnd - rangeStart) / 86400000) + 1;
         const granularity = rangeDays === 1 ? 'hour' : rangeDays <= 93 ? 'day' : rangeDays <= 730 ? 'week' : 'month';
         const getBucketKey = (date) => {
-            const dateKey = getBangkokDateKey(new Date(date));
+            const reportDate = parseReportTimestamp(date);
+            const dateKey = getBangkokDateKey(reportDate);
             if (granularity === 'hour') {
-                const hour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', hour12: false }).format(new Date(date));
+                const hour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', hour12: false }).format(reportDate);
                 return `${dateKey}T${hour}:00`;
             }
             if (granularity === 'week') {
@@ -2074,6 +2201,8 @@ server.on('error', (err) => {
 // ==========================================
 // --- 10.5 API ศูนย์การแจ้งเตือน ---
 // ==========================================
+const inventoryNotificationSyncAt = new Map();
+
 app.get('/api/notifications', async (req, res) => {
     try {
         const { shop_id, user_id, unread_only, type, priority, limit = 30, offset = 0 } = req.query;
@@ -2087,7 +2216,37 @@ app.get('/api/notifications', async (req, res) => {
         if (!Number.isFinite(shopId) || !Number.isFinite(userId)) {
             return res.status(400).json({ success: false, error: 'shop_id และ user_id ต้องเป็นตัวเลข' });
         }
-        // Removed synchronous inventory sync loop to prevent API hanging
+
+        const lastInventorySync = inventoryNotificationSyncAt.get(shopId) || 0;
+        if (Date.now() - lastInventorySync >= 60_000) {
+            inventoryNotificationSyncAt.set(shopId, Date.now());
+            try {
+                const [inventoryResult, activeAlertsResult] = await Promise.all([
+                    db.from('inventory_items').select('id, quantity, min_threshold').eq('shop_id', shopId),
+                    db.from('notifications').select('entity_id')
+                        .eq('shop_id', shopId)
+                        .eq('entity_type', 'inventory_item')
+                        .eq('is_active', true)
+                        .in('type', ['STOCK_LOW', 'STOCK_OUT'])
+                ]);
+                if (inventoryResult.error) throw inventoryResult.error;
+                if (activeAlertsResult.error) throw activeAlertsResult.error;
+
+                const activeAlertItemIds = new Set((activeAlertsResult.data || []).map((alert) => String(alert.entity_id)));
+                const itemsToSync = (inventoryResult.data || []).filter((item) => {
+                    const quantity = Number(item.quantity || 0);
+                    const minimum = Number(item.min_threshold || 0);
+                    return quantity <= 0 || (minimum > 0 && quantity <= minimum) || activeAlertItemIds.has(String(item.id));
+                });
+
+                await Promise.all(itemsToSync.map((item) =>
+                    syncInventoryNotification({ shopId, itemId: item.id, userId })
+                ));
+            } catch (syncError) {
+                inventoryNotificationSyncAt.delete(shopId);
+                console.error('Notification feed inventory sync failed:', syncError);
+            }
+        }
 
         let query = db.from('notifications').select('*', { count: 'exact' }).eq('shop_id', shopId).eq('is_active', true).order('created_at', { ascending: false }).range(Number(offset), Number(offset) + Math.min(Number(limit), 100) - 1);
         if (unread_only === 'true') query = query.eq('is_read', false);

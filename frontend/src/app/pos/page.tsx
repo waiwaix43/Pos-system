@@ -21,6 +21,7 @@ export default function POSPage() {
  const [view, setView] = useState<'pos' | 'payment' | 'success' | 'qr_modal' | 'transfer_pending'>('pos');
  const [qrTransaction, setQrTransaction] = useState<any>(null);
  const [pollingInterval, setPollingInterval] = useState<any>(null);
+ const [pendingTransferOrderId, setPendingTransferOrderId] = useState<string | null>(null);
  
  const [heldOrders, setHeldOrders] = useState<any[]>([]);
  const [showHeldOrders, setShowHeldOrders] = useState(false);
@@ -48,6 +49,7 @@ export default function POSPage() {
  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
  const paymentSubmissionRef = useRef(false);
  const [isConfirmingQR, setIsConfirmingQR] = useState(false);
+ const [isConfirmingTransfer, setIsConfirmingTransfer] = useState(false);
 
  // ==========================================
  // Helper: ฟังก์ชันป้องกัน Error JSON เวลา API ล่ม/หาไม่เจอ
@@ -487,6 +489,7 @@ export default function POSPage() {
  alert("สร้าง QR ไม่สำเร็จ: " + qrData.error);
  }
  } else if (data.orderStatus === 'PENDING_VERIFICATION') {
+ setPendingTransferOrderId(data.orderId);
  setView('transfer_pending');
  } else {
  setView('success');
@@ -508,11 +511,37 @@ export default function POSPage() {
  const finishTransaction = () => {
  if (pollingInterval) clearInterval(pollingInterval);
  setQrTransaction(null);
+ setPendingTransferOrderId(null);
  setCart([]); 
  setPaidAmountStr(""); 
  if (paymentMethods.length > 0) setPaymentMethod(paymentMethods[0].name);
  fetchNextBillNumber(user.shop_id, activeShift?.id); 
  setView('pos');
+ };
+
+ const handleConfirmTransfer = async () => {
+ if (!pendingTransferOrderId || !user?.shop_id || isConfirmingTransfer) return;
+ setIsConfirmingTransfer(true);
+
+ try {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/${pendingTransferOrderId}/confirm-transfer`, {
+ method: "POST",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({ shop_id: user.shop_id })
+ });
+ const data = await response.json();
+
+ if (!response.ok || !data.success) {
+ showToast(data.error || 'ยืนยันรายการโอนไม่สำเร็จ', 'error');
+ return;
+ }
+
+ setView('success');
+ } catch (error) {
+ showToast('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', 'error');
+ } finally {
+ setIsConfirmingTransfer(false);
+ }
  };
 
  return (
@@ -813,7 +842,7 @@ export default function POSPage() {
  </div>
  
  <p className="text-gray-600 mb-6 text-sm">กรุณาตรวจสอบสลิปการโอนเงินของลูกค้า หากถูกต้องแล้ว ให้ดำเนินการอัปเดตสถานะในระบบจัดการหลังบ้าน หรือกดยืนยันใบเสร็จ</p>
- <button onClick={finishTransaction} className="w-full py-4 rounded-xl bg-[#7a5c4e] text-white font-bold hover:bg-[#684c3f]">ปิดหน้านี้ (โอนเงินสำเร็จแล้ว)</button>
+ <button onClick={handleConfirmTransfer} disabled={isConfirmingTransfer || !pendingTransferOrderId} className="w-full py-4 rounded-xl bg-[#7a5c4e] text-white font-bold hover:bg-[#684c3f] disabled:opacity-60 disabled:cursor-not-allowed">{isConfirmingTransfer ? 'กำลังยืนยัน...' : 'ยืนยันรับเงินและปิดรายการ'}</button>
  </div>
  </div>
  )}

@@ -71,7 +71,6 @@ export default function InventoryPage() {
  const [showCategoryModal, setShowCategoryModal] = useState(false);
  const [categoryForm, setCategoryForm] = useState({ id: null as number | null, name: "", type: "raw_material" });
  const [categoryTypeMap, setCategoryTypeMap] = useState<Record<string, string>>({});
- const [lowStockThreshold, setLowStockThreshold] = useState(0);
  
 
  // States: Modals (Add / Edit)
@@ -116,9 +115,8 @@ export default function InventoryPage() {
  if (!user?.shop_id) return;
  setLoading(true);
  try {
- const [invRes, settingsRes, categoriesRes] = await Promise.all([
+ const [invRes, categoriesRes] = await Promise.all([
  fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/items?shop_id=${user.shop_id}&include_images=false`),
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/settings?shop_id=${user.shop_id}`),
  fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/categories?shop_id=${user.shop_id}`)
  ]);
  if (invRes.ok) setInventoryItems(await invRes.json());
@@ -132,10 +130,6 @@ export default function InventoryPage() {
  });
  return next;
  });
- }
- if (settingsRes.ok) {
- const settings = await settingsRes.json();
- setLowStockThreshold(Number(settings.low_stock_threshold || 0));
  }
  } catch (err: any) {
  console.error(err);
@@ -309,13 +303,13 @@ export default function InventoryPage() {
  const matchesSubcategory = filterSubcategory === 'all' ? true : filterSubcategory === 'uncategorized' ? (!item.category_id || String(item.category_id) === 'null') : String(item.category_id) === String(filterSubcategory);
  const matchesStatus = filterStatus === 'all' || item.status === filterStatus;
  const matchesStock = filterStock === 'low'
- ? item.quantity <= Math.max(item.min_threshold || 0, lowStockThreshold) && item.quantity > 0
+ ? Number(item.min_threshold || 0) > 0 && item.quantity <= Number(item.min_threshold) && item.quantity > 0
  : filterStock === 'out'
  ? item.quantity <= 0
  : true;
  return matchesType && matchesSearch && matchesSubcategory && matchesStatus && matchesStock;
  });
- }, [inventoryItems, effectiveType, searchQuery, filterSubcategory, filterStatus, filterStock, lowStockThreshold]);
+ }, [inventoryItems, effectiveType, searchQuery, filterSubcategory, filterStatus, filterStock]);
  const pageCount = Math.max(1, Math.ceil(displayedItems.length / ITEMS_PER_PAGE));
  const paginatedItems = useMemo(
  () => displayedItems.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
@@ -506,7 +500,14 @@ export default function InventoryPage() {
  if (!res.ok) throw new Error(getThaiApiMessage(data.error, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'));
  
  applyStockAdjustment(itemId, Number(data.new_stock), data.movement);
+ window.dispatchEvent(new Event('notifications:refresh'));
+ if (data.notification_status?.stock_adjust === 'failed') {
+ showToast('ปรับสต็อกสำเร็จ แต่สร้างการแจ้งเตือนไม่สำเร็จ', 'error');
+ } else if (data.notification_status?.stock_adjust === 'disabled') {
+ showToast('ปรับสต็อกสำเร็จ แต่ปิดการแจ้งเตือนปรับสต็อกอยู่', 'info');
+ } else {
  showToast(getThaiApiMessage(data.message, 'ปรับสต็อกสำเร็จ'), 'success');
+ }
  setAdjustData({ qty: "", reason: "นับ Stock ประจำวัน", note: "" });
  } catch (err: any) {
  try {
@@ -564,9 +565,16 @@ export default function InventoryPage() {
  }
  if (!response.ok) throw new Error(getThaiApiMessage(data.error, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'));
  applyStockAdjustment(itemId, Number(data.new_stock), data.movement);
+ window.dispatchEvent(new Event('notifications:refresh'));
  setStockDialog({ open: false, mode: "in" });
  setStockForm({ amount: "1", reason: "รับสินค้าเข้า", note: "" });
+ if (data.notification_status?.stock_adjust === 'failed') {
+ showToast('ปรับสต็อกสำเร็จ แต่สร้างการแจ้งเตือนไม่สำเร็จ', 'error');
+ } else if (data.notification_status?.stock_adjust === 'disabled') {
+ showToast('ปรับสต็อกสำเร็จ แต่ปิดการแจ้งเตือนปรับสต็อกอยู่', 'info');
+ } else {
  showToast(getThaiApiMessage(data.message, 'ปรับสต็อกสำเร็จ'), 'success');
+ }
  } catch (error: any) {
  try {
  const latestQuantity = await refreshStockQuantity(itemId);
@@ -747,8 +755,8 @@ export default function InventoryPage() {
  <div className="bg-white rounded-[24px] border border-gray-200 shadow-sm flex-1 flex flex-col overflow-hidden">
  
  {/* Toolbar: Filters & View Modes */}
- <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
- <div className="flex items-center gap-3">
+ <div className="flex flex-wrap justify-between items-center gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
+ <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
  <div className="flex items-center gap-2 text-gray-500 mr-2">
  <Filter className="w-4 h-4" />
  <span className="text-[13px] font-bold uppercase tracking-wider">ตัวกรอง</span>
@@ -757,7 +765,7 @@ export default function InventoryPage() {
  <select
  value={filterSubcategory}
  onChange={(e) => setFilterSubcategory(e.target.value)}
- className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+ className="h-[38px] shrink-0 px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
  >
  {subcategoryOptions.map((option) => (
  <option key={option.id} value={option.id}>{option.name} {option.count > 0 ? `(${option.count})` : ''}</option>
@@ -767,7 +775,7 @@ export default function InventoryPage() {
  <select 
  value={filterStatus}
  onChange={(e) => setFilterStatus(e.target.value)}
- className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+ className="h-[38px] shrink-0 px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
  >
  <option value="all">สถานะทั้งหมด</option>
  <option value="active">เปิดใช้งาน</option>
@@ -777,7 +785,7 @@ export default function InventoryPage() {
  <select 
  value={filterStock}
  onChange={(e) => setFilterStock(e.target.value)}
- className="h-[38px] px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
+ className="h-[38px] shrink-0 px-3 pr-8 rounded-lg border border-gray-200 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 text-[13px] font-medium text-gray-700 focus:border-[#7a5c4e] bg-white cursor-pointer shadow-sm"
  >
  <option value="all">สต็อกทั้งหมด</option>
  <option value="low">ใกล้หมดสต็อก</option>
@@ -787,7 +795,7 @@ export default function InventoryPage() {
  <button
  type="button"
  onClick={clearFilters}
- className="h-[38px] px-3 rounded-lg border border-gray-200 bg-white text-[13px] font-medium text-gray-700 hover:border-[#7a5c4e] hover:text-[#7a5c4e]"
+ className="h-[38px] shrink-0 whitespace-nowrap px-3 rounded-lg border border-gray-200 bg-white text-[13px] font-medium text-gray-700 hover:border-[#7a5c4e] hover:text-[#7a5c4e]"
  >
  ล้างตัวกรอง
  </button>
@@ -795,17 +803,17 @@ export default function InventoryPage() {
  <button
  type="button"
  onClick={() => setShowCategoryModal(true)}
- className="h-[38px] px-3 rounded-lg bg-[#7a5c4e] text-white text-[13px] font-medium hover:bg-[#684c3f]"
+ className="h-[38px] shrink-0 whitespace-nowrap px-3 rounded-lg bg-[#7a5c4e] text-white text-[13px] font-medium hover:bg-[#684c3f]"
  >
  จัดการหมวดย่อย
  </button>
  </div>
 
- <div className="flex bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+ <div className="flex shrink-0 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
  <button onClick={() => changeViewMode("table")} className={`p-2 transition-colors ${viewMode === 'table' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><List className="w-4 h-4" /></button>
  <button onClick={() => changeViewMode("grid")} className={`p-2 border-l border-gray-200 transition-colors ${viewMode === 'grid' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid className="w-4 h-4" /></button>
  </div>
- <div className="flex items-center gap-2 text-[12px] text-gray-500">
+ <div className="flex shrink-0 items-center gap-2 text-[12px] text-gray-500">
  <span>
  {displayedItems.length === 0
  ? '0 รายการ'
