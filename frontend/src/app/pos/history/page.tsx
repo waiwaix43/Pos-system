@@ -97,7 +97,7 @@ export default function HistoryPage() {
  }
  setUser(savedUser);
 
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/payment-methods?shop_id=${savedUser.shop_id}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/payment-methods?shop_id=${savedUser.shop_id}`)
  .then(res => res.json())
  .then(data => {
  if (data.data) data = data.data;
@@ -112,8 +112,8 @@ export default function HistoryPage() {
  try {
  // โหลดการตั้งค่าร้านและประวัติบิลมาพร้อมกัน
  const [settingsRes, ordersRes] = await Promise.all([
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/settings?shop_id=${user.shop_id}`),
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders?shop_id=${user.shop_id}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/settings?shop_id=${user.shop_id}`),
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders?shop_id=${user.shop_id}`)
  ]);
  
  if (!ordersRes.ok) throw new Error("ไม่สามารถโหลดประวัติใบเสร็จได้");
@@ -201,13 +201,13 @@ export default function HistoryPage() {
  const handleViewDetail = async (receiptId: string) => {
  setDetailLoading(true);
  try {
- const resOrder = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/single/${receiptId}?shop_id=${user?.shop_id}`);
+ const resOrder = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/single/${receiptId}?shop_id=${user?.shop_id}`);
  if (!resOrder.ok) throw new Error("ไม่สามารถโหลดข้อมูลบิลได้");
  const orderData = await resOrder.json();
 
  const [resItems, resSettings] = await Promise.all([
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/${receiptId}/items`),
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/settings?shop_id=${user?.shop_id}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${receiptId}/items`),
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/settings?shop_id=${user?.shop_id}`)
  ]);
  const itemsData = resItems.ok ? await resItems.json() : [];
  const latestSettings = resSettings.ok ? await resSettings.json() : currentReceiptSettings || {};
@@ -285,7 +285,7 @@ export default function HistoryPage() {
  if (!voidPin || voidPin.length !== 4) return showToast("กรุณากรอกรหัส PIN 4 หลักให้ครบถ้วน", 'error');
  setIsVoiding(true);
  try {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/${voidModal.receiptId}/void`, {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${voidModal.receiptId}/void`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ shop_id: user.shop_id, pin: voidPin, reason: voidReason }),
@@ -307,7 +307,7 @@ export default function HistoryPage() {
  if (!editPin || editPin.length !== 4) return showToast("กรุณากรอกรหัส PIN 4 หลัก", 'error');
  setIsEditing(true);
  try {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/verify-manager-pin`, {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/verify-manager-pin`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ shop_id: user.shop_id, pin: editPin }),
@@ -331,7 +331,7 @@ export default function HistoryPage() {
  const confirmEditBill = async () => {
  setIsEditing(true);
  try {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/${selectedReceipt.id}/basic`, {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${selectedReceipt.id}/basic`, {
  method: "PUT",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ 

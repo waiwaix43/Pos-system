@@ -2185,18 +2185,20 @@ cron.schedule('0 0 * * *', async () => {
 // --- เริ่มการทำงานของ Server ---
 // ==========================================
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
-server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-        console.error(`\n❌ ERROR: Port ${PORT} is already in use!`);
-        console.error(`Please kill the process using port ${PORT} or change the PORT in .env file.\n`);
-        process.exit(1);
-    } else {
-        console.error('Server error:', err);
-    }
-});
+if (require.main === module) {
+    const server = app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error(`\n❌ ERROR: Port ${PORT} is already in use!`);
+            console.error(`Please kill the process using port ${PORT} or change the PORT in .env file.\n`);
+            process.exit(1);
+        } else {
+            console.error('Server error:', err);
+        }
+    });
+}
 
 // ==========================================
 // --- 10.5 API ศูนย์การแจ้งเตือน ---
@@ -2314,3 +2316,5 @@ app.patch('/api/notifications/read-all', async (req, res) => {
         return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านการแจ้งเตือนทั้งหมดได้' });
     }
 });
+
+module.exports = app;

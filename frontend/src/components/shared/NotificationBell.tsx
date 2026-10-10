@@ -31,7 +31,7 @@ const iconFor = (item: NotificationItem) => {
   return <Info className="h-5 w-5" />;
 };
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "");
 
 export default function NotificationBell() {
   const router = useRouter();

@@ -35,16 +35,16 @@ export default function EditOrderPage() {
  setUser(savedUser);
  const currentShopId = savedUser.shop_id || 1;
 
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/categories?shop_id=${currentShopId}`).then(res => res.json()).then(data => {
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/categories?shop_id=${currentShopId}`).then(res => res.json()).then(data => {
  setCategories(data);
  if (data.length > 0) setSelectedCategory(data[0].id);
  });
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/sweetness`).then(res => res.json()).then(data => setSweetnessOptions(data));
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/addons`).then(res => res.json()).then(data => setAddonOptions(data));
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/sweetness`).then(res => res.json()).then(data => setSweetnessOptions(data));
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/addons`).then(res => res.json()).then(data => setAddonOptions(data));
  
  // ดึงข้อมูลบิลเดิมมาใส่หน้าจอ
  if (orderId) {
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/single/${orderId}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/single/${orderId}`)
  .then(res => res.json())
  .then(orderData => {
  if (orderData) {
@@ -53,7 +53,7 @@ export default function EditOrderPage() {
  }
  });
 
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/${orderId}/items`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${orderId}/items`)
  .then(res => res.json())
  .then(itemsData => {
  const mappedCart = itemsData.map((item: any, index: number) => ({
@@ -69,7 +69,7 @@ export default function EditOrderPage() {
  useEffect(() => {
  const currentShopId = user?.shop_id || 1;
  if (!selectedCategory || view !== 'pos') return;
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/products?shop_id=${currentShopId}&category_id=${selectedCategory}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/products?shop_id=${currentShopId}&category_id=${selectedCategory}`)
  .then(res => res.json()).then(data => setProducts(data));
  }, [selectedCategory, user, view]);
 
@@ -114,7 +114,7 @@ export default function EditOrderPage() {
  const confirmEdit = async () => {
  if (paidAmount < totalPrice && paymentMethod === "เงินสด") return showToast("จำนวนเงินไม่เพียงพอ!", 'error');
  try {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/${orderId}`, {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${orderId}`, {
  method: "PUT",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ order_type: orderType, total_amount: totalPrice, cart: cart })

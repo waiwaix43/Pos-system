@@ -42,7 +42,7 @@ function useReportAPI(endpoint: string, paramsStr: string) {
  setLoading(true);
  setError(null);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${endpoint}?${paramsStr}`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}${endpoint}?${paramsStr}`);
  if (!res.ok) throw new Error(`ไม่สามารถโหลดข้อมูลได้ (${res.status})`);
  const json = await res.json();
  setData(json);
@@ -165,7 +165,7 @@ export default function ReportsDashboardPage() {
  return;
  }
  setUser(savedUser);
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/settings?shop_id=${savedUser.shop_id}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/settings?shop_id=${savedUser.shop_id}`)
  .then((response) => response.ok ? response.json() : null)
  .then((settings) => {
  if (settings?.timezone && settings.timezone !== "auto") setReportTimeZone(settings.timezone);

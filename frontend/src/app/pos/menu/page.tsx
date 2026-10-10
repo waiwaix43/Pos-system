@@ -22,6 +22,7 @@ import React from 'react';
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { API_BASE_URL } from "@/lib/api";
 import NotificationBell from '@/components/shared/NotificationBell';
 import { createClient } from "@supabase/supabase-js";
 import { 
@@ -186,7 +187,7 @@ export default function MenuPromotionsPage() {
       setCategories(newCategories);
       
       try {
-        const response = await fetch(`http://localhost:5000/api/categories/reorder`, {
+        const response = await fetch(`${API_BASE_URL}/api/categories/reorder`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -260,10 +261,10 @@ export default function MenuPromotionsPage() {
 
     try {
       const results = await Promise.allSettled([
-        fetchJsonWithTimeout(`http://localhost:5000/api/categories?shop_id=${shopId}`),
-        fetchJsonWithTimeout(`http://localhost:5000/api/products?shop_id=${shopId}&category_id=all`),
-        fetchJsonWithTimeout(`http://localhost:5000/api/options?shop_id=${shopId}`),
-        fetchJsonWithTimeout(`http://localhost:5000/api/promotions?shop_id=${shopId}`)
+        fetchJsonWithTimeout(`${API_BASE_URL}/api/categories?shop_id=${shopId}`),
+        fetchJsonWithTimeout(`${API_BASE_URL}/api/products?shop_id=${shopId}&category_id=all`),
+        fetchJsonWithTimeout(`${API_BASE_URL}/api/options?shop_id=${shopId}`),
+        fetchJsonWithTimeout(`${API_BASE_URL}/api/promotions?shop_id=${shopId}`)
       ]);
 
       const [catResult, prodResult, optResult, promoResult] = results;
@@ -358,7 +359,7 @@ export default function MenuPromotionsPage() {
     setIsSaving(true);
     try {
       const method = editingItem.id ? 'PUT' : 'POST';
-      let endpoint = `http://localhost:5000/api/${activeTab}`;
+      let endpoint = `${API_BASE_URL}/api/${activeTab}`;
       
       if (editingItem.id) {
          endpoint += `/${editingItem.id}`;
@@ -394,7 +395,7 @@ export default function MenuPromotionsPage() {
   const handleDelete = async (id: number) => {
     if(!confirm("คุณต้องการลบรายการนี้ใช่หรือไม่? การเปลี่ยนแปลงนี้ไม่สามารถย้อนกลับได้")) return;
     try {
-       const res = await fetch(`http://localhost:5000/api/${activeTab}/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/api/${activeTab}/${id}`, { method: 'DELETE' });
        const data = await res.json().catch(() => ({}));
        
        if (!res.ok) throw new Error(data.error || data.message || `HTTP Error ${res.status}`);
@@ -411,7 +412,7 @@ export default function MenuPromotionsPage() {
     if(!confirm(`คุณต้องการลบรายการที่เลือกจำนวน ${selectedItems.length} รายการใช่หรือไม่? การเปลี่ยนแปลงนี้ไม่สามารถย้อนกลับได้`)) return;
     try {
        await Promise.all(selectedItems.map(id => 
-          fetch(`http://localhost:5000/api/${activeTab}/${id}`, { method: 'DELETE' })
+          fetch(`${API_BASE_URL}/api/${activeTab}/${id}`, { method: 'DELETE' })
        ));
        showToast("ลบข้อมูลทั้งหมดที่เลือกเรียบร้อยแล้ว", "success");
        setSelectedItems([]);
@@ -448,7 +449,7 @@ export default function MenuPromotionsPage() {
     setIsBulkOptionsMode(false);
     setSelectedProductForOptions(product);
     try {
-      const res = await fetch(`http://localhost:5000/api/product_options?product_id=${product.id}`);
+      const res = await fetch(`${API_BASE_URL}/api/product_options?product_id=${product.id}`);
       if (res.ok) {
         const data = await res.json();
         setProductSelectedOptions(data.map((d: any) => Number(d.option_group_id)));
@@ -473,7 +474,7 @@ export default function MenuPromotionsPage() {
     try {
       if (isBulkOptionsMode) {
         await Promise.all(selectedItems.map(id => 
-          fetch(`http://localhost:5000/api/product_options`, {
+          fetch(`${API_BASE_URL}/api/product_options`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -486,7 +487,7 @@ export default function MenuPromotionsPage() {
         showToast("ผูกตัวเลือกสินค้าทั้งหมดเรียบร้อยแล้ว", "success");
         setSelectedItems([]);
       } else {
-        const res = await fetch(`http://localhost:5000/api/product_options`, {
+        const res = await fetch(`${API_BASE_URL}/api/product_options`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -515,7 +516,7 @@ export default function MenuPromotionsPage() {
   // ==========================================
   const loadInventoryForRecipe = async (shopId: number) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/inventory/items?shop_id=${shopId}`);
+      const res = await fetch(`${API_BASE_URL}/api/inventory/items?shop_id=${shopId}`);
       if(res.ok) {
         setInventoryItems(await res.json());
       }
@@ -524,7 +525,7 @@ export default function MenuPromotionsPage() {
 
   const fetchRecipeItems = async (productId: number) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/recipes?product_id=${productId}`);
+      const res = await fetch(`${API_BASE_URL}/api/recipes?product_id=${productId}`);
       if(res.ok) {
         const data = await res.json();
         setOriginalRecipeItems(data);
@@ -610,7 +611,7 @@ export default function MenuPromotionsPage() {
           }))
        };
 
-       const res = await fetch(`http://localhost:5000/api/products/${selectedProductForRecipe.id}/recipe`, {
+      const res = await fetch(`${API_BASE_URL}/api/products/${selectedProductForRecipe.id}/recipe`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)

@@ -17,7 +17,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "");
       
       const response = await fetch(`${apiUrl}/api/login`, {
         method: "POST",

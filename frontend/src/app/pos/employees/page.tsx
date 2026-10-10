@@ -77,7 +77,7 @@ export default function EmployeeManagementPage() {
  const fetchStaffData = async (shopId: number) => {
  setLoading(true);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/staff?shop_id=${shopId}`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/staff?shop_id=${shopId}`);
  if (!res.ok) throw new Error("ไม่สามารถโหลดข้อมูลพนักงานได้");
  const data = await res.json();
  setStaffList(data);
@@ -147,7 +147,7 @@ export default function EmployeeManagementPage() {
  setIsDrawerOpen(true);
  setActivityLoading(true);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/staff/${staff.id}/activity?shop_id=${user.shop_id}`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/staff/${staff.id}/activity?shop_id=${user.shop_id}`);
  if (res.ok) setStaffActivity(await res.json());
  else setStaffActivity([]);
  } catch {
@@ -224,7 +224,7 @@ export default function EmployeeManagementPage() {
  payload.status = 'active'; // Force active for owner
  }
 
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${endpoint}`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}${endpoint}`, {
  method,
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify(payload)
@@ -271,7 +271,7 @@ export default function EmployeeManagementPage() {
 
  const nextStatus = staff.status === "active" ? "inactive" : "active";
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/staff/${staff.id}`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/staff/${staff.id}`, {
  method: "PUT",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ ...staff, status: nextStatus, shop_id: user.shop_id })
@@ -297,7 +297,7 @@ export default function EmployeeManagementPage() {
  if (!window.confirm(`ต้องการลบพนักงาน ${staff.name} ออกจากระบบหรือไม่?`)) return;
 
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/staff/${staff.id}`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/staff/${staff.id}`, {
  method: "DELETE",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ shop_id: user.shop_id })
@@ -316,7 +316,7 @@ export default function EmployeeManagementPage() {
  const confirmSecurityOverride = async () => {
  if (!authPin) return;
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/verify-manager-pin`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/verify-manager-pin`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ shop_id: user.shop_id, pin: authPin })

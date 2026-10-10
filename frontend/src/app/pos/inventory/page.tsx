@@ -116,8 +116,8 @@ export default function InventoryPage() {
  setLoading(true);
  try {
  const [invRes, categoriesRes] = await Promise.all([
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/items?shop_id=${user.shop_id}&include_images=false`),
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/categories?shop_id=${user.shop_id}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/items?shop_id=${user.shop_id}&include_images=false`),
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/categories?shop_id=${user.shop_id}`)
  ]);
  if (invRes.ok) setInventoryItems(await invRes.json());
  if (categoriesRes.ok) {
@@ -203,7 +203,7 @@ export default function InventoryPage() {
  return;
  }
  try {
- const url = categoryForm.id ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/categories/${categoryForm.id}` : `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/categories`;
+ const url = categoryForm.id ? `${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/categories/${categoryForm.id}` : `${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/categories`;
  const method = categoryForm.id ? 'PUT' : 'POST';
  const res = await fetch(url, {
  method,
@@ -250,7 +250,7 @@ export default function InventoryPage() {
  if (!category) return;
  if (!window.confirm(`ต้องการลบหมวดย่อย "${category.name}" หรือไม่?\nระบบจะย้ายสินค้าในหมวดนี้ให้เป็น "ยังไม่ได้จัดหมวดหมู่" ก่อนลบหมวด`)) return;
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/categories/${Number(categoryId)}?shop_id=${Number(user.shop_id)}`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/categories/${Number(categoryId)}?shop_id=${Number(user.shop_id)}`, {
  method: 'DELETE'
  });
  const data = await res.json().catch(() => ({}));
@@ -326,7 +326,7 @@ export default function InventoryPage() {
 
  let isCurrentPage = true;
  const itemIds = paginatedItems.map((item) => item.id).join(',');
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/items?shop_id=${user.shop_id}&images_only=true&item_ids=${itemIds}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/items?shop_id=${user.shop_id}&images_only=true&item_ids=${itemIds}`)
  .then(async (response) => {
  if (!response.ok) throw new Error('โหลดรูปสินค้าไม่สำเร็จ');
  return response.json();
@@ -392,7 +392,7 @@ export default function InventoryPage() {
  category_id: formData.category_id ? Number(formData.category_id) : null
  };
 
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${endpoint}`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}${endpoint}`, {
  method: formMode === "edit" ? "PUT" : "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify(payload)
@@ -416,7 +416,7 @@ export default function InventoryPage() {
 
  setIsSaving(true);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/items/${selectedItem.id}`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/items/${selectedItem.id}`, {
  method: "DELETE"
  });
  const data = await res.json().catch(() => ({}));
@@ -451,7 +451,7 @@ export default function InventoryPage() {
  };
 
  const refreshStockQuantity = async (itemId: number) => {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/${itemId}?shop_id=${user.shop_id}`);
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/${itemId}?shop_id=${user.shop_id}`);
  const data = await response.json();
  if (!response.ok || !Number.isFinite(Number(data.quantity))) {
  throw new Error(getThaiApiMessage(data.error, 'โหลดจำนวนสต็อกล่าสุดไม่สำเร็จ'));
@@ -473,7 +473,7 @@ export default function InventoryPage() {
  showToast('กำลังบันทึกการปรับสต็อก...', 'info');
  setIsSaving(true);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/adjust`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/adjust`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
@@ -538,7 +538,7 @@ export default function InventoryPage() {
  showToast('กำลังบันทึกการปรับสต็อก...', 'info');
  setIsSaving(true);
  try {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/adjust`, {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/adjust`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
@@ -596,13 +596,13 @@ export default function InventoryPage() {
  setDetailLoading(true);
  setDrawerTab("detail");
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/inventory/${id}?shop_id=${user.shop_id}`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/${id}?shop_id=${user.shop_id}`);
  const data = await res.json();
  if (!res.ok || data.error) throw new Error(getThaiApiMessage(data.error, 'โหลดรายละเอียดสินค้าไม่สำเร็จ'));
  
  let itemMovs = [];
  try {
- const movRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/stock-movements?shop_id=${user.shop_id}&item_id=${id}`);
+ const movRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/stock-movements?shop_id=${user.shop_id}&item_id=${id}`);
  const movData = await movRes.json();
  
  if (Array.isArray(movData)) {

@@ -102,8 +102,8 @@ export default function ShiftsPage() {
  setLoading(true);
  try {
  const [settingsRes, shiftRes] = await Promise.all([
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/settings?shop_id=${shopId}`),
- fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts/active?shop_id=${shopId}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/settings?shop_id=${shopId}`),
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/active?shop_id=${shopId}`)
  ]);
  
  const settingsData = await settingsRes.json();
@@ -127,7 +127,7 @@ export default function ShiftsPage() {
 
  const fetchShiftSummary = async (shiftId: number) => {
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts/${shiftId}/summary`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/${shiftId}/summary`);
  if (res.ok) {
  const data = await res.json();
  setShiftSummary(data.summary);
@@ -145,7 +145,7 @@ export default function ShiftsPage() {
 
  const fetchShiftHistory = async (shopId: number, dateStr: string, activeTz: string = currentShopTimezone, endDateStr = dateStr) => {
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts?shop_id=${shopId}`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts?shop_id=${shopId}`);
  if (res.ok) {
  const data = await res.json();
  const safeTz = getShopTimeZone(activeTz);
@@ -312,7 +312,7 @@ export default function ShiftsPage() {
  const handleOpenShift = async () => {
  if (!openingCash || isNaN(Number(openingCash))) return showToast("กรุณาระบุเงินสดเริ่มต้นให้ถูกต้อง", 'error');
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts/open`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/open`, {
  method: "POST", headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ shop_id: user.shop_id, staff_id: user.id, opening_cash: Number(openingCash) })
  });
@@ -345,7 +345,7 @@ export default function ShiftsPage() {
  cash_difference: Number(actualCash) - (shiftSummary?.expectedCash || 0)
  };
 
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts/close`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/close`, {
  method: "POST", headers: { "Content-Type": "application/json" },
  body: JSON.stringify(closingPayload)
  });
@@ -374,7 +374,7 @@ export default function ShiftsPage() {
  const handleReprintShift = async (pastShift: any) => {
  setPrintingShiftId(pastShift.id);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts/${pastShift.id}/summary`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/${pastShift.id}/summary`);
  if (res.ok) {
  const data = await res.json();
  printShiftReport(
@@ -401,7 +401,7 @@ export default function ShiftsPage() {
  try {
  const finalAmount = expenseMode === "in" ? -Math.abs(Number(expenseData.amount)) : Math.abs(Number(expenseData.amount));
  
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts/expense`, {
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/expense`, {
  method: "POST", headers: { "Content-Type": "application/json" },
  body: JSON.stringify({
  shop_id: user.shop_id, shift_id: currentShift.id, pin: expenseData.pin,

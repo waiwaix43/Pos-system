@@ -14,7 +14,7 @@ export default function PinPage() {
   const [selectedRole, setSelectedRole] = useState(""); 
   const [imageError, setImageError] = useState(false); 
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "");
 
   const parseJsonResponse = async (response: Response) => {
     const contentType = response.headers.get("content-type") || "";

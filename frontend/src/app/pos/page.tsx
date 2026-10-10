@@ -72,7 +72,7 @@ export default function POSPage() {
  };
 
  const fetchNextBillNumber = async (shopId: number, shiftId: number) => {
- const data = await safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/next-bill-number?shop_id=${shopId}&shift_id=${shiftId}`);
+ const data = await safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/next-bill-number?shop_id=${shopId}&shift_id=${shiftId}`);
  if (data) setBillNumber(data.billCode || "");
  };
 
@@ -136,16 +136,16 @@ export default function POSPage() {
  }
 
  // ตรวจสอบกะการขาย (Active Shift)
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/shifts/active?shop_id=${currentShopId}`)
+ safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/active?shop_id=${currentShopId}`)
  .then(data => {
  if (data && data.shift) {
  setActiveShift(data.shift);
  fetchNextBillNumber(currentShopId, data.shift.id);
  
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/settings?shop_id=${currentShopId}`)
+ safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/settings?shop_id=${currentShopId}`)
  .then(res => { if (res) setShopSettings(res); });
 
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/payment-methods?shop_id=${currentShopId}`)
+ safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/payment-methods?shop_id=${currentShopId}`)
  .then(res => {
  if (Array.isArray(res)) {
  const enabledMethods = res.filter(m => m.is_enabled).sort((a, b) => a.display_order - b.display_order);
@@ -154,7 +154,7 @@ export default function POSPage() {
  }
  });
 
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/categories?shop_id=${currentShopId}`)
+ safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/categories?shop_id=${currentShopId}`)
  .then(res => {
  if (Array.isArray(res)) {
  const activeCategories = res.filter((c: any) => c.status === 'active' || !c.status);
@@ -164,7 +164,7 @@ export default function POSPage() {
  });
  
  // โหลด Option Groups ทั้งหมด
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/options?shop_id=${currentShopId}`)
+ safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/options?shop_id=${currentShopId}`)
  .then(res => { if (Array.isArray(res)) setAllOptions(res.filter((o: any) => o.status === 'active' || !o.status)); });
  }
  })
@@ -173,7 +173,7 @@ export default function POSPage() {
 
  useEffect(() => {
  if (!user?.shop_id || !selectedCategory || !activeShift || view !== 'pos') return;
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/products?shop_id=${user.shop_id}&category_id=${selectedCategory}`)
+ safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/products?shop_id=${user.shop_id}&category_id=${selectedCategory}`)
  .then(data => {
  if (Array.isArray(data)) setProducts(data.filter((p: any) => p.status === 'active' || !p.status));
  });
@@ -192,7 +192,7 @@ export default function POSPage() {
  // ดึง Option Groups ทั้งหมดมาเผื่อไว้ก่อน (กรณีตอนโหลดหน้าเว็บแล้ว AllOptions โหลดไม่ทัน)
  let currentAllOpts = allOptions;
  if (currentAllOpts.length === 0) {
- const optsData = await safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/options?shop_id=${user.shop_id}`);
+ const optsData = await safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/options?shop_id=${user.shop_id}`);
  if (optsData && Array.isArray(optsData)) {
  setAllOptions(optsData);
  currentAllOpts = optsData;
@@ -200,7 +200,7 @@ export default function POSPage() {
  }
 
  // ดึงข้อมูลการผูก (Binding)
- const data = await safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/product_options?product_id=${product.id}`);
+ const data = await safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/product_options?product_id=${product.id}`);
  
  if (data && Array.isArray(data)) {
  // แปลง ID ให้เป็น String ทั้งหมด ป้องกันปัญหา 1 !== "1"
@@ -421,7 +421,7 @@ export default function POSPage() {
  if (pollingInterval) clearInterval(pollingInterval);
  const interval = setInterval(async () => {
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/payments/${txId}/status`);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/payments/${txId}/status`);
  const data = await res.json();
  if (data.success && data.status === 'PAID') {
  clearInterval(interval);
@@ -452,7 +452,7 @@ export default function POSPage() {
  setIsSubmittingPayment(true);
  
  try {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders`, {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ 
@@ -475,7 +475,7 @@ export default function POSPage() {
  
  if (data.orderStatus === 'PENDING_PAYMENT') {
  // Call create QR
- const qrRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/payments/create-qr`, {
+ const qrRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/payments/create-qr`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ shop_id: user.shop_id, order_id: data.orderId, amount: totalPrice })
@@ -524,7 +524,7 @@ export default function POSPage() {
  setIsConfirmingTransfer(true);
 
  try {
- const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/orders/${pendingTransferOrderId}/confirm-transfer`, {
+ const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${pendingTransferOrderId}/confirm-transfer`, {
  method: "POST",
  headers: { "Content-Type": "application/json" },
  body: JSON.stringify({ shop_id: user.shop_id })
@@ -799,7 +799,7 @@ export default function POSPage() {
  setIsConfirmingQR(true);
  if (pollingInterval) clearInterval(pollingInterval);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/payments/${qrTransaction.id}/confirm`, { method: 'POST' });
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/payments/${qrTransaction.id}/confirm`, { method: 'POST' });
  const data = await res.json();
  if (data.success) {
  setView('success');
