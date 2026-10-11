@@ -1992,11 +1992,17 @@ app.get('/api/reports/stock-movement', async (req, res) => {
         if (!movements || movements.length === 0) return res.json([]);
 
         const inventoryItemIds = [...new Set(movements.map(m => m.inventory_item_id).filter(Boolean))];
+        const orderIds = [...new Set(movements.map(m => m.reference_id).filter(Boolean))];
         const { data: inventoryItems, error: inventoryError } = inventoryItemIds.length > 0
             ? await db.from('inventory_items').select('id, name, unit').in('id', inventoryItemIds)
             : { data: [], error: null };
         if (inventoryError) throw inventoryError;
+        const { data: orders, error: ordersError } = orderIds.length > 0
+            ? await db.from('orders').select('id, bill_number').eq('shop_id', shop_id).in('id', orderIds)
+            : { data: [], error: null };
+        if (ordersError) throw ordersError;
         const itemDetails = new Map((inventoryItems || []).map(item => [item.id, { ...item, ...decodeInventoryUnit(item.unit) }]));
+        const billNumbers = new Map((orders || []).map(order => [String(order.id), order.bill_number]));
         const movementLabels = {
             SALE: 'ใช้ไปจากการขาย',
             VOID_RETURN: 'คืนสต็อกจากการยกเลิกบิล (Void)',
@@ -2009,6 +2015,7 @@ app.get('/api/reports/stock-movement', async (req, res) => {
             const packageSize = Number(item?.package_size || 1);
             const changedQuantity = Number(m.quantity) * packageSize;
             const balanceAfter = m.balance_after == null ? null : Number(m.balance_after) * packageSize;
+            const billNumber = billNumbers.get(String(m.reference_id));
             return {
                 "วันที่": new Date(m.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }),
                 "รายการวัตถุดิบ": item?.name || '-',
@@ -2016,7 +2023,7 @@ app.get('/api/reports/stock-movement', async (req, res) => {
                 "จำนวนที่เปลี่ยน": changedQuantity > 0 ? `+${changedQuantity}` : changedQuantity,
                 "หน่วย": item?.package_unit || 'หน่วย',
                 "คงเหลือหลังรายการ": balanceAfter ?? '-',
-                "รายละเอียด": m.reference_id ? `บิล #${m.reference_id}` : (m.reason || '-')
+                "รายละเอียด": billNumber ? `บิล ${billNumber}` : (m.reason || '-')
             };
         }));
     } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
