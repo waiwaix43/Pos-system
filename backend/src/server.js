@@ -1,8 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_pos_key_2026';
 require('dotenv').config();
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required');
+}
 const db = require('./db'); // Supabase client
 const bcrypt = require('bcryptjs');
 const cron = require('node-cron');
@@ -1569,7 +1572,10 @@ app.get('/api/promotions', async (req, res) => {
     try {
         const { data, error } = await db.from('promotions').select('*').eq('shop_id', req.query.shop_id).order('id', { ascending: false });
         if (error) throw error; res.json(data);
-    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
+    } catch (err) {
+        console.error('GET /api/promotions failed:', err.code, err.message);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' });
+    }
 });
 
 app.post('/api/promotions', async (req, res) => {
@@ -1998,15 +2004,21 @@ app.get('/api/reports/stock-movement', async (req, res) => {
             INITIAL_STOCK: 'เพิ่มเข้าคลัง'
         };
 
-        res.json(movements.map(m => ({
-            "วันที่": new Date(m.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }),
-            "รายการวัตถุดิบ": itemDetails.get(m.inventory_item_id)?.name || '-',
-            "ประเภท": movementLabels[m.movement_type] || m.movement_type,
-            "จำนวนที่เปลี่ยน": Number(m.quantity) > 0 ? `+${m.quantity}` : m.quantity,
-            "หน่วย": itemDetails.get(m.inventory_item_id)?.unit || 'หน่วย',
-            "คงเหลือหลังรายการ": m.balance_after ?? '-',
-            "รายละเอียด": m.reference_id ? `บิล #${m.reference_id}` : (m.reason || '-')
-        })));
+        res.json(movements.map(m => {
+            const item = itemDetails.get(m.inventory_item_id);
+            const packageSize = Number(item?.package_size || 1);
+            const changedQuantity = Number(m.quantity) * packageSize;
+            const balanceAfter = m.balance_after == null ? null : Number(m.balance_after) * packageSize;
+            return {
+                "วันที่": new Date(m.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }),
+                "รายการวัตถุดิบ": item?.name || '-',
+                "ประเภท": movementLabels[m.movement_type] || m.movement_type,
+                "จำนวนที่เปลี่ยน": changedQuantity > 0 ? `+${changedQuantity}` : changedQuantity,
+                "หน่วย": item?.package_unit || 'หน่วย',
+                "คงเหลือหลังรายการ": balanceAfter ?? '-',
+                "รายละเอียด": m.reference_id ? `บิล #${m.reference_id}` : (m.reason || '-')
+            };
+        }));
     } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 

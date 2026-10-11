@@ -62,6 +62,7 @@ function useReportAPI(endpoint: string, paramsStr: string) {
 }
 
 const formatCurrency = (value: number) => `฿${value.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const quantityFormatter = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 6, useGrouping: false });
 const formatSalesDate = (key: string, granularity: string, timeZone: string) => {
  const dateKey = granularity === "month" ? `${key}-01` : key.split("T")[0];
  const date = new Date(`${dateKey}T00:00:00+07:00`);
@@ -342,8 +343,14 @@ export default function ReportsDashboardPage() {
  </thead>
  <tbody>
  {data.map((movement: any, index: number) => {
- const quantityText = String(movement['จำนวนที่เปลี่ยน'] ?? '-');
- const isOutgoing = quantityText.startsWith('-');
+   const rawQuantity = movement['จำนวนที่เปลี่ยน'];
+   const quantityValue = Number(rawQuantity);
+   const quantityText = rawQuantity == null
+   ? '-'
+   : Number.isFinite(quantityValue)
+   ? quantityFormatter.format(quantityValue)
+   : String(rawQuantity);
+   const isOutgoing = Number.isFinite(quantityValue) ? quantityValue < 0 : quantityText.startsWith('-');
  return (
  <tr key={`${movement['วันที่']}-${movement['รายการวัตถุดิบ']}-${index}`} className="border-b border-dashed border-gray-100 hover:bg-gray-50">
  <td className="px-3 py-3 text-[12px] text-gray-500 whitespace-nowrap">{movement['วันที่']}</td>
