@@ -62,7 +62,14 @@ function useReportAPI(endpoint: string, paramsStr: string) {
 }
 
 const formatCurrency = (value: number) => `฿${value.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const quantityFormatter = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 6, useGrouping: false });
+const quantityFormatter = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 2, useGrouping: false });
+const formatStockQuantity = (value: unknown) => {
+ if (value == null) return '-';
+ const numericValue = Number(value);
+ if (!Number.isFinite(numericValue)) return String(value);
+ const formattedValue = quantityFormatter.format(numericValue);
+ return String(value).startsWith('+') && numericValue > 0 ? `+${formattedValue}` : formattedValue;
+};
 const formatSalesDate = (key: string, granularity: string, timeZone: string) => {
  const dateKey = granularity === "month" ? `${key}-01` : key.split("T")[0];
  const date = new Date(`${dateKey}T00:00:00+07:00`);
@@ -345,11 +352,7 @@ export default function ReportsDashboardPage() {
  {data.map((movement: any, index: number) => {
    const rawQuantity = movement['จำนวนที่เปลี่ยน'];
    const quantityValue = Number(rawQuantity);
-   const quantityText = rawQuantity == null
-   ? '-'
-   : Number.isFinite(quantityValue)
-   ? quantityFormatter.format(quantityValue)
-   : String(rawQuantity);
+   const quantityText = formatStockQuantity(rawQuantity);
    const isOutgoing = Number.isFinite(quantityValue) ? quantityValue < 0 : quantityText.startsWith('-');
  return (
  <tr key={`${movement['วันที่']}-${movement['รายการวัตถุดิบ']}-${index}`} className="border-b border-dashed border-gray-100 hover:bg-gray-50">
@@ -358,7 +361,7 @@ export default function ReportsDashboardPage() {
  <td className="px-3 py-3 text-[12px] text-gray-600 whitespace-nowrap">{movement['ประเภท']}</td>
  <td className={`px-3 py-3 text-right text-[14px] font-black whitespace-nowrap ${isOutgoing ? 'text-red-500' : 'text-green-600'}`}>{quantityText}</td>
  <td className="px-3 py-3 text-[12px] text-gray-500">{movement['หน่วย']}</td>
- <td className="px-3 py-3 text-right text-[13px] font-bold text-gray-700">{movement['คงเหลือหลังรายการ']}</td>
+ <td className="px-3 py-3 text-right text-[13px] font-bold text-gray-700">{formatStockQuantity(movement['คงเหลือหลังรายการ'])}</td>
  <td className="px-3 py-3 text-[12px] text-gray-500">{movement['รายละเอียด']}</td>
  </tr>
  );

@@ -985,11 +985,11 @@ export default function InventoryPage() {
  </div>
  <div>
  <label className="block text-[12px] font-bold text-gray-600 mb-1">หมวดย่อย</label>
- <div className="flex gap-2">
+ <div className="flex min-w-0 flex-col gap-2">
  <select
  value={formData.category_id ?? ''}
  onChange={(e) => setFormData((prev: any) => ({ ...prev, category_id: e.target.value }))}
- className="flex-1 p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white"
+ className="w-full min-w-0 p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white"
  >
  <option value="">เลือกหมวดย่อย</option>
  {formCategoryOptions.map((category: any) => (
@@ -1002,7 +1002,7 @@ export default function InventoryPage() {
  setCategoryForm({ id: null, name: '', type: formData.type || (activeTab === 'บรรจุภัณฑ์' ? 'packaging' : 'raw_material') });
  setShowCategoryModal(true);
  }}
- className="px-3 rounded-xl border border-[#7a5c4e] bg-[#7a5c4e] text-white text-[12px] font-bold whitespace-nowrap hover:bg-[#684c3f]"
+ className="w-full px-3 py-3 rounded-xl border border-[#7a5c4e] bg-[#7a5c4e] text-white text-[12px] font-bold whitespace-nowrap hover:bg-[#684c3f]"
  >
  + เพิ่มหมวดย่อย
  </button>
