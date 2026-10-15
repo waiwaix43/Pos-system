@@ -195,8 +195,8 @@ const getInventoryPackageSize = (unitValue) => {
 };
 
 // Helper function to process successful payment
-async function processSuccessfulPayment(txId) {
-    const { data: tx } = await db.from('payment_transactions').select('*').eq('id', txId).single();
+async function processSuccessfulPayment(txId, preloadedTx = null) {
+    const tx = preloadedTx || (await db.from('payment_transactions').select('*').eq('id', txId).single())?.data;
     if (!tx) return;
 
     const { data: order } = await db.from('orders').select('*').eq('id', tx.order_id).single();
@@ -215,56 +215,107 @@ async function completeOrder(order, receivedAmount, expectedStatus) {
     if (completionError) throw completionError;
     if (!completedOrder) return false;
 
-    const { data: orderItems } = await db.from('order_items').select('*').eq('order_id', order.id);
-    if (orderItems) {
-        for (const item of orderItems) {
-            const productId = item.product_id;
-            const { data: recipes } = await db.from('recipes').select('inventory_item_id, quantity').eq('product_id', productId);
-            for (const recipe of recipes || []) {
-                const requiredSubUnit = Number(recipe.quantity || 0) * Number(item.quantity || 0);
-                if (requiredSubUnit <= 0) continue;
+    // Non-blocking stock deduction in background
+    setImmediate(async () => {
+        try {
+            const { data: orderItems } = await db.from('order_items').select('product_id, quantity').eq('order_id', order.id);
+            if (!orderItems || orderItems.length === 0) return;
 
-                const { data: invItem } = await db.from('inventory_items').select('quantity, unit, name').eq('id', recipe.inventory_item_id).single();
-                if (!invItem) continue;
+            const productIds = [...new Set(orderItems.map(item => item.product_id).filter(Boolean))];
+            if (productIds.length === 0) return;
 
+            // Batch query recipes for all products in one request
+            const { data: allRecipes, error: recipeErr } = await db.from('recipes')
+                .select('product_id, inventory_item_id, quantity')
+                .in('product_id', productIds);
+            if (recipeErr) throw recipeErr;
+            if (!allRecipes || allRecipes.length === 0) return;
+
+            // Index recipes by product
+            const recipesByProduct = new Map();
+            for (const r of allRecipes) {
+                const list = recipesByProduct.get(r.product_id) || [];
+                list.push(r);
+                recipesByProduct.set(r.product_id, list);
+            }
+
+            // Aggregate required ingredient deductions across all items in cart
+            const requiredByInventory = new Map();
+            for (const item of orderItems) {
+                const recipes = recipesByProduct.get(item.product_id) || [];
+                for (const recipe of recipes) {
+                    const requiredSubUnit = Number(recipe.quantity || 0) * Number(item.quantity || 0);
+                    if (requiredSubUnit <= 0) continue;
+                    requiredByInventory.set(
+                        recipe.inventory_item_id,
+                        (requiredByInventory.get(recipe.inventory_item_id) || 0) + requiredSubUnit
+                    );
+                }
+            }
+
+            const inventoryItemIds = [...requiredByInventory.keys()];
+            if (inventoryItemIds.length === 0) return;
+
+            // Batch query all required inventory items in one request
+            const { data: inventoryItems, error: invErr } = await db.from('inventory_items')
+                .select('id, quantity, unit, name')
+                .eq('shop_id', order.shop_id)
+                .in('id', inventoryItemIds);
+            if (invErr) throw invErr;
+            if (!inventoryItems || inventoryItems.length === 0) return;
+
+            const stockMovements = [];
+            const inventoryUpdates = [];
+            const updatedItemIds = [];
+
+            for (const invItem of inventoryItems) {
+                const requiredSubUnit = requiredByInventory.get(invItem.id);
                 const pkgSize = getInventoryPackageSize(invItem.unit);
                 const currentSubUnitTotal = Number(invItem.quantity || 0) * pkgSize;
+
                 if (currentSubUnitTotal < requiredSubUnit) {
-                    console.warn(`Skipping stock deduction for ${invItem.name || recipe.inventory_item_id}: available ${currentSubUnitTotal}, required ${requiredSubUnit}`);
+                    console.warn(`Skipping stock deduction for ${invItem.name || invItem.id}: available ${currentSubUnitTotal}, required ${requiredSubUnit}`);
                     continue;
                 }
 
                 const baseUnitDeduction = requiredSubUnit / pkgSize;
                 const previousQty = Number(invItem.quantity || 0);
                 const newQty = Number((previousQty - baseUnitDeduction).toFixed(6));
-                const { data: updatedInventory, error: inventoryUpdateError } = await db.from('inventory_items')
-                    .update({ quantity: newQty })
-                    .eq('id', recipe.inventory_item_id)
-                    .select('quantity')
-                    .single();
-                if (inventoryUpdateError) throw inventoryUpdateError;
-                if (Math.abs(Number(updatedInventory.quantity) - newQty) > 0.000000001) {
-                    throw new Error(`Inventory quantity was not stored accurately for item ${recipe.inventory_item_id}`);
-                }
 
-                await db.from('stock_movements').insert([{
+                inventoryUpdates.push(
+                    db.from('inventory_items').update({ quantity: newQty }).eq('id', invItem.id)
+                );
+                updatedItemIds.push(invItem.id);
+
+                stockMovements.push({
                     shop_id: order.shop_id,
-                    inventory_item_id: recipe.inventory_item_id,
+                    inventory_item_id: invItem.id,
                     movement_type: 'SALE',
                     quantity: newQty - previousQty,
-                    balance_after: Number(updatedInventory.quantity),
+                    balance_after: newQty,
                     reason: `ขายสินค้า POS (บิล ${order.bill_number})`,
                     reference_id: order.id
-                }]);
-
-                await require('../notificationService').syncInventoryNotification({
-                    shopId: order.shop_id,
-                    itemId: recipe.inventory_item_id,
-                    userId: null
                 });
             }
+
+            // Parallel updates + single batch insert for stock movements
+            await Promise.all([
+                ...inventoryUpdates,
+                stockMovements.length > 0 ? db.from('stock_movements').insert(stockMovements) : Promise.resolve(null)
+            ]);
+
+            // Asynchronous background notification sync without blocking response
+            if (updatedItemIds.length > 0) {
+                const { syncInventoryNotification } = require('../notificationService');
+                Promise.all(updatedItemIds.map(itemId =>
+                    syncInventoryNotification({ shopId: order.shop_id, itemId, userId: null })
+                )).catch(err => console.error('Async inventory notification sync error:', err));
+            }
+        } catch (backgroundError) {
+            console.error('Background stock deduction error in completeOrder:', backgroundError);
         }
-    }
+    });
+
     return true;
 }
 
@@ -299,13 +350,14 @@ router.post('/:id/confirm', async (req, res) => {
 
         if (tx.status !== 'PENDING') return res.status(400).json({ success: false, error: "Payment is not pending" });
 
-        await db.from('payment_transactions').update({ 
-            status: 'PAID',
-            updated_at: new Date().toISOString(),
-            paid_at: new Date().toISOString()
-        }).eq('id', tx.id);
-
-        await processSuccessfulPayment(tx.id);
+        await Promise.all([
+            db.from('payment_transactions').update({ 
+                status: 'PAID',
+                updated_at: new Date().toISOString(),
+                paid_at: new Date().toISOString()
+            }).eq('id', tx.id),
+            processSuccessfulPayment(tx.id, tx)
+        ]);
 
         res.json({ success: true });
     } catch (err) {

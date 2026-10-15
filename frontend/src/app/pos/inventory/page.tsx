@@ -1,12 +1,13 @@
 "use client";
 import { useToast } from '@/components/shared/ToastProvider';
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
 import { createClient } from "@supabase/supabase-js";
 import {
  Search, Plus, LayoutGrid, List, AlignJustify, RefreshCw, AlertCircle, X,
- Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2, Minus, Check
+ Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2, Minus, Check,
+ Maximize2, Minimize2, ChevronUp, ChevronDown
 } from "lucide-react";
 
 const ITEMS_PER_PAGE = 50;
@@ -38,6 +39,14 @@ const getMovementLabel = (reason: unknown, movementType: unknown) => {
  default:
  return 'ปรับปรุงสต็อก';
  }
+};
+
+const formatStockQuantity = (qty: any) => {
+ return Math.floor(Number(qty || 0)).toLocaleString();
+};
+
+const formatTotalPieces = (pieces: any) => {
+ return Math.round(Number(pieces || 0)).toLocaleString();
 };
 
 // ==========================================
@@ -87,6 +96,74 @@ export default function InventoryPage() {
  const [adjustData, setAdjustData] = useState({ qty: "", reason: "นับ Stock ประจำวัน", note: "" });
  const [stockDialog, setStockDialog] = useState<{ open: boolean; mode: "in" | "out" }>({ open: false, mode: "in" });
  const [stockForm, setStockForm] = useState({ amount: "1", reason: "รับสินค้าเข้า", note: "" });
+
+ // States: Fullscreen Expand on Scroll
+ const [isExpanded, setIsExpanded] = useState(false);
+ const [tabsHeight, setTabsHeight] = useState(136);
+ const tabsRef = useRef<HTMLDivElement>(null);
+ const contentScrollRef = useRef<HTMLDivElement>(null);
+ const touchStartY = useRef<number | null>(null);
+
+ useEffect(() => {
+ const updateTabsHeight = () => {
+ if (tabsRef.current) {
+ setTabsHeight(tabsRef.current.offsetHeight + 24);
+ }
+ };
+ updateTabsHeight();
+ window.addEventListener('resize', updateTabsHeight);
+ return () => window.removeEventListener('resize', updateTabsHeight);
+ }, []);
+
+ const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+ const scrollTop = e.currentTarget.scrollTop;
+ if (scrollTop > 25 && !isExpanded) {
+ setIsExpanded(true);
+ } else if (scrollTop <= 2 && isExpanded) {
+ setIsExpanded(false);
+ }
+ };
+
+ const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+ if (e.deltaY > 15 && !isExpanded) {
+ setIsExpanded(true);
+ } else if (e.deltaY < -15 && isExpanded) {
+ const el = contentScrollRef.current;
+ if (!el || el.scrollTop <= 5) {
+ setIsExpanded(false);
+ }
+ }
+ };
+
+ const handleTouchStart = (e: React.TouchEvent) => {
+ touchStartY.current = e.touches[0].clientY;
+ };
+
+ const handleTouchEnd = (e: React.TouchEvent) => {
+ if (touchStartY.current === null) return;
+ const deltaY = touchStartY.current - e.changedTouches[0].clientY;
+ touchStartY.current = null;
+
+ if (deltaY > 40 && !isExpanded) {
+ setIsExpanded(true);
+ } else if (deltaY < -40 && isExpanded) {
+ const el = contentScrollRef.current;
+ if (!el || el.scrollTop <= 5) {
+ setIsExpanded(false);
+ }
+ }
+ };
+
+ const toggleExpanded = () => {
+ if (isExpanded) {
+ setIsExpanded(false);
+ if (contentScrollRef.current) {
+ contentScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+ }
+ } else {
+ setIsExpanded(true);
+ }
+ };
 
  useEffect(() => {
  const savedUser = JSON.parse(localStorage.getItem("userContext") || "{}");
@@ -287,8 +364,15 @@ export default function InventoryPage() {
  const selectTypeTab = (tab: string) => {
  const nextType = tab === 'วัตถุดิบ' ? 'raw_material' : 'packaging';
  setActiveTab(tab);
- setFilterSubcategory('all');
  setFilterType(nextType);
+ setFilterSubcategory('all');
+ setSearchQuery("");
+ setFilterStatus("all");
+ setFilterStock("all");
+ setCurrentPage(1);
+ if (contentScrollRef.current) {
+ contentScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+ }
  };
 
  const effectiveType = filterType === 'all' ? activeTypeValue : filterType;
@@ -713,25 +797,24 @@ export default function InventoryPage() {
  </div>
  </div>
 
- <div className="flex-1 overflow-y-auto p-8 flex flex-col">
+ <div onWheel={handleWheel} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="flex-1 overflow-hidden p-8 flex flex-col relative">
  
  {/* Main Navigation Tabs */}
- <div className="grid grid-cols-2 gap-6 shrink-0 mb-6">
+ <div
+  ref={tabsRef}
+  className={`grid grid-cols-2 gap-6 shrink-0 mb-6 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+   isExpanded
+    ? "opacity-0 scale-[0.98] pointer-events-none"
+    : "opacity-100 scale-100 pointer-events-auto"
+  }`}
+ >
  {[
  { id: 'วัตถุดิบ', icon: <Droplets className="w-6 h-6" />, count: countRaw, title: 'วัตถุดิบ' },
  { id: 'บรรจุภัณฑ์', icon: <Box className="w-6 h-6" />, count: countPkg, title: 'บรรจุภัณฑ์' }
  ].map(tab => (
  <div 
  key={tab.id} 
- onClick={() => {
- const nextType = tab.id === 'วัตถุดิบ' ? 'raw_material' : 'packaging';
- setActiveTab(tab.id);
- setFilterType(nextType);
- setFilterSubcategory('all');
- setSearchQuery("");
- setFilterStatus("all");
- setFilterStock("all");
- }}
+ onClick={() => selectTypeTab(tab.id)}
  className={`p-5 rounded-[20px] border-2 cursor-pointer transition-all flex flex-col justify-between ${
  activeTab === tab.id 
  ? 'border-[#7a5c4e] bg-[#7a5c4e] text-white shadow-md transform -translate-y-1' 
@@ -752,11 +835,59 @@ export default function InventoryPage() {
  </div>
 
  {/* Main Content Area */}
- <div className="bg-white rounded-[24px] border border-gray-200 shadow-sm flex-1 flex flex-col overflow-hidden">
+ <div
+  style={{ marginTop: isExpanded ? `-${tabsHeight}px` : "0px" }}
+  className={`bg-white rounded-[24px] border border-gray-200 flex-1 flex flex-col overflow-hidden relative z-10 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+   isExpanded ? "shadow-2xl" : "shadow-sm"
+  }`}
+ >
+  {/* Pull / Expand Handle Bar */}
+  <div
+   onClick={toggleExpanded}
+   className="w-full flex items-center justify-center py-1.5 cursor-pointer hover:bg-gray-50 border-b border-gray-100 transition-colors group select-none shrink-0"
+   title={isExpanded ? "คลิกเพื่อย่อมุมมอง" : "เลื่อนลงหรือคลิกเพื่อขยายเต็มจอ"}
+  >
+   <div className="flex items-center gap-2 text-gray-400 group-hover:text-[#7a5c4e] transition-colors">
+    <div className="w-10 h-1 rounded-full bg-gray-300 group-hover:bg-[#7a5c4e] transition-colors" />
+    <span className="text-[11px] font-medium hidden group-hover:inline transition-all">
+     {isExpanded ? "ย่อมุมมอง" : "ขยายเต็มจอ"}
+    </span>
+   </div>
+  </div>
  
  {/* Toolbar: Filters & View Modes */}
  <div className="flex flex-wrap justify-between items-center gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+   {/* Mini Tabs when Expanded */}
+   {isExpanded && (
+    <div className="flex items-center bg-gray-200/80 p-1 rounded-xl shrink-0 mr-1 animate-fade-in">
+     <button
+      type="button"
+      onClick={() => selectTypeTab("วัตถุดิบ")}
+      className={`px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-all ${
+       activeTab === "วัตถุดิบ"
+        ? "bg-white text-[#7a5c4e] shadow-sm"
+        : "text-gray-600 hover:text-gray-900"
+      }`}
+     >
+      <Droplets className="w-3.5 h-3.5" />
+      วัตถุดิบ ({countRaw})
+     </button>
+     <button
+      type="button"
+      onClick={() => selectTypeTab("บรรจุภัณฑ์")}
+      className={`px-3 py-1.5 rounded-lg text-[13px] font-bold flex items-center gap-1.5 transition-all ${
+       activeTab === "บรรจุภัณฑ์"
+        ? "bg-white text-[#7a5c4e] shadow-sm"
+        : "text-gray-600 hover:text-gray-900"
+      }`}
+     >
+      <Box className="w-3.5 h-3.5" />
+      บรรจุภัณฑ์ ({countPkg})
+     </button>
+    </div>
+   )}
+
  <div className="flex items-center gap-2 text-gray-500 mr-2">
  <Filter className="w-4 h-4" />
  <span className="text-[13px] font-bold uppercase tracking-wider">ตัวกรอง</span>
@@ -809,9 +940,30 @@ export default function InventoryPage() {
  </button>
  </div>
 
+<div className="flex shrink-0 items-center gap-2">
  <div className="flex shrink-0 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
  <button onClick={() => changeViewMode("table")} className={`p-2 transition-colors ${viewMode === 'table' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><List className="w-4 h-4" /></button>
  <button onClick={() => changeViewMode("grid")} className={`p-2 border-l border-gray-200 transition-colors ${viewMode === 'grid' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid className="w-4 h-4" /></button>
+ </div>
+  {/* Toggle Expand Button */}
+  <button
+   type="button"
+   onClick={toggleExpanded}
+   className="h-[38px] px-3 flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-[13px] font-medium transition-colors shadow-sm"
+   title={isExpanded ? "ย่อหน้าจอ" : "ขยายเต็มจอ"}
+  >
+   {isExpanded ? (
+    <>
+     <Minimize2 className="w-4 h-4 text-[#7a5c4e]" />
+     <span className="hidden sm:inline">ย่อมุมมอง</span>
+    </>
+   ) : (
+    <>
+     <Maximize2 className="w-4 h-4 text-gray-600" />
+     <span className="hidden sm:inline">ขยายเต็มจอ</span>
+    </>
+   )}
+  </button>
  </div>
  <div className="flex shrink-0 items-center gap-2 text-[12px] text-gray-500">
  <span>
@@ -850,7 +1002,7 @@ export default function InventoryPage() {
  <p className="text-[14px]">ลองปรับเปลี่ยนคำค้นหา หรือเคลียร์ตัวกรองข้อมูลใหม่</p>
  </div>
  ) : (
- <div className="flex-1 overflow-auto rounded-b-[24px]">
+ <div ref={contentScrollRef} onScroll={handleScroll} className="flex-1 overflow-auto rounded-b-[24px]">
  
  {/* ---------------- TABLE VIEW ---------------- */}
  {viewMode === "table" && (
@@ -876,7 +1028,7 @@ export default function InventoryPage() {
  <td className="px-6 py-4 text-[14px] text-gray-500">{item.sku || '-'}</td>
  <td className="px-6 py-4 text-[14px] font-bold text-gray-800 text-right">฿{Number(item.cost || 0).toLocaleString()}<div className="text-[11px] font-normal text-gray-500">฿{Number(item.cost_per_piece || item.cost || 0).toFixed(2)}/{item.package_unit || item.unit}</div></td>
  <td className={`px-6 py-4 text-[15px] font-black text-right ${item.quantity <= 0 ? 'text-red-500' : 'text-gray-800'}`}>
- {Number(item.quantity || 0).toLocaleString()} <span className="text-[12px] font-normal text-gray-500">{item.unit}</span><div className="text-[11px] font-normal text-gray-500">รวม {Number(item.total_pieces || item.quantity || 0).toLocaleString()} {item.package_unit || item.unit}</div>
+ {formatStockQuantity(item.quantity)} <span className="text-[12px] font-normal text-gray-500">{item.unit}</span><div className="text-[11px] font-normal text-gray-500">รวม {formatTotalPieces(item.total_pieces ?? item.quantity)} {item.package_unit || item.unit}</div>
  </td>
  <td className="px-6 py-4 text-center">
  <span className={`px-3 py-1 rounded-full text-[12px] font-bold border ${
@@ -906,8 +1058,8 @@ export default function InventoryPage() {
  <div className="flex justify-between items-end mt-3 border-t border-gray-100 pt-2">
  <div className="flex flex-col">
  <span className="text-[11px] text-gray-400 font-medium">Stock คงเหลือ</span>
- <span className="text-[18px] font-black text-[#7a5c4e] leading-none">{Number(item.quantity||0).toLocaleString()} <span className="text-[12px] text-gray-500 font-normal">{item.unit}</span></span>
- <span className="text-[11px] text-gray-500">รวม {Number(item.total_pieces || item.quantity || 0).toLocaleString()} {item.package_unit || item.unit}</span>
+ <span className="text-[18px] font-black text-[#7a5c4e] leading-none">{formatStockQuantity(item.quantity)} <span className="text-[12px] text-gray-500 font-normal">{item.unit}</span></span>
+ <span className="text-[11px] text-gray-500">รวม {formatTotalPieces(item.total_pieces ?? item.quantity)} {item.package_unit || item.unit}</span>
  </div>
  </div>
  </div>
@@ -1092,8 +1244,8 @@ export default function InventoryPage() {
  <div className="flex items-start justify-between gap-4">
  <div>
  <p className="text-[12px] font-bold text-gray-500">สต็อกปัจจุบัน</p>
- <p className="mt-1 text-[30px] font-black text-gray-900">{Number(selectedItem.quantity || 0).toLocaleString()} <span className="text-[15px] font-bold text-gray-500">{selectedItem.unit}</span></p>
- <p className="text-[12px] text-gray-500">รวม {Number(selectedItem.total_pieces || selectedItem.quantity || 0).toLocaleString()} {selectedItem.package_unit || selectedItem.unit}</p>
+ <p className="mt-1 text-[30px] font-black text-gray-900">{formatStockQuantity(selectedItem.quantity)} <span className="text-[15px] font-bold text-gray-500">{selectedItem.unit}</span></p>
+ <p className="text-[12px] text-gray-500">รวม {formatTotalPieces(selectedItem.total_pieces ?? selectedItem.quantity)} {selectedItem.package_unit || selectedItem.unit}</p>
  </div>
  <span className="rounded-full bg-white px-3 py-1 text-[12px] font-bold text-gray-700 shadow-sm">{Number(selectedItem.quantity || 0) > Number(selectedItem.min_threshold || 0) ? "มีสินค้าเพียงพอ" : "ควรสั่งเพิ่ม"}</span>
  </div>
@@ -1125,7 +1277,7 @@ export default function InventoryPage() {
  <div className="space-y-3 text-[14px]">
  <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">ประเภท</span><span className="font-medium text-gray-800">{selectedItem.type === 'packaging' ? 'บรรจุภัณฑ์' : 'วัตถุดิบ'}</span></div>
  <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">หมวดย่อย</span><span className="font-medium text-gray-800">{inventoryCategories.find((cat) => Number(cat.id) === Number(selectedItem.category_id))?.name || 'ยังไม่ได้เลือก'}</span></div>
- <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">Stock ในคลัง</span><span className="text-right font-black text-[18px] text-[#7a5c4e]">{Number(selectedItem.quantity||0).toLocaleString()} {selectedItem.unit}<small className="block text-[12px] font-normal text-gray-500">รวม {Number(selectedItem.total_pieces || selectedItem.quantity || 0).toLocaleString()} {selectedItem.package_unit || selectedItem.unit}</small></span></div>
+ <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">Stock ในคลัง</span><span className="text-right font-black text-[18px] text-[#7a5c4e]">{formatStockQuantity(selectedItem.quantity)} {selectedItem.unit}<small className="block text-[12px] font-normal text-gray-500">รวม {formatTotalPieces(selectedItem.total_pieces ?? selectedItem.quantity)} {selectedItem.package_unit || selectedItem.unit}</small></span></div>
  <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">แจ้งเตือนเมื่อต่ำกว่า</span><span className="font-medium text-gray-800">{selectedItem.min_threshold} {selectedItem.unit}</span></div>
  <div className="flex justify-between items-center py-2 border-b border-gray-100"><span className="text-gray-500">ต้นทุนต่อ {selectedItem.package_unit || selectedItem.unit}</span><span className="font-medium text-gray-800">฿{Number(selectedItem.cost_per_piece || selectedItem.cost || 0).toFixed(2)}<small className="block text-right text-[11px] text-gray-500">ต่อ {selectedItem.unit}: ฿{Number(selectedItem.cost || 0).toFixed(2)}</small></span></div>
  </div>
@@ -1150,7 +1302,7 @@ export default function InventoryPage() {
  <div className="space-y-4 text-[14px]">
  <div>
  <label className="block text-gray-500 mb-1 font-bold">Stock ในคลังปัจจุบัน</label>
- <input type="text" disabled value={`${selectedItem.quantity} ${selectedItem.unit}`} className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-gray-800 font-black outline-none" />
+ <input type="text" disabled value={`${formatStockQuantity(selectedItem.quantity)} ${selectedItem.unit}`} className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-gray-50 text-gray-800 font-black outline-none" />
  </div>
  <div>
  <label className="block text-gray-800 font-bold mb-1">จำนวนที่ต้องการปรับเพิ่ม/ลด</label>

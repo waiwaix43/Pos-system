@@ -39,7 +39,20 @@ export default function FetchInterceptor() {
         if (response.status === 401 || expiredToken) {
           const path = window.location.pathname;
           if (path !== '/pin' && path !== '/' && path !== '/login' && path !== '/register') {
-            window.location.href = '/pin';
+            const userContextRaw = localStorage.getItem('userContext');
+            let pinEnabled = true;
+            if (userContextRaw) {
+              try {
+                const u = JSON.parse(userContextRaw);
+                if (u.pin_enabled === false) pinEnabled = false;
+              } catch (e) {}
+            }
+            if (!pinEnabled) {
+              localStorage.removeItem('userContext');
+              window.location.href = '/';
+            } else {
+              window.location.href = '/pin';
+            }
           }
         }
 

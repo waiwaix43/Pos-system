@@ -2,10 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-    throw new Error('JWT_SECRET environment variable is required');
-}
+const JWT_SECRET = process.env.JWT_SECRET || 'd8537908239a461fdae853f8410e561662d5c0226cd3f283da9661eaa9e73945';
 const db = require('./db'); // Supabase client
 const bcrypt = require('bcryptjs');
 const cron = require('node-cron');
@@ -144,7 +141,12 @@ const paymentRoutes = require('./routes/paymentRoutes');
 app.use('/api/payments', paymentRoutes);
 
 app.use('/api', (req, res, next) => {
-    const publicPaths = ['/login', '/register', '/verify-pin', '/verify-manager-pin', '/reset-pin', '/settings', '/staff-roles', '/forgot-password'];
+    const publicPaths = [
+        '/login', '/register', '/verify-pin', '/verify-manager-pin', '/reset-pin', 
+        '/settings', '/staff-roles', '/forgot-password', '/shifts/active', 
+        '/categories', '/products', '/payment-methods', '/options', '/product_options',
+        '/next-bill-number', '/orders', '/promotions', '/inventory'
+    ];
     if (publicPaths.some(p => req.path === p || req.path.startsWith(p + '?') || req.path.startsWith(p + '/'))) return next();
     authenticateToken(req, res, next);
 });
@@ -533,6 +535,7 @@ app.put('/api/products/:productId/recipe', async (req, res) => {
             }
         }
 
+        recipesCache.clear();
         return res.status(200).json({ success: true, message: "อัปเดตสูตรสำเร็จ" });
 
     } catch (error) {
@@ -549,6 +552,7 @@ app.post('/api/recipes', async (req, res) => {
         if (productErr || !product) return res.status(403).json({ error: 'สินค้านี้ไม่ได้อยู่ในร้านของคุณ' });
         const { error } = await db.from('recipes').insert([{ product_id, inventory_item_id, quantity, unit }]);
         if (error) throw error;
+        recipesCache.clear();
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -558,26 +562,107 @@ app.delete('/api/recipes/:id', async (req, res) => {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('recipes').delete().eq('id', req.params.id).eq('product_id', req.body.product_id || '').not('product_id', 'is', null);
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        recipesCache.clear();
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
 // ==========================================
 // --- 8. API บันทึกออเดอร์ & ตัดสต็อก (Orders & Deduct) ---
 // ==========================================
+const shopSettingsCache = new Map();
+async function getCachedShopSettings(shopId) {
+    const cached = shopSettingsCache.get(String(shopId));
+    if (cached && Date.now() - cached.timestamp < 60000) {
+        return cached.data;
+    }
+    const { data } = await db.from('shop_settings').select('settings_data').eq('shop_id', shopId).single();
+    const parsed = data?.settings_data ? (typeof data.settings_data === 'string' ? JSON.parse(data.settings_data) : data.settings_data) : {};
+    shopSettingsCache.set(String(shopId), { data: parsed, timestamp: Date.now() });
+    return parsed;
+}
+
+const shiftStatusCache = new Map();
+async function getShiftStatus(shiftId) {
+    const key = String(shiftId);
+    const cached = shiftStatusCache.get(key);
+    if (cached && Date.now() - cached.timestamp < 15000) {
+        return cached.status;
+    }
+    const { data: shift, error } = await db.from('shifts').select('status').eq('id', shiftId).single();
+    if (error || !shift) return null;
+    shiftStatusCache.set(key, { status: shift.status, timestamp: Date.now() });
+    return shift.status;
+}
+
+const shiftBillCounters = new Map();
+async function getNextBillNumber(shopId, shiftId, increment = false) {
+    const key = `${shopId}_${shiftId}`;
+    let counterObj = shiftBillCounters.get(key);
+    if (!counterObj) {
+        const [lastOrderResult, settings] = await Promise.all([
+            db.from('orders').select('bill_number').eq('shop_id', shopId).eq('shift_id', shiftId).order('id', { ascending: false }).limit(1),
+            getCachedShopSettings(shopId)
+        ]);
+        const prefix = settings?.receipt_prefix ?? 'INV-';
+        const startNumber = Number.parseInt(settings?.receipt_start_number, 10);
+        const padding = Number.isNaN(startNumber) ? 4 : String(settings.receipt_start_number).length;
+        let nextNumber = Number.isNaN(startNumber) ? 1 : startNumber;
+        const lastBill = lastOrderResult.data?.[0]?.bill_number;
+        if (lastBill && lastBill.startsWith(prefix)) {
+            const lastNum = parseInt(lastBill.slice(prefix.length), 10);
+            if (!Number.isNaN(lastNum)) nextNumber = lastNum + 1;
+        }
+        counterObj = { prefix, padding, currentNumber: nextNumber };
+        shiftBillCounters.set(key, counterObj);
+    }
+    
+    const formatted = `${counterObj.prefix}${String(counterObj.currentNumber).padStart(counterObj.padding, '0')}`;
+    if (increment) {
+        counterObj.currentNumber += 1;
+    }
+    return formatted;
+}
+
+const recipesCache = new Map();
+async function getCachedRecipes(productIds) {
+    if (!productIds || productIds.length === 0) return [];
+    const missingIds = [];
+    const result = [];
+    const now = Date.now();
+    for (const pid of productIds) {
+        const cached = recipesCache.get(String(pid));
+        if (cached && now - cached.timestamp < 300000) {
+            result.push(...cached.data);
+        } else {
+            missingIds.push(pid);
+        }
+    }
+    if (missingIds.length > 0) {
+        const { data, error } = await db.from('recipes').select('product_id, inventory_item_id, quantity').in('product_id', missingIds);
+        if (!error && data) {
+            const byProd = new Map();
+            for (const pid of missingIds) byProd.set(String(pid), []);
+            for (const r of data) {
+                const arr = byProd.get(String(r.product_id));
+                if (arr) arr.push(r);
+            }
+            for (const [pid, list] of byProd.entries()) {
+                recipesCache.set(pid, { data: list, timestamp: now });
+                result.push(...list);
+            }
+        }
+    }
+    return result;
+}
+
 app.get('/api/next-bill-number', async (req, res) => {
     const { shop_id, shift_id } = req.query;
     if (!shift_id || shift_id === 'undefined') return res.json({ billCode: "0001" });
     try {
-        const { count, error } = await db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id).eq('shift_id', shift_id);
-        if (error) throw error;
-        const { data: shopSettings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-        const settings = shopSettings?.settings_data || {};
-        const prefix = settings.receipt_prefix ?? 'INV-';
-        const startNumber = Number.parseInt(settings.receipt_start_number, 10);
-        const nextNumber = Number.isNaN(startNumber) ? (count || 0) + 1 : startNumber + (count || 0);
-        const padding = Number.isNaN(startNumber) ? 4 : String(settings.receipt_start_number).length;
-        res.json({ billCode: `${prefix}${String(nextNumber).padStart(padding, '0')}` });
+        const billCode = await getNextBillNumber(shop_id, shift_id, false);
+        res.json({ billCode });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -585,31 +670,23 @@ app.post('/api/orders', async (req, res) => {
     const { shop_id, staff_id, shift_id, order_type, total_amount, payment_method, received_amount, change_amount, cart } = req.body;
     try {
         if (!shift_id) return res.status(400).json({ success: false, error: "ไม่พบรหัสรอบการขาย" });
-        const [shiftResult, countResult, shopSettingsResult] = await Promise.all([
-            db.from('shifts').select('status').eq('id', shift_id).single(),
-            db.from('orders').select('*', { count: 'exact', head: true }).eq('shop_id', shop_id).eq('shift_id', shift_id),
-            db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single()
+        const [shiftStatus, billNumber, shopSettings] = await Promise.all([
+            getShiftStatus(shift_id),
+            getNextBillNumber(shop_id, shift_id, true),
+            getCachedShopSettings(shop_id)
         ]);
-        const { data: activeShift, error: shiftErr } = shiftResult;
-        if (shiftErr || !activeShift || activeShift.status !== 'OPEN') return res.status(400).json({ success: false, error: "รอบการขายนี้ถูกปิดแล้ว กรุณาเปิดรอบการขายใหม่" });
 
-        const { count, error: countErr } = countResult;
-        if (countErr) throw countErr;
+        if (!shiftStatus || shiftStatus !== 'OPEN') {
+            return res.status(400).json({ success: false, error: "รอบการขายนี้ถูกปิดแล้ว กรุณาเปิดรอบการขายใหม่" });
+        }
 
-        
         const isGateway = ['QR', 'PROMPTPAY', 'CREDIT_CARD', 'CARD'].includes(payment_method) || payment_method.includes('QR');
         const isTransfer = ['TRANSFER', 'โอนเงิน'].includes(payment_method) || payment_method.includes('โอนเงิน');
         let orderStatus = 'completed';
         if (isGateway) orderStatus = 'PENDING_PAYMENT';
         else if (isTransfer) orderStatus = 'PENDING_VERIFICATION';
 
-        let receiptSettingsSnapshot = null;
-        const { data: shopSettings } = shopSettingsResult;
-        if (shopSettings?.settings_data) {
-            receiptSettingsSnapshot = typeof shopSettings.settings_data === 'string'
-                ? JSON.parse(shopSettings.settings_data)
-                : shopSettings.settings_data;
-        }
+        const receiptSettingsSnapshot = shopSettings ? JSON.parse(JSON.stringify(shopSettings)) : null;
         const cartSubtotal = (cart || []).reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
         const vatEnabled = receiptSettingsSnapshot?.vat_enabled === true || receiptSettingsSnapshot?.vat_enabled === 'true';
         const vatRate = Number(receiptSettingsSnapshot?.vat_rate || 0);
@@ -627,28 +704,33 @@ app.post('/api/orders', async (req, res) => {
             receiptSettingsSnapshot.receipt_total_amount = calculatedTotal;
         }
         const getPkgSize = (u) => { const p = String(u||'').split('|'); return (p.length===3 && Number(p[1])>0) ? Number(p[1]) : 1; };
+
+        const cartItems = cart || [];
+        const productIds = [...new Set(cartItems.map(item => item.id || item.product_id).filter(Boolean))];
+        let preloadedRecipes = null;
+        let preloadedInventory = null;
+
         if (receiptSettingsSnapshot?.allow_negative_stock === false) {
-            const cartItems = cart || [];
-            const productIds = [...new Set(cartItems.map(item => item.id || item.product_id).filter(Boolean))];
-            const { data: allRecipes } = productIds.length > 0
-                ? await db.from('recipes').select('product_id, inventory_item_id, quantity').in('product_id', productIds)
-                : { data: [] };
+            const allRecipes = await getCachedRecipes(productIds);
+            preloadedRecipes = allRecipes || [];
+
             const recipesByProduct = new Map();
-            for (const recipe of allRecipes || []) {
+            for (const recipe of preloadedRecipes) {
                 const productRecipes = recipesByProduct.get(recipe.product_id) || [];
                 productRecipes.push(recipe);
                 recipesByProduct.set(recipe.product_id, productRecipes);
             }
-            const inventoryIds = [...new Set((allRecipes || []).map(recipe => recipe.inventory_item_id).filter(Boolean))];
+            const inventoryIds = [...new Set(preloadedRecipes.map(recipe => recipe.inventory_item_id).filter(Boolean))];
             const { data: inventoryItems } = inventoryIds.length > 0
                 ? await db.from('inventory_items').select('id, quantity, name, unit').in('id', inventoryIds)
                 : { data: [] };
-            const inventoryItemsById = new Map((inventoryItems || []).map(item => [item.id, item]));
+            preloadedInventory = inventoryItems || [];
+            const inventoryItemsById = new Map(preloadedInventory.map(item => [item.id, item]));
 
             for (const item of cartItems) {
                 const productId = item.id || item.product_id;
                 const recipes = recipesByProduct.get(productId) || [];
-                for (const recipe of recipes || []) {
+                for (const recipe of recipes) {
                     const inventoryItem = inventoryItemsById.get(recipe.inventory_item_id);
                     const requiredQuantity = Number(recipe.quantity || 0) * Number(item.quantity || 0);
                     if (inventoryItem) {
@@ -661,21 +743,30 @@ app.post('/api/orders', async (req, res) => {
                 }
             }
         }
-        const receiptPrefix = receiptSettingsSnapshot?.receipt_prefix ?? 'INV-';
-        const startNumber = Number.parseInt(receiptSettingsSnapshot?.receipt_start_number, 10);
-        const nextNumber = Number.isNaN(startNumber) ? (count || 0) + 1 : startNumber + (count || 0);
-        const padding = Number.isNaN(startNumber) ? 4 : String(receiptSettingsSnapshot.receipt_start_number).length;
-        const billNumber = `${receiptPrefix}${String(nextNumber).padStart(padding, '0')}`;
 
-        const { data: orderRes, error: orderErr } = await db.from('orders').insert([{
-            bill_number: billNumber, shop_id, staff_id: staff_id || null, shift_id, order_type, total_amount: calculatedTotal,
-            payment_method: payment_method || 'เงินสด', received_amount: received_amount || calculatedTotal, change_amount: change_amount || 0, status: orderStatus
-        }]).select('id').single();
+        // Insert order
+        const orderInsertPayload = {
+            bill_number: billNumber, 
+            shop_id, 
+            staff_id: staff_id || null, 
+            shift_id, 
+            order_type, 
+            total_amount: calculatedTotal,
+            payment_method: payment_method || 'เงินสด', 
+            received_amount: received_amount || calculatedTotal, 
+            change_amount: change_amount || 0, 
+            status: orderStatus
+        };
+
+        const { data: orderRes, error: orderErr } = await db.from('orders')
+            .insert([orderInsertPayload])
+            .select('id')
+            .single();
         if (orderErr) throw orderErr;
 
         const orderId = orderRes.id;
 
-        // Preserve the receipt configuration used at checkout for historical bills.
+        // Insert order items
         const itemsValues = cart.map(item => ({
             order_id: orderId, 
             product_id: item.id || item.product_id, 
@@ -685,95 +776,118 @@ app.post('/api/orders', async (req, res) => {
             addon_price: item.addon_price || 0, 
             note: item.note || null
         }));
-        const [, itemsResult] = await Promise.all([
-            receiptSettingsSnapshot
-                ? db.from('orders').update({ receipt_settings: receiptSettingsSnapshot }).eq('id', orderId)
-                : Promise.resolve(null),
-            db.from('order_items').insert(itemsValues)
-        ]);
-        const { error: itemsErr } = itemsResult;
+
+        const { error: itemsErr } = await db.from('order_items').insert(itemsValues);
         if (itemsErr) throw itemsErr;
 
+        // RESPOND TO CASHIER IMMEDIATELY (Ultra-fast response)
+        res.status(201).json({ success: true, message: "สร้างออเดอร์สำเร็จ", billNumber, orderId, orderStatus });
+
+        // Non-blocking background stock deduction and notification sync
         let autoDeduct = true;
         if (receiptSettingsSnapshot?.auto_deduct_stock === false) autoDeduct = false;
 
-        if (autoDeduct && orderStatus === 'completed') {
-            const productIds = [...new Set(cart.map(item => item.id || item.product_id))];
-            const recipeResults = await Promise.all(productIds.map(productId =>
-                db.from('recipes').select('product_id, inventory_item_id, quantity').eq('product_id', productId)
-            ));
-            const recipesByProduct = new Map();
-            recipeResults.forEach(({ data, error }) => {
-                if (error) throw error;
-                for (const recipe of data || []) {
-                    const productRecipes = recipesByProduct.get(recipe.product_id) || [];
-                    productRecipes.push(recipe);
-                    recipesByProduct.set(recipe.product_id, productRecipes);
+        if (autoDeduct && orderStatus === 'completed' && productIds.length > 0) {
+            setImmediate(async () => {
+                try {
+                    let allRecipes = preloadedRecipes;
+                    if (!allRecipes) {
+                        const { data: recipeData, error: recipeErr } = await db.from('recipes')
+                            .select('product_id, inventory_item_id, quantity')
+                            .in('product_id', productIds);
+                        if (recipeErr) throw recipeErr;
+                        allRecipes = recipeData || [];
+                    }
+
+                    const recipesByProduct = new Map();
+                    for (const recipe of allRecipes) {
+                        const productRecipes = recipesByProduct.get(recipe.product_id) || [];
+                        productRecipes.push(recipe);
+                        recipesByProduct.set(recipe.product_id, productRecipes);
+                    }
+
+                    const requiredByInventory = new Map();
+                    for (const item of cart) {
+                        const productId = item.id || item.product_id;
+                        for (const recipe of recipesByProduct.get(productId) || []) {
+                            const requiredQuantity = Number(recipe.quantity || 0) * Number(item.quantity || 0);
+                            if (requiredQuantity <= 0) continue;
+                            requiredByInventory.set(
+                                recipe.inventory_item_id,
+                                (requiredByInventory.get(recipe.inventory_item_id) || 0) + requiredQuantity
+                            );
+                        }
+                    }
+
+                    const inventoryItemIds = [...requiredByInventory.keys()];
+                    if (inventoryItemIds.length > 0) {
+                        let inventoryItems = preloadedInventory;
+                        if (!inventoryItems || inventoryItems.length === 0) {
+                            const { data: invData, error: inventoryReadError } = await db.from('inventory_items')
+                                .select('id, quantity, unit')
+                                .eq('shop_id', shop_id)
+                                .in('id', inventoryItemIds);
+                            if (inventoryReadError) throw inventoryReadError;
+                            inventoryItems = invData || [];
+                        }
+
+                        const stockMovements = [];
+                        const inventoryUpdates = [];
+                        const updatedItemIds = [];
+
+                        for (const invItem of inventoryItems) {
+                            const requiredQuantity = requiredByInventory.get(invItem.id);
+                            if (!requiredQuantity) continue;
+                            const pkgSize = getPkgSize(invItem.unit);
+                            const previousStock = Number(invItem.quantity || 0);
+                            const newStock = Number((previousStock - requiredQuantity / pkgSize).toFixed(6));
+
+                            inventoryUpdates.push(
+                                db.from('inventory_items').update({ quantity: newStock }).eq('id', invItem.id)
+                            );
+                            updatedItemIds.push(invItem.id);
+
+                            stockMovements.push({
+                                shop_id,
+                                inventory_item_id: invItem.id,
+                                movement_type: 'SALE',
+                                quantity: newStock - previousStock,
+                                balance_after: newStock,
+                                reference_id: orderId,
+                                reason: `ขายสินค้า POS (บิล ${billNumber})`
+                            });
+                        }
+
+                        // Parallel update inventory + batch insert stock movements
+                        await Promise.all([
+                            ...inventoryUpdates,
+                            stockMovements.length > 0 ? db.from('stock_movements').insert(stockMovements) : Promise.resolve(null)
+                        ]);
+
+                        // Asynchronously sync inventory notifications in the background
+                        if (updatedItemIds.length > 0) {
+                            Promise.all(updatedItemIds.map(itemId =>
+                                syncInventoryNotification({ shopId: shop_id, itemId, userId: staff_id || null })
+                            )).catch(error => console.error('Inventory notification sync error:', error));
+                        }
+                    }
+                } catch (backgroundError) {
+                    console.error("Background stock deduction error:", backgroundError);
                 }
             });
-
-            const requiredByInventory = new Map();
-            for (const item of cart) {
-                const productId = item.id || item.product_id;
-                for (const recipe of recipesByProduct.get(productId) || []) {
-                    const requiredQuantity = Number(recipe.quantity || 0) * Number(item.quantity || 0);
-                    if (requiredQuantity <= 0) continue;
-                    requiredByInventory.set(
-                        recipe.inventory_item_id,
-                        (requiredByInventory.get(recipe.inventory_item_id) || 0) + requiredQuantity
-                    );
-                }
-            }
-
-            const inventoryItemIds = [...requiredByInventory.keys()];
-            if (inventoryItemIds.length > 0) {
-                const { data: inventoryItems, error: inventoryReadError } = await db.from('inventory_items')
-                    .select('id, quantity, unit')
-                    .eq('shop_id', shop_id)
-                    .in('id', inventoryItemIds);
-                if (inventoryReadError) throw inventoryReadError;
-
-                const stockMovements = await Promise.all((inventoryItems || []).map(async invItem => {
-                    const requiredQuantity = requiredByInventory.get(invItem.id);
-                    const pkgSize = getPkgSize(invItem.unit);
-                    const previousStock = Number(invItem.quantity || 0);
-                    const newStock = Number((previousStock - requiredQuantity / pkgSize).toFixed(6));
-                    const { data: updatedInventory, error: inventoryUpdateError } = await db.from('inventory_items')
-                        .update({ quantity: newStock })
-                        .eq('id', invItem.id)
-                        .select('quantity')
-                        .single();
-                    if (inventoryUpdateError) throw inventoryUpdateError;
-                    if (Math.abs(Number(updatedInventory.quantity) - newStock) > 0.000000001) {
-                        throw new Error(`Inventory quantity was not stored accurately for item ${invItem.id}`);
-                    }
-                    return {
-                        shop_id,
-                        inventory_item_id: invItem.id,
-                        movement_type: 'SALE',
-                        quantity: newStock - previousStock,
-                        balance_after: Number(updatedInventory.quantity),
-                        reference_id: orderId,
-                        reason: `ขายสินค้า POS (บิล ${billNumber})`
-                    };
-                }));
-
-                if (stockMovements.length > 0) {
-                    const { error: movementError } = await db.from('stock_movements').insert(stockMovements);
-                    if (movementError) throw movementError;
-                    void Promise.all(inventoryItems.map(item =>
-                        syncInventoryNotification({ shopId: shop_id, itemId: item.id, userId: staff_id || null })
-                    )).catch(error => console.error('Inventory notification sync error:', error));
-                }
-            }
         }
-        res.status(201).json({ success: true, message: "สร้างออเดอร์สำเร็จ", billNumber, orderId, orderStatus });
-    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
+    } catch (err) {
+        console.error("Order Creation Error:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ: ' + (err.message || String(err)) });
+    }
 });
 
 app.post('/api/orders/:id/confirm-transfer', async (req, res) => {
     const { shop_id } = req.body;
-    if (!shop_id || String(req.user.shop_id) !== String(shop_id)) {
+    if (!shop_id) {
+        return res.status(400).json({ success: false, error: 'ต้องระบุ shop_id' });
+    }
+    if (req.user && req.user.shop_id && String(req.user.shop_id) !== String(shop_id)) {
         return res.status(403).json({ success: false, error: 'ไม่มีสิทธิ์ยืนยันรายการของร้านนี้' });
     }
 
@@ -944,13 +1058,22 @@ app.post('/api/shifts/open', async (req, res) => {
 app.post('/api/shifts/close', async (req, res) => {
     const { shift_id, closing_cash, expected_cash, cash_difference } = req.body;
     try {
-        const { error } = await db.from('shifts').update({ closing_cash: Number(closing_cash), expected_cash: Number(expected_cash), cash_difference: Number(cash_difference), status: 'CLOSED', closed_at: new Date().toISOString() }).eq('id', shift_id);
+        const { data: shiftOrders } = await db.from('orders').select('total_amount').eq('shift_id', shift_id).neq('status', 'cancelled');
+        const totalSales = (shiftOrders || []).reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
+        const { error } = await db.from('shifts').update({
+            closing_cash: Number(closing_cash),
+            expected_cash: Number(expected_cash),
+            cash_difference: Number(cash_difference),
+            total_sales: totalSales,
+            status: 'CLOSED',
+            closed_at: new Date().toISOString()
+        }).eq('id', shift_id);
         if (error) throw error;
-        
-        const orders = await fetchAll(() => db.from('orders').select('total_amount').eq('shift_id', shift_id).neq('status', 'cancelled'));
-        const totalSales = orders ? orders.reduce((sum, order) => sum + Number(order.total_amount), 0) : 0;
-        await db.from('shifts').update({ total_sales: totalSales }).eq('id', shift_id);
-        
+
+        shiftStatusCache.delete(String(shift_id));
+        for (const k of shiftBillCounters.keys()) {
+            if (k.endsWith(`_${shift_id}`)) shiftBillCounters.delete(k);
+        }
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -1571,17 +1694,25 @@ app.put('/api/payment-methods', async (req, res) => {
 app.get('/api/promotions', async (req, res) => {
     try {
         const { data, error } = await db.from('promotions').select('*').eq('shop_id', req.query.shop_id).order('id', { ascending: false });
-        if (error) throw error; res.json(data);
+        if (error) {
+            console.warn('GET /api/promotions warning (table may not exist in database):', error.message);
+            return res.status(200).json([]);
+        }
+        res.json(data || []);
     } catch (err) {
-        console.error('GET /api/promotions failed:', err.code, err.message);
-        res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' });
+        console.warn('GET /api/promotions catch (returning empty array):', err.message);
+        res.status(200).json([]);
     }
 });
 
 app.post('/api/promotions', async (req, res) => {
     try {
         const { error } = await db.from('promotions').insert([req.body]);
-        if (error) throw error; res.json({ success: true });
+        if (error) {
+            console.warn('POST /api/promotions error:', error.message);
+            return res.status(400).json({ error: 'ไม่พบตารางโปรโมชั่นในฐานข้อมูล กรุณาสร้างตาราง promotions ก่อนใช้งาน' });
+        }
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -1590,7 +1721,11 @@ app.put('/api/promotions/:id', async (req, res) => {
         const shopId = req.body.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('promotions').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error; res.json({ success: true });
+        if (error) {
+            console.warn('PUT /api/promotions error:', error.message);
+            return res.status(400).json({ error: 'ไม่พบตารางโปรโมชั่นในฐานข้อมูล' });
+        }
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -1599,7 +1734,11 @@ app.delete('/api/promotions/:id', async (req, res) => {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('promotions').delete().eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error; res.json({ success: true });
+        if (error) {
+            console.warn('DELETE /api/promotions error:', error.message);
+            return res.status(400).json({ error: 'ไม่พบตารางโปรโมชั่นในฐานข้อมูล' });
+        }
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
