@@ -1355,10 +1355,10 @@ export default function InventoryPage() {
  <div className="font-bold text-gray-800">{getMovementLabel(mov.reason, mov.movement_type)}</div>
  </td>
  <td className={`px-4 py-3 text-[14px] font-black text-right ${mov.quantity < 0 ? 'text-red-500' : 'text-green-600'}`}>
- {mov.quantity > 0 ? '+' : ''}{mov.quantity}
+ {mov.quantity > 0 ? '+' : ''}{Number(Number(mov.quantity || 0).toFixed(6))}
  </td>
  <td className="px-4 py-3 text-[14px] font-bold text-gray-600 text-right">
- {mov.balance_after}
+ {Number(Number(mov.balance_after || 0).toFixed(6))}
  </td>
  </tr>
  ))

@@ -291,7 +291,7 @@ async function completeOrder(order, receivedAmount, expectedStatus) {
                     shop_id: order.shop_id,
                     inventory_item_id: invItem.id,
                     movement_type: 'SALE',
-                    quantity: newQty - previousQty,
+                    quantity: Number((newQty - previousQty).toFixed(6)),
                     balance_after: newQty,
                     reason: `ขายสินค้า POS (บิล ${order.bill_number})`,
                     reference_id: order.id

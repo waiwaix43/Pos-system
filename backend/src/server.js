@@ -851,7 +851,7 @@ app.post('/api/orders', async (req, res) => {
                                 shop_id,
                                 inventory_item_id: invItem.id,
                                 movement_type: 'SALE',
-                                quantity: newStock - previousStock,
+                                quantity: Number((newStock - previousStock).toFixed(6)),
                                 balance_after: newStock,
                                 reference_id: orderId,
                                 reason: `ขายสินค้า POS (บิล ${billNumber})`
@@ -991,8 +991,8 @@ app.post('/api/orders/:id/void', async (req, res) => {
                         if (invItem) {
                             const getPkgSize = (u) => { const p = String(u||'').split('|'); return (p.length===3 && Number(p[1])>0) ? Number(p[1]) : 1; };
                             const pkgSize = getPkgSize(invItem.unit);
-                            const returnStorageUnit = totalReturn / pkgSize;
-                            const newStock = Number(invItem.quantity) + returnStorageUnit;
+                            const returnStorageUnit = Number((totalReturn / pkgSize).toFixed(6));
+                            const newStock = Number((Number(invItem.quantity) + returnStorageUnit).toFixed(6));
                             await db.from('inventory_items').update({ quantity: newStock }).eq('id', recipe.inventory_item_id);
                             
                             await db.from('stock_movements').insert([{
@@ -1442,7 +1442,7 @@ app.post('/api/inventory/adjust', async (req, res) => {
         if (expected_quantity !== undefined && Math.abs(Number(expected_quantity) - previousQuantity) > 0.001) {
             return res.status(409).json({ error: 'สต็อกถูกเปลี่ยนแปลงแล้ว ข้อมูลล่าสุดถูกอัปเดตแล้ว', current_stock: previousQuantity });
         }
-        const newQty = previousQuantity + amount;
+        const newQty = Number((previousQuantity + amount).toFixed(6));
         if (newQty < 0) return res.status(400).json({ error: 'จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้' });
         const { data: updatedItem, error: updateErr } = await db.from('inventory_items')
             .update({ quantity: newQty })
@@ -1465,7 +1465,7 @@ app.post('/api/inventory/adjust', async (req, res) => {
             });
         }
 
-        const payload = { shop_id, inventory_item_id: item_id, movement_type: amount > 0 ? 'STOCK_IN' : 'STOCK_OUT', quantity: Math.abs(amount), balance_after: newQty, reason: (reason || 'ปรับ Stock') + (note ? ` - ${note}` : ''), created_by: user_id || null };
+        const payload = { shop_id, inventory_item_id: item_id, movement_type: amount > 0 ? 'STOCK_IN' : 'STOCK_OUT', quantity: Number(Math.abs(amount).toFixed(6)), balance_after: newQty, reason: (reason || 'ปรับ Stock') + (note ? ` - ${note}` : ''), created_by: user_id || null };
         console.log('Debug payload:', payload);
         const { data: movement, error: moveErr } = await db.from('stock_movements').insert([payload]).select('*').single();
         if (moveErr) {
@@ -1531,7 +1531,13 @@ app.get('/api/stock-movements', async (req, res) => {
         let query = db.from('stock_movements').select('*').eq('shop_id', shop_id).order('created_at', { ascending: false }).limit(limit);
         if (item_id) query = query.eq('inventory_item_id', item_id);
         const { data, error } = await query;
-        if (error) throw error; res.json(data);
+        if (error) throw error;
+        const normalized = (data || []).map(row => ({
+            ...row,
+            quantity: Number(Number(row.quantity || 0).toFixed(6)),
+            balance_after: Number(Number(row.balance_after || 0).toFixed(6))
+        }));
+        res.json(normalized);
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 

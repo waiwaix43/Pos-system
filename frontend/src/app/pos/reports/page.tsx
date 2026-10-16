@@ -1005,30 +1005,30 @@ export default function ReportsDashboardPage() {
   };
 
   return (
- <div className="flex h-screen flex-col overflow-hidden bg-[#d6d6d6] font-sans print:h-auto print:overflow-visible print:bg-white md:flex-row">
+ <div className="flex h-screen bg-[#d6d6d6] font-sans overflow-hidden print:h-auto print:overflow-visible print:bg-white">
 
  {/* 🌟 Main Sidebar (ห้ามเปลี่ยน) 🌟 */}
- <div className="z-20 flex max-h-[34vh] w-full shrink-0 flex-col justify-between overflow-y-auto bg-[#4d4d4d] text-white shadow-lg print:hidden md:max-h-none md:w-[240px]">
+ <div className="w-[240px] bg-[#4d4d4d] text-white flex flex-col justify-between shrink-0 shadow-lg z-20 print:hidden">
  <div>
- <div className="flex h-[54px] items-center justify-center gap-3 md:h-[90px] md:translate-x-3">
+ <div className="h-[90px] flex items-center justify-center gap-3 translate-x-3">
  <h1 className="text-[36px] font-black italic tracking-widest text-white">POS</h1>
  <NotificationBell />
  </div>
- <nav className="sidebar-menu grid grid-cols-2 text-[12px] md:flex md:flex-col md:text-[16px] border-y border-[#666666]">
- <button onClick={() => router.push('/pos')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">สั่งและชำระเงิน</button>
- <button onClick={() => router.push('/pos/history')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">ประวัติใบเสร็จ</button>
- <button onClick={() => router.push('/pos/inventory')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">สินค้าคงคลัง</button>
- <button onClick={() => router.push('/pos/shifts')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">รอบการขาย</button>
+ <nav className="sidebar-menu flex flex-col text-[16px] border-y border-[#666666]">
+ <button onClick={() => router.push('/pos')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สั่งและชำระเงิน</button>
+ <button onClick={() => router.push('/pos/history')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">ประวัติใบเสร็จ</button>
+ <button onClick={() => router.push('/pos/inventory')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สินค้าคงคลัง</button>
+ <button onClick={() => router.push('/pos/shifts')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">รอบการขาย</button>
  {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
- <button onClick={() => router.push('/pos/menu')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">เมนูและโปรโมชั่น</button>
+ <button onClick={() => router.push('/pos/menu')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">เมนูและโปรโมชั่น</button>
  )}
  {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
- <button className="border-b border-[#666666] border-l-4 border-l-white bg-[#666666] px-3 py-2 text-left font-medium transition-colors md:px-6 md:py-5">รายงาน</button>
+ <button className="py-5 px-6 text-left font-medium border-b border-[#666666] transition-colors bg-[#666666] border-l-4 border-l-white">รายงาน</button>
  )}
  {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
- <button onClick={() => router.push('/pos/employees')} className="border-b border-[#666666] px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">พนักงาน</button>
+ <button onClick={() => router.push('/pos/employees')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">พนักงาน</button>
  )}
- <button onClick={() => router.push('/pos/settings')} className=" px-3 py-2 text-left text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-5">การตั้งค่า</button>
+ <button onClick={() => router.push('/pos/settings')} className="py-5 px-6 text-left text-gray-300 hover:bg-[#666666] transition-colors">การตั้งค่า</button>
  </nav>
  </div>
  <button onClick={() => {
@@ -1038,7 +1038,7 @@ export default function ReportsDashboardPage() {
  } else {
  router.push('/pin');
  }
- }} className="border-t border-[#666666] px-3 py-2 text-left text-[12px] text-gray-300 transition-colors hover:bg-[#666666] md:px-6 md:py-6 md:text-[16px]">
+ }} className="py-6 px-6 text-left text-gray-300 border-t border-[#666666] hover:bg-[#666666] transition-colors text-[16px]">
  {user?.pin_enabled === false ? 'ออกจากระบบ' : 'กลับสู่หน้า PIN'}
  </button>
  </div>
