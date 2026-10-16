@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Bell, Check, CircleAlert, Info, PackageX, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Bell, Calendar, Check, CircleAlert, Info, PackageX, RefreshCw, X } from "lucide-react";
 
 interface NotificationItem {
   id: number;
@@ -26,6 +26,8 @@ const relativeTime = (value: string) => {
 
 const iconFor = (item: NotificationItem) => {
   if (item.type === "STOCK_OUT") return <PackageX className="h-5 w-5" />;
+  if (item.type === "STOCK_EXPIRED") return <CircleAlert className="h-5 w-5" />;
+  if (item.type === "STOCK_EXPIRING") return <Calendar className="h-5 w-5" />;
   if (item.priority === "CRITICAL") return <CircleAlert className="h-5 w-5" />;
   if (item.priority === "WARNING") return <AlertTriangle className="h-5 w-5" />;
   return <Info className="h-5 w-5" />;

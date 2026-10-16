@@ -6,7 +6,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'd8537908239a461fdae853f8410e561662
 const db = require('./db'); // Supabase client
 const bcrypt = require('bcryptjs');
 const cron = require('node-cron');
-const { syncInventoryNotification, createNotification } = require('./notificationService');
+const { syncInventoryNotification, createNotification, encodeInventoryExpiry, decodeInventoryExpiry, addInventoryExpiryBatch, deductInventoryExpiryBatch, formatThaiDate } = require('./notificationService');
 
 const app = express();
 app.use(cors());
@@ -1182,7 +1182,35 @@ const encodeInventoryUnit = (unit, packageSize, packageUnit) => {
 
 const presentInventoryItem = (item) => {
     const unitInfo = decodeInventoryUnit(item.unit);
-    return { ...item, unit: unitInfo.unit, package_size: unitInfo.package_size, package_unit: unitInfo.package_unit, total_pieces: Number(item.quantity || 0) * unitInfo.package_size, cost_per_piece: unitInfo.package_size > 0 ? Number(item.cost || 0) / unitInfo.package_size : 0 };
+    const expiryInfo = decodeInventoryExpiry(item);
+    return {
+        ...item,
+        unit: unitInfo.unit,
+        package_size: unitInfo.package_size,
+        package_unit: unitInfo.package_unit,
+        total_pieces: Number(item.quantity || 0) * unitInfo.package_size,
+        cost_per_piece: unitInfo.package_size > 0 ? Number(item.cost || 0) / unitInfo.package_size : 0,
+        mfg_date: expiryInfo.mfg_date,
+        exp_date: expiryInfo.exp_date,
+        no_expiry: expiryInfo.no_expiry,
+        expiry_alert_days: expiryInfo.expiry_alert_days,
+        expiry_status: expiryInfo.expiry_status,
+        days_until_expiry: expiryInfo.days_until_expiry,
+        expiry_batches: expiryInfo.expiry_batches || []
+    };
+};
+
+const formatStockInDateSuffix = ({ mfg_date, exp_date, no_expiry }) => {
+    const parts = [];
+    if (mfg_date && String(mfg_date).trim()) {
+        parts.push(`วันผลิต: ${formatThaiDate(mfg_date)}`);
+    }
+    if (no_expiry) {
+        parts.push('ไม่มีวันหมดอายุ');
+    } else if (exp_date && String(exp_date).trim()) {
+        parts.push(`วันหมดอายุ: ${formatThaiDate(exp_date)}`);
+    }
+    return parts.length > 0 ? ` (${parts.join(' | ')})` : '';
 };
 
 app.get('/api/inventory/categories', async (req, res) => {
@@ -1311,7 +1339,7 @@ app.get('/api/inventory/items', async (req, res) => {
         const columns = images_only === 'true'
             ? 'id, image_url'
             : include_images === 'false'
-                ? 'id, shop_id, category_id, name, quantity, unit, min_threshold, sku, cost, type, status, inventory_categories(name)'
+                ? 'id, shop_id, category_id, name, quantity, unit, min_threshold, sku, barcode, cost, type, status, inventory_categories(name)'
                 : '*, inventory_categories(name)';
         let query = db.from('inventory_items').select(columns).eq('shop_id', shop_id).order('id', { ascending: true });
         if (category_id && category_id !== 'all') query = query.eq('category_id', category_id);
@@ -1324,11 +1352,23 @@ app.get('/api/inventory/items', async (req, res) => {
 });
 
 app.post('/api/inventory/items', async (req, res) => {
-    const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
+    const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, cost, type, status, mfg_date, exp_date, no_expiry, expiry_alert_days, expiry_batches } = req.body;
     try {
         if (!shop_id || !name) return res.status(400).json({ error: "กรุณาระบุร้านค้าและชื่อรายการ" });
         const normalizedType = String(type || 'raw_material');
         if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหลักไม่ถูกต้อง' });
+
+        const isNoExpiry = Boolean(no_expiry);
+        if (!isNoExpiry && mfg_date && exp_date && String(exp_date).slice(0, 10) < String(mfg_date).slice(0, 10)) {
+            return res.status(400).json({ error: 'วันหมดอายุต้องไม่น้อยกว่าวันผลิต' });
+        }
+        if (!isNoExpiry && Array.isArray(expiry_batches)) {
+            for (const b of expiry_batches) {
+                if (b && !b.no_expiry && b.mfg_date && b.exp_date && String(b.exp_date).slice(0, 10) < String(b.mfg_date).slice(0, 10)) {
+                    return res.status(400).json({ error: 'วันหมดอายุของแต่ละล็อตต้องไม่น้อยกว่าวันผลิต' });
+                }
+            }
+        }
 
         let category = null;
         if (category_id) {
@@ -1344,26 +1384,47 @@ app.post('/api/inventory/items', async (req, res) => {
             if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'หมวดย่อยต้องเป็นประเภทเดียวกับประเภทหลักที่เลือก' });
         }
 
-        if (sku && String(sku).trim()) {
-            const { data: skuMatch, error: skuError } = await db.from('inventory_items').select('id').eq('shop_id', shop_id).eq('sku', String(sku).trim()).maybeSingle();
-            if (skuError) throw skuError;
-            if (skuMatch) return res.status(400).json({ error: 'SKU นี้ถูกใช้แล้วในร้านนี้' });
-        }
-
         const { data: shop, error: shopError } = await db.from('shops').select('id').eq('id', shop_id).maybeSingle();
         if (shopError) throw shopError;
         if (!shop) return res.status(400).json({ error: "ไม่พบร้านค้านี้ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่" });
 
-        const { data: createdItem, error } = await db.from('inventory_items').insert([{
-            shop_id, category_id: category_id || null, name, quantity: quantity || 0, unit: encodeInventoryUnit(unit, package_size, package_unit), min_threshold: min_threshold || 0,
-            image_url: image_url || null, sku: sku || null, cost: cost || 0, type: normalizedType, status: status || 'active'
-        }]).select('id, quantity').single();
-        if (error) throw error;
         const initialQuantity = Number(quantity || 0);
+        const encodedExpiry = encodeInventoryExpiry({
+            mfg_date,
+            exp_date,
+            no_expiry: isNoExpiry,
+            expiry_alert_days,
+            batches: expiry_batches,
+            total_quantity: initialQuantity
+        });
+
+        const { data: createdItem, error } = await db.from('inventory_items').insert([{
+            shop_id,
+            category_id: category_id || null,
+            name,
+            quantity: initialQuantity,
+            unit: encodeInventoryUnit(unit, package_size, package_unit),
+            min_threshold: min_threshold || 0,
+            image_url: image_url || null,
+            sku: null,
+            barcode: encodedExpiry,
+            cost: cost || 0,
+            type: normalizedType,
+            status: status || 'active'
+        }]).select('id, quantity, barcode').single();
+        if (error) throw error;
         if (createdItem && initialQuantity !== 0) {
+            const decodedCreated = decodeInventoryExpiry(createdItem);
+            const dateSuffix = decodedCreated.expiry_batches && decodedCreated.expiry_batches.length > 1
+                ? ` (${decodedCreated.expiry_batches.length} ล็อตวันหมดอายุ)`
+                : formatStockInDateSuffix({ mfg_date: decodedCreated.mfg_date || mfg_date, exp_date: decodedCreated.exp_date || exp_date, no_expiry: isNoExpiry });
             const { error: movementError } = await db.from('stock_movements').insert([{
-                shop_id, inventory_item_id: createdItem.id, movement_type: 'INITIAL_STOCK',
-                quantity: initialQuantity, balance_after: initialQuantity, reason: 'เพิ่มเข้าคลัง'
+                shop_id,
+                inventory_item_id: createdItem.id,
+                movement_type: 'INITIAL_STOCK',
+                quantity: initialQuantity,
+                balance_after: initialQuantity,
+                reason: `เพิ่มเข้าคลัง${dateSuffix}`
             }]);
             if (movementError) throw movementError;
         }
@@ -1376,10 +1437,22 @@ app.post('/api/inventory/items', async (req, res) => {
 
 app.put('/api/inventory/items/:id', async (req, res) => {
     try {
-        const { shop_id, category_id, name, quantity, unit, package_size, package_unit, min_threshold, image_url, sku, cost, type, status } = req.body;
+        const { shop_id, category_id, name, unit, package_size, package_unit, min_threshold, image_url, cost, type, status, mfg_date, exp_date, no_expiry, expiry_alert_days, expiry_batches } = req.body;
         if (!shop_id) return res.status(400).json({ error: 'กรุณาระบุร้านค้า' });
         const normalizedType = String(type || 'raw_material');
         if (!['raw_material', 'packaging'].includes(normalizedType)) return res.status(400).json({ error: 'ประเภทหลักไม่ถูกต้อง' });
+
+        const isNoExpiry = Boolean(no_expiry);
+        if (!isNoExpiry && mfg_date && exp_date && String(exp_date).slice(0, 10) < String(mfg_date).slice(0, 10)) {
+            return res.status(400).json({ error: 'วันหมดอายุต้องไม่น้อยกว่าวันผลิต' });
+        }
+        if (!isNoExpiry && Array.isArray(expiry_batches)) {
+            for (const b of expiry_batches) {
+                if (b && !b.no_expiry && b.mfg_date && b.exp_date && String(b.exp_date).slice(0, 10) < String(b.mfg_date).slice(0, 10)) {
+                    return res.status(400).json({ error: 'วันหมดอายุของแต่ละล็อตต้องไม่น้อยกว่าวันผลิต' });
+                }
+            }
+        }
 
         let category = null;
         if (category_id) {
@@ -1395,21 +1468,29 @@ app.put('/api/inventory/items/:id', async (req, res) => {
             if (category && category.type && String(category.type || 'raw_material') !== normalizedType) return res.status(400).json({ error: 'หมวดย่อยต้องเป็นประเภทเดียวกับประเภทหลักที่เลือก' });
         }
 
-        if (sku && String(sku).trim()) {
-            const { data: skuMatch, error: skuError } = await db.from('inventory_items').select('id').eq('shop_id', shop_id).eq('sku', String(sku).trim()).neq('id', req.params.id).maybeSingle();
-            if (skuError) throw skuError;
-            if (skuMatch) return res.status(400).json({ error: 'SKU นี้ถูกใช้แล้วในร้านนี้' });
-        }
-
-        const { data: existingItem, error: existingError } = await db.from('inventory_items').select('shop_id, quantity').eq('id', req.params.id).eq('shop_id', shop_id).single();
+        const { data: existingItem, error: existingError } = await db.from('inventory_items').select('shop_id, quantity, barcode').eq('id', req.params.id).eq('shop_id', shop_id).single();
         if (existingError || !existingItem) return res.status(403).json({ error: 'ไม่พบรายการนี้ในร้านของคุณ' });
+
+        const currentDecoded = decodeInventoryExpiry(existingItem);
+        const batchesToSave = Array.isArray(expiry_batches)
+            ? expiry_batches
+            : currentDecoded.expiry_batches;
+
+        const encodedExpiry = encodeInventoryExpiry({
+            mfg_date,
+            exp_date,
+            no_expiry: isNoExpiry,
+            expiry_alert_days,
+            batches: batchesToSave,
+            total_quantity: existingItem.quantity
+        });
         const updates = {
             category_id: category_id || null,
             name,
             unit: encodeInventoryUnit(unit, package_size, package_unit),
             min_threshold: min_threshold ?? 0,
             image_url: image_url || null,
-            sku: sku || null,
+            barcode: encodedExpiry,
             cost: cost ?? 0,
             type: normalizedType,
             status: status || 'active'
@@ -1432,11 +1513,16 @@ app.delete('/api/inventory/items/:id', async (req, res) => {
 });
 
 app.post('/api/inventory/adjust', async (req, res) => {
-    const { shop_id, item_id, user_id, adjust_qty, reason, note, expected_quantity } = req.body;
+    const { shop_id, item_id, user_id, adjust_qty, reason, note, expected_quantity, mfg_date, exp_date, no_expiry, batch_id } = req.body;
     try {
         const amount = Number(adjust_qty);
         if (!shop_id || !item_id || !Number.isFinite(amount) || amount === 0) return res.status(400).json({ error: 'กรุณาระบุจำนวนที่ถูกต้อง' });
-        const { data: item, error: itemErr } = await db.from('inventory_items').select('quantity, shop_id, name, unit').eq('id', item_id).eq('shop_id', shop_id).single();
+
+        if (amount > 0 && !no_expiry && mfg_date && exp_date && String(exp_date).slice(0, 10) < String(mfg_date).slice(0, 10)) {
+            return res.status(400).json({ error: 'วันหมดอายุต้องไม่น้อยกว่าวันผลิต' });
+        }
+
+        const { data: item, error: itemErr } = await db.from('inventory_items').select('quantity, shop_id, name, unit, barcode').eq('id', item_id).eq('shop_id', shop_id).single();
         if (itemErr || !item) throw new Error("ไม่พบวัตถุดิบในระบบ");
         const previousQuantity = Number(item.quantity || 0);
         if (expected_quantity !== undefined && Math.abs(Number(expected_quantity) - previousQuantity) > 0.001) {
@@ -1444,12 +1530,43 @@ app.post('/api/inventory/adjust', async (req, res) => {
         }
         const newQty = Number((previousQuantity + amount).toFixed(6));
         if (newQty < 0) return res.status(400).json({ error: 'จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้' });
+
+        let nextBarcode = item.barcode;
+        let dateSuffix = '';
+
+        if (amount > 0) {
+            const hasBatchDates = Boolean(no_expiry) || (mfg_date && String(mfg_date).trim()) || (exp_date && String(exp_date).trim());
+            if (hasBatchDates) {
+                nextBarcode = addInventoryExpiryBatch(item, {
+                    quantity: amount,
+                    mfg_date: mfg_date || null,
+                    exp_date: no_expiry ? null : (exp_date || null),
+                    no_expiry: Boolean(no_expiry)
+                });
+                dateSuffix = formatStockInDateSuffix({
+                    mfg_date: mfg_date || null,
+                    exp_date: no_expiry ? null : (exp_date || null),
+                    no_expiry: Boolean(no_expiry)
+                });
+            }
+        } else if (amount < 0) {
+            nextBarcode = deductInventoryExpiryBatch(item, {
+                deduct_qty: Math.abs(amount),
+                batch_id: batch_id || null,
+                new_total_quantity: newQty
+            });
+        }
+
+        const updatePayload = nextBarcode !== item.barcode
+            ? { quantity: newQty, barcode: nextBarcode }
+            : { quantity: newQty };
+
         const { data: updatedItem, error: updateErr } = await db.from('inventory_items')
-            .update({ quantity: newQty })
+            .update(updatePayload)
             .eq('id', item_id)
             .eq('shop_id', shop_id)
             .eq('quantity', previousQuantity)
-            .select('quantity')
+            .select('quantity, barcode')
             .maybeSingle();
         if (updateErr) throw updateErr;
         if (!updatedItem) {
@@ -1465,8 +1582,15 @@ app.post('/api/inventory/adjust', async (req, res) => {
             });
         }
 
-        const payload = { shop_id, inventory_item_id: item_id, movement_type: amount > 0 ? 'STOCK_IN' : 'STOCK_OUT', quantity: Number(Math.abs(amount).toFixed(6)), balance_after: newQty, reason: (reason || 'ปรับ Stock') + (note ? ` - ${note}` : ''), created_by: user_id || null };
-        console.log('Debug payload:', payload);
+        const payload = {
+            shop_id,
+            inventory_item_id: item_id,
+            movement_type: amount > 0 ? 'STOCK_IN' : 'STOCK_OUT',
+            quantity: Number(Math.abs(amount).toFixed(6)),
+            balance_after: newQty,
+            reason: (reason || 'ปรับ Stock') + dateSuffix + (note ? ` - ${note}` : ''),
+            created_by: user_id || null
+        };
         const { data: movement, error: moveErr } = await db.from('stock_movements').insert([payload]).select('*').single();
         if (moveErr) {
             console.error('Inventory quantity updated but stock movement could not be recorded:', moveErr);
@@ -1485,7 +1609,7 @@ app.post('/api/inventory/adjust', async (req, res) => {
                 type: 'STOCK_ADJUST',
                 priority: 'INFO',
                 title: 'ปรับสต็อก',
-                message: `ปรับสต็อก ${item.name} (${amount > 0 ? '+' : ''}${amount})`,
+                message: `ปรับสต็อก ${item.name} (${amount > 0 ? '+' : ''}${amount})${dateSuffix}`,
                 entityType: 'inventory_item',
                 entityId: item_id,
                 metadata: { eventState: movement.id },
@@ -1498,11 +1622,14 @@ app.post('/api/inventory/adjust', async (req, res) => {
         if (adjustmentNotificationResult.status === 'rejected') {
             console.error('Inventory adjustment saved, but adjustment notification failed:', adjustmentNotificationResult.reason);
         }
+
+        const updatedExpiryInfo = decodeInventoryExpiry({ barcode: updatedItem.barcode, quantity: updatedItem.quantity });
         res.json({
             success: true,
             message: "ปรับสต็อกสำเร็จ",
             new_stock: updatedItem.quantity,
             movement,
+            expiry_info: updatedExpiryInfo,
             notification_status: {
                 stock_alert: stockNotificationResult.status === 'fulfilled' ? 'ok' : 'failed',
                 stock_adjust: adjustmentNotificationResult.status === 'rejected'
@@ -1521,7 +1648,8 @@ app.get('/api/inventory/:id', async (req, res) => {
         const shopId = req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'กรุณาระบุร้านค้า' });
         const { data, error } = await db.from('inventory_items').select('*').eq('id', req.params.id).eq('shop_id', shopId).single();
-        if (error) throw error; res.json({ ...presentInventoryItem(data), stock: data.quantity, minStock: data.min_threshold || 10, sku: data.sku || `SKU-${data.id}`, movements: [] });
+        if (error) throw error;
+        res.json({ ...presentInventoryItem(data), stock: data.quantity, minStock: data.min_threshold || 10, movements: [] });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -2550,12 +2678,12 @@ app.get('/api/notifications', async (req, res) => {
             inventoryNotificationSyncAt.set(shopId, Date.now());
             try {
                 const [inventoryResult, activeAlertsResult] = await Promise.all([
-                    db.from('inventory_items').select('id, quantity, min_threshold').eq('shop_id', shopId),
+                    db.from('inventory_items').select('id, quantity, min_threshold, barcode, status').eq('shop_id', shopId),
                     db.from('notifications').select('entity_id')
                         .eq('shop_id', shopId)
                         .eq('entity_type', 'inventory_item')
                         .eq('is_active', true)
-                        .in('type', ['STOCK_LOW', 'STOCK_OUT'])
+                        .in('type', ['STOCK_LOW', 'STOCK_OUT', 'STOCK_EXPIRING', 'STOCK_EXPIRED'])
                 ]);
                 if (inventoryResult.error) throw inventoryResult.error;
                 if (activeAlertsResult.error) throw activeAlertsResult.error;
@@ -2564,7 +2692,10 @@ app.get('/api/notifications', async (req, res) => {
                 const itemsToSync = (inventoryResult.data || []).filter((item) => {
                     const quantity = Number(item.quantity || 0);
                     const minimum = Number(item.min_threshold || 0);
-                    return quantity <= 0 || (minimum > 0 && quantity <= minimum) || activeAlertItemIds.has(String(item.id));
+                    const expiryInfo = decodeInventoryExpiry(item);
+                    const hasExpiryAlert = quantity > 0 && item.status !== 'inactive' && !expiryInfo.no_expiry &&
+                        (expiryInfo.expiry_status === 'EXPIRED' || expiryInfo.expiry_status === 'EXPIRES_TODAY' || expiryInfo.expiry_status === 'EXPIRING_SOON');
+                    return quantity <= 0 || (minimum > 0 && quantity <= minimum) || hasExpiryAlert || activeAlertItemIds.has(String(item.id));
                 });
 
                 await Promise.all(itemsToSync.map((item) =>
