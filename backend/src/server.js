@@ -2111,11 +2111,19 @@ app.get('/api/reports/inventory', async (req, res) => {
         const outOfStock = inv.filter(i => Number(i.quantity) <= 0).length;
         const lowStock = inv.filter(i => Number(i.quantity) > 0 && Number(i.quantity) <= Number(i.min_threshold)).length;
 
-        const table = inv.filter(i => Number(i.quantity) <= Number(i.min_threshold)).map(i => ({
-            id: i.id,
-            "ชื่อวัตถุดิบ": i.name, "คงเหลือ": `${i.quantity}${i.unit}`, "ขั้นต่ำ": `${i.min_threshold}${i.unit}`,
-            "สถานะ": Number(i.quantity) <= 0 ? "หมด" : "ต่ำ"
-        }));
+        const table = inv.filter(i => Number(i.quantity) <= Number(i.min_threshold)).map(i => {
+            const decoded = decodeInventoryUnit(i.unit);
+            const unitName = decoded.unit || i.unit || '';
+            const qtyFormatted = Number(Number(i.quantity || 0).toFixed(2));
+            const minFormatted = Number(Number(i.min_threshold || 0).toFixed(2));
+            return {
+                id: i.id,
+                "ชื่อวัตถุดิบ": i.name,
+                "คงเหลือ": `${qtyFormatted} ${unitName}`,
+                "ขั้นต่ำ": `${minFormatted} ${unitName}`,
+                "สถานะ": Number(i.quantity) <= 0 ? "หมด" : "ต่ำ"
+            };
+        });
 
         res.json({ totalItems: inv.length, outOfStock, lowStock, asOf: new Date().toISOString(), table });
     } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
@@ -2124,48 +2132,202 @@ app.get('/api/reports/inventory', async (req, res) => {
 app.get('/api/reports/stock-movement', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
+        if (!shop_id) return res.status(400).json({ error: 'กรุณาระบุร้านค้า' });
         const { start, end } = getDateRange(period, startDate, endDate);
-        const { data: movements, error: movementError } = await db.from('stock_movements').select('id, created_at, movement_type, quantity, balance_after, reason, reference_id, inventory_item_id')
-            .eq('shop_id', shop_id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }).limit(20);
-        if (movementError) throw movementError;
-        if (!movements || movements.length === 0) return res.json([]);
+        const movements = await fetchAll(() => db.from('stock_movements').select('id, created_at, movement_type, quantity, balance_after, reason, reference_id, inventory_item_id')
+            .eq('shop_id', shop_id).gte('created_at', start).lte('created_at', end).order('created_at', { ascending: false }));
+        if (!movements || movements.length === 0) {
+            return res.json({
+                summary: [],
+                movements: [],
+                totalItemsUsed: 0,
+                lowStockCount: 0,
+                totalEstimatedCost: 0
+            });
+        }
 
-        const inventoryItemIds = [...new Set(movements.map(m => m.inventory_item_id).filter(Boolean))];
-        const orderIds = [...new Set(movements.map(m => m.reference_id).filter(Boolean))];
-        const { data: inventoryItems, error: inventoryError } = inventoryItemIds.length > 0
-            ? await db.from('inventory_items').select('id, name, unit').in('id', inventoryItemIds)
-            : { data: [], error: null };
+        const { data: inventoryItems, error: inventoryError } = await db.from('inventory_items')
+            .select('id, name, unit, quantity, min_threshold, cost, type, sku, category_id, inventory_categories(name)')
+            .eq('shop_id', shop_id);
         if (inventoryError) throw inventoryError;
-        const { data: orders, error: ordersError } = orderIds.length > 0
-            ? await db.from('orders').select('id, bill_number').eq('shop_id', shop_id).in('id', orderIds)
-            : { data: [], error: null };
-        if (ordersError) throw ordersError;
-        const itemDetails = new Map((inventoryItems || []).map(item => [item.id, { ...item, ...decodeInventoryUnit(item.unit) }]));
+
+        const orderIds = [...new Set(movements.map(m => m.reference_id).filter(Boolean))];
+        const orders = orderIds.length > 0
+            ? await fetchAllInChunks(() => db.from('orders').select('id, bill_number').eq('shop_id', shop_id), 'id', orderIds)
+            : [];
+        const itemDetails = new Map((inventoryItems || []).map(item => {
+            const decoded = decodeInventoryUnit(item.unit);
+            return [item.id, {
+                ...item,
+                unit: decoded.unit,
+                package_size: decoded.package_size,
+                package_unit: decoded.package_unit,
+                category_name: item.inventory_categories?.name || '-'
+            }];
+        }));
         const billNumbers = new Map((orders || []).map(order => [String(order.id), order.bill_number]));
         const movementLabels = {
             SALE: 'ใช้ไปจากการขาย',
             VOID_RETURN: 'คืนสต็อกจากการยกเลิกบิล (Void)',
             ADJUSTMENT: 'ปรับ Stock',
-            INITIAL_STOCK: 'เพิ่มเข้าคลัง'
+            INITIAL_STOCK: 'เพิ่มเข้าคลัง',
+            STOCK_IN: 'เพิ่มเข้าสต็อก',
+            STOCK_OUT: 'ลดสต็อก (ปรับออก)'
         };
 
-        res.json(movements.map(m => {
-            const item = itemDetails.get(m.inventory_item_id);
-            const packageSize = Number(item?.package_size || 1);
+        const summaryMap = new Map();
+
+        for (const m of movements) {
+            const itemId = m.inventory_item_id;
+            if (!itemId) continue;
+            const item = itemDetails.get(itemId);
+            if (!item) continue;
+
+            if (!summaryMap.has(itemId)) {
+                summaryMap.set(itemId, {
+                    itemId,
+                    name: item.name,
+                    categoryName: item.category_name,
+                    sku: item.sku,
+                    type: item.type,
+                    mainUnit: item.unit,
+                    packageSize: Number(item.package_size || 1),
+                    packageUnit: item.package_unit,
+                    costPerUnit: Number(item.cost || 0),
+                    currentStockBase: Number(item.quantity || 0),
+                    minThresholdBase: Number(item.min_threshold || 0),
+                    salesUsageBase: 0,
+                    voidReturnBase: 0,
+                    stockOutBase: 0,
+                    adjustLossBase: 0,
+                    salesCount: 0
+                });
+            }
+
+            const agg = summaryMap.get(itemId);
+            const qty = Number(m.quantity || 0);
+
+            if (m.movement_type === 'SALE') {
+                agg.salesUsageBase += Math.abs(qty);
+                agg.salesCount += 1;
+            } else if (m.movement_type === 'VOID_RETURN') {
+                agg.voidReturnBase += Math.abs(qty);
+            } else if (m.movement_type === 'STOCK_OUT') {
+                agg.stockOutBase += Math.abs(qty);
+            } else if (m.movement_type === 'ADJUSTMENT' && qty < 0) {
+                agg.adjustLossBase += Math.abs(qty);
+            }
+        }
+
+        const summary = [];
+        for (const agg of summaryMap.values()) {
+            const netUsedBase = (agg.salesUsageBase - agg.voidReturnBase) + agg.stockOutBase + agg.adjustLossBase;
+            if (netUsedBase <= 0) continue;
+
+            const roundedNetUsedBase = Number(netUsedBase.toFixed(4));
+            const packageSize = agg.packageSize;
+            const totalUsedQuantity = Number((roundedNetUsedBase * packageSize).toFixed(2));
+            const currentStockDetail = Number((agg.currentStockBase * packageSize).toFixed(2));
+            const minThresholdDetail = Number((agg.minThresholdBase * packageSize).toFixed(2));
+
+            let suggestedBuyPackages;
+            let suggestedBuyQuantity;
+            let suggestedBuyText;
+
+            if (packageSize > 1) {
+                suggestedBuyPackages = Math.max(1, Math.ceil(roundedNetUsedBase));
+                suggestedBuyQuantity = suggestedBuyPackages * packageSize;
+                suggestedBuyText = `${suggestedBuyPackages} ${agg.mainUnit} (${suggestedBuyQuantity.toLocaleString()} ${agg.packageUnit})`;
+            } else {
+                suggestedBuyPackages = Math.max(1, Math.ceil(totalUsedQuantity));
+                suggestedBuyQuantity = suggestedBuyPackages;
+                suggestedBuyText = `${suggestedBuyPackages.toLocaleString()} ${agg.mainUnit}`;
+            }
+
+            const estimatedCost = Number((suggestedBuyPackages * agg.costPerUnit).toFixed(2));
+
+            let status = 'normal';
+            if (agg.currentStockBase <= 0) {
+                status = 'out';
+            } else if (agg.currentStockBase <= agg.minThresholdBase) {
+                status = 'low';
+            }
+
+            summary.push({
+                itemId: agg.itemId,
+                name: agg.name,
+                categoryName: agg.categoryName,
+                sku: agg.sku,
+                type: agg.type,
+                mainUnit: agg.mainUnit,
+                packageUnit: agg.packageUnit,
+                packageSize: agg.packageSize,
+                totalUsedBase: roundedNetUsedBase,
+                totalUsedQuantity,
+                totalUsedText: packageSize > 1 
+                    ? `${totalUsedQuantity.toLocaleString()} ${agg.packageUnit} (${roundedNetUsedBase} ${agg.mainUnit})`
+                    : `${totalUsedQuantity.toLocaleString()} ${agg.mainUnit}`,
+                salesCount: agg.salesCount,
+                currentStockBase: agg.currentStockBase,
+                currentStockQuantity: currentStockDetail,
+                currentStockText: packageSize > 1
+                    ? `${currentStockDetail.toLocaleString()} ${agg.packageUnit} (${Number(agg.currentStockBase.toFixed(2))} ${agg.mainUnit})`
+                    : `${currentStockDetail.toLocaleString()} ${agg.mainUnit}`,
+                minThresholdBase: agg.minThresholdBase,
+                minThresholdQuantity: minThresholdDetail,
+                suggestedBuyPackages,
+                suggestedBuyQuantity,
+                suggestedBuyText,
+                costPerUnit: agg.costPerUnit,
+                estimatedCost,
+                status
+            });
+        }
+
+        const statusPriority = { out: 1, low: 2, normal: 3 };
+        summary.sort((a, b) => {
+            if (statusPriority[a.status] !== statusPriority[b.status]) {
+                return statusPriority[a.status] - statusPriority[b.status];
+            }
+            return b.totalUsedBase - a.totalUsedBase;
+        });
+
+        const totalEstimatedCost = Number(summary.reduce((sum, item) => sum + (item.estimatedCost || 0), 0).toFixed(2));
+        const lowStockCount = summary.filter(s => s.status === 'out' || s.status === 'low').length;
+
+        const formattedMovements = movements.slice(0, 100).map(m => {
+            const item = itemDetails.get(m.inventory_item_id) || { name: '-', unit: 'หน่วย', package_size: 1, package_unit: 'หน่วย' };
+            const packageSize = Number(item.package_size || 1);
             const changedQuantity = Number(m.quantity) * packageSize;
             const balanceAfter = m.balance_after == null ? null : Number(m.balance_after) * packageSize;
             const billNumber = billNumbers.get(String(m.reference_id));
             return {
+                "id": m.id,
                 "วันที่": new Date(m.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Bangkok' }),
-                "รายการวัตถุดิบ": item?.name || '-',
+                "created_at": m.created_at,
+                "รายการวัตถุดิบ": item.name || '-',
+                "item_id": m.inventory_item_id,
                 "ประเภท": movementLabels[m.movement_type] || m.movement_type,
+                "movement_type": m.movement_type,
                 "จำนวนที่เปลี่ยน": changedQuantity > 0 ? `+${changedQuantity}` : changedQuantity,
-                "หน่วย": item?.package_unit || 'หน่วย',
+                "quantity_number": changedQuantity,
+                "หน่วย": item.package_unit || 'หน่วย',
                 "คงเหลือหลังรายการ": balanceAfter ?? '-',
                 "รายละเอียด": billNumber ? `บิล ${billNumber}` : (m.reason || '-')
             };
-        }));
-    } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
+        });
+
+        res.json({
+            summary,
+            movements: formattedMovements,
+            totalItemsUsed: summary.length,
+            lowStockCount,
+            totalEstimatedCost
+        });
+    } catch (e) {
+        console.error('Stock movement report error:', e);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' });
+    }
 });
 
 app.get('/api/reports/employees', async (req, res) => {

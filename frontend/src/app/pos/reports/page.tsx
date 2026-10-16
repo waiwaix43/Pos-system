@@ -27,7 +27,13 @@ import {
  FileSpreadsheet,
  FileIcon,
  Search,
- X
+ X,
+ ShoppingCart,
+ Copy,
+ Check,
+ Maximize2,
+ Minimize2,
+ AlertTriangle
 } from "lucide-react";
 
 // ==========================================
@@ -62,7 +68,7 @@ function useReportAPI(endpoint: string, paramsStr: string) {
 }
 
 const formatCurrency = (value: number) => `฿${value.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const quantityFormatter = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 2, useGrouping: false });
+const quantityFormatter = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 2, useGrouping: true });
 const formatStockQuantity = (value: unknown) => {
  if (value == null) return '-';
  const numericValue = Number(value);
@@ -160,6 +166,10 @@ export default function ReportsDashboardPage() {
  const [chartGranularity, setChartGranularity] = useState("day");
  const [chartMetric, setChartMetric] = useState<"value" | "orderCount" | "itemCount">("value");
  const [reportTimeZone, setReportTimeZone] = useState("Asia/Bangkok");
+ const [stockViewTab, setStockViewTab] = useState<'summary' | 'log'>('summary');
+ const [stockSearchTerm, setStockSearchTerm] = useState('');
+ const [stockFilterAlertOnly, setStockFilterAlertOnly] = useState(false);
+ const [isStockExpanded, setIsStockExpanded] = useState(false);
 
  useEffect(() => {
  const savedUser = JSON.parse(localStorage.getItem("userContext") || "{}");
@@ -273,106 +283,728 @@ export default function ReportsDashboardPage() {
  const dailyAverage = totalSales / rangeDayCount;
 
  // Helper สำหรับ Render Generic Table หาก Backend ไม่ส่ง Structure ที่รู้จักกลับมา
- const renderGenericTable = (data: any) => {
- if (!data) return <EmptyState />;
- if (data.available === false) return <UnavailableState message={data.message} />;
- 
- // แบบเก่า { table: { headers: [], rows: [] } }
- if (data.table?.headers && data.table?.rows) {
- if (data.table.rows.length === 0) return <EmptyState />;
- return (
- <div className="overflow-x-auto w-full">
- <table className="w-full text-left border-collapse min-w-full">
- <thead>
- <tr>
- {data.table.headers.map((h: string, i: number) => (
- <th key={i} className="px-4 py-3 text-[12px] font-bold text-gray-500 border-b border-gray-200 whitespace-nowrap">{h}</th>
- ))}
- </tr>
- </thead>
- <tbody>
- {data.table.rows.map((row: any, i: number) => (
- <tr key={i} className="hover:bg-gray-50 border-b border-dashed border-gray-100 last:border-0">
- {Object.values(row).map((val: any, j: number) => (
- <td key={j} className="px-4 py-3 text-[14px] text-gray-800">{val}</td>
- ))}
- </tr>
- ))}
- </tbody>
- </table>
- </div>
- );
- }
- 
- // แบบ Array of Objects
- if (Array.isArray(data) && data.length > 0) {
- const keys = Object.keys(data[0]);
- return (
- <div className="overflow-x-auto w-full">
- <table className="w-full text-left border-collapse min-w-full">
- <thead>
- <tr>
- {keys.map((k, i) => (
- <th key={i} className="px-4 py-3 text-[12px] font-bold text-gray-500 border-b border-gray-200 uppercase whitespace-nowrap">{k}</th>
- ))}
- </tr>
- </thead>
- <tbody>
- {data.map((row, i) => (
- <tr key={i} className="hover:bg-gray-50 border-b border-dashed border-gray-100 last:border-0">
- {keys.map((k, j) => (
- <td key={j} className="px-4 py-3 text-[14px] text-gray-800">{row[k]}</td>
- ))}
- </tr>
- ))}
- </tbody>
- </table>
- </div>
- );
- }
- return <EmptyState />;
- };
+  const renderGenericTable = (data: any, maxHeight: string = "max-h-[360px]") => {
+    if (!data) return <EmptyState />;
+    if (data.available === false) return <UnavailableState message={data.message} />;
+    
+    // แบบเก่า { table: { headers: [], rows: [] } }
+    if (data.table?.headers && data.table?.rows) {
+      if (data.table.rows.length === 0) return <EmptyState />;
+      return (
+        <div className={`overflow-auto w-full ${maxHeight}`}>
+          <table className="w-full text-left border-collapse min-w-full">
+            <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#e5e7eb]">
+              <tr>
+                {data.table.headers.map((h: string, i: number) => (
+                  <th key={i} className="px-3 py-2.5 text-[11px] font-bold text-gray-500 whitespace-nowrap uppercase">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.table.rows.map((row: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 border-b border-dashed border-gray-100 last:border-0">
+                  {Object.values(row).map((val: any, j: number) => (
+                    <td key={j} className="px-3 py-2 text-[13px] text-gray-800 whitespace-nowrap">{val}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+    
+    // แบบ Array of Objects
+    if (Array.isArray(data) && data.length > 0) {
+      const keys = Object.keys(data[0]);
+      return (
+        <div className={`overflow-auto w-full ${maxHeight}`}>
+          <table className="w-full text-left border-collapse min-w-full">
+            <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#e5e7eb]">
+              <tr>
+                {keys.map((k, i) => (
+                  <th key={i} className="px-3 py-2.5 text-[11px] font-bold text-gray-500 whitespace-nowrap uppercase">{k}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, i) => (
+                <tr key={i} className="hover:bg-gray-50 border-b border-dashed border-gray-100 last:border-0">
+                  {keys.map((k, j) => (
+                    <td key={j} className="px-3 py-2 text-[13px] text-gray-800 whitespace-nowrap">{row[k]}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+    return <EmptyState />;
+  };
 
- const renderStockMovementTable = (data: any) => {
- if (!data) return <EmptyState />;
- if (data.available === false) return <UnavailableState message={data.message} />;
- if (!Array.isArray(data) || data.length === 0) return <EmptyState />;
+  const renderShiftsCard = (data: any) => {
+    if (!data) return <EmptyState />;
+    if (data.available === false) return <UnavailableState message={data.message} />;
+    const shifts: any[] = Array.isArray(data) ? data : (data.table?.rows || []);
+    if (shifts.length === 0) return <EmptyState />;
 
- return (
- <div className="max-h-[360px] overflow-auto">
- <table className="w-full min-w-[720px] border-collapse text-left">
- <thead className="sticky top-0 z-10 bg-white">
- <tr>
- {['วันที่', 'รายการวัตถุดิบ', 'ประเภท', 'จำนวนที่เปลี่ยน', 'หน่วย', 'คงเหลือ', 'รายละเอียด'].map((heading) => (
- <th key={heading} className="border-b border-gray-200 px-3 py-3 text-[11px] font-bold text-gray-500 whitespace-nowrap">{heading}</th>
- ))}
- </tr>
- </thead>
- <tbody>
- {data.map((movement: any, index: number) => {
-   const rawQuantity = movement['จำนวนที่เปลี่ยน'];
-   const quantityValue = Number(rawQuantity);
-   const quantityText = formatStockQuantity(rawQuantity);
-   const isOutgoing = Number.isFinite(quantityValue) ? quantityValue < 0 : quantityText.startsWith('-');
- return (
- <tr key={`${movement['วันที่']}-${movement['รายการวัตถุดิบ']}-${index}`} className="border-b border-dashed border-gray-100 hover:bg-gray-50">
- <td className="px-3 py-3 text-[12px] text-gray-500 whitespace-nowrap">{movement['วันที่']}</td>
- <td className="px-3 py-3 text-[13px] font-bold text-gray-800">{movement['รายการวัตถุดิบ']}</td>
- <td className="px-3 py-3 text-[12px] text-gray-600 whitespace-nowrap">{movement['ประเภท']}</td>
- <td className={`px-3 py-3 text-right text-[14px] font-black whitespace-nowrap ${isOutgoing ? 'text-red-500' : 'text-green-600'}`}>{quantityText}</td>
- <td className="px-3 py-3 text-[12px] text-gray-500">{movement['หน่วย']}</td>
- <td className="px-3 py-3 text-right text-[13px] font-bold text-gray-700">{formatStockQuantity(movement['คงเหลือหลังรายการ'])}</td>
- <td className="px-3 py-3 text-[12px] text-gray-500">{movement['รายละเอียด']}</td>
- </tr>
- );
- })}
- </tbody>
- </table>
- </div>
- );
- };
+    const totalShifts = shifts.length;
+    const openCount = shifts.filter((s: any) => String(s["สถานะ"] || '').includes('เปิด')).length;
+    const totalSales = shifts.reduce((sum: number, s: any) => sum + (Number(String(s["ยอดขาย"] || '0').replace(/,/g, '')) || 0), 0);
 
- return (
+    return (
+      <div className="flex flex-1 flex-col justify-between">
+        <div className="mb-3.5 grid grid-cols-2 gap-2.5">
+          <div className="bg-gray-50 border border-gray-100 p-3 rounded-[14px]">
+            <span className="block text-[11px] font-bold text-gray-500 uppercase">รอบการขายทั้งหมด</span>
+            <span className="block text-[18px] font-black text-gray-800">{totalShifts} รอบ</span>
+            <span className="block text-[10px] text-gray-400 mt-0.5 font-medium">
+              {openCount > 0 ? `เปิดอยู่ ${openCount} รอบ` : 'ปิดครบทุกรอบ'}
+            </span>
+          </div>
+          <div className="bg-gray-50 border border-gray-100 p-3 rounded-[14px]">
+            <span className="block text-[11px] font-bold text-gray-500 uppercase">ยอดขายทุกรอบ</span>
+            <span className="block text-[18px] font-black text-gray-800">฿{Math.round(totalSales).toLocaleString()}</span>
+            <span className="block text-[10px] text-gray-400 mt-0.5 font-medium">
+              เฉลี่ย ฿{totalShifts > 0 ? Math.round(totalSales / totalShifts).toLocaleString() : 0} / รอบ
+            </span>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto overflow-x-hidden max-h-[260px] rounded-lg">
+          <table className="w-full text-left border-collapse table-fixed">
+            <colgroup>
+              <col className="w-[28%]" />
+              <col className="w-[30%]" />
+              <col className="w-[18%]" />
+              <col className="w-[24%]" />
+            </colgroup>
+            <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#e5e7eb]">
+              <tr>
+                <th className="px-2 py-2 text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">พนักงาน</th>
+                <th className="px-2 py-2 text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">เวลาเปิด</th>
+                <th className="px-1.5 py-2 text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">สถานะ</th>
+                <th className="px-2 py-2 text-right text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">ยอดขาย</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shifts.map((s: any, i: number) => {
+                const rawTime = String(s["เวลาเปิดกะ"] || '');
+                const parts = rawTime.split(' ');
+                const dateStr = parts[0] || rawTime;
+                const timeStr = parts.slice(1).join(' ');
+                const isOpen = String(s["สถานะ"] || '').includes('เปิด');
+                const saleNum = Number(String(s["ยอดขาย"] || '0').replace(/,/g, '')) || 0;
+
+                return (
+                  <tr key={i} className="hover:bg-gray-50 border-b border-dashed border-gray-100 last:border-0">
+                    <td className="px-2 py-2.5 text-[12px] font-medium text-gray-800 truncate" title={s["พนักงาน"]}>
+                      {s["พนักงาน"]}
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <div className="flex flex-col leading-tight">
+                        <span className="text-[11px] font-medium text-gray-700 whitespace-nowrap">{dateStr}</span>
+                        {timeStr && <span className="text-[10px] text-gray-400 whitespace-nowrap">{timeStr}</span>}
+                      </div>
+                    </td>
+                    <td className="px-1.5 py-2.5">
+                      {isOpen ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
+                          เปิด
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 whitespace-nowrap">
+                          ปิดแล้ว
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2.5 text-right text-[12px] font-semibold text-gray-800 whitespace-nowrap">
+                      ฿{saleNum.toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderEmployeesCard = (data: any) => {
+    if (!data) return <EmptyState />;
+    if (data.available === false) return <UnavailableState message={data.message} />;
+    const employees: any[] = Array.isArray(data) ? data : (data.table?.rows || []);
+    if (employees.length === 0) return <EmptyState />;
+
+    const totalStaff = employees.length;
+    const totalBills = employees.reduce((sum: number, e: any) => sum + (Number(e["จำนวนบิล"]) || 0), 0);
+    const totalSales = employees.reduce((sum: number, e: any) => sum + (Number(String(e["ยอดขาย (฿)"] || '0').replace(/,/g, '')) || 0), 0);
+    const avgPerBill = totalBills > 0 ? Math.round(totalSales / totalBills) : 0;
+
+    const sorted = [...employees].sort((a: any, b: any) => (Number(String(b["ยอดขาย (฿)"] || '0').replace(/,/g, '')) - Number(String(a["ยอดขาย (฿)"] || '0').replace(/,/g, ''))));
+    const topStaff = sorted[0];
+    const topStaffSales = Number(String(topStaff?.["ยอดขาย (฿)"] || '0').replace(/,/g, '')) || 0;
+    const topStaffPercent = totalSales > 0 ? Math.round((topStaffSales / totalSales) * 100) : 100;
+
+    return (
+      <div className="flex flex-1 flex-col justify-between">
+        <div>
+          <div className="mb-3.5 grid grid-cols-2 gap-2.5">
+            <div className="bg-gray-50 border border-gray-100 p-3 rounded-[14px]">
+              <span className="block text-[11px] font-bold text-gray-500 uppercase">พนักงานทั้งหมด</span>
+              <span className="block text-[18px] font-black text-gray-800">{totalStaff} คน</span>
+              <span className="block text-[10px] text-gray-400 mt-0.5 font-medium">รวม {totalBills.toLocaleString()} บิล</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 p-3 rounded-[14px]">
+              <span className="block text-[11px] font-bold text-gray-500 uppercase">ยอดขายพนักงานรวม</span>
+              <span className="block text-[18px] font-black text-gray-800">฿{Math.round(totalSales).toLocaleString()}</span>
+              <span className="block text-[10px] text-gray-400 mt-0.5 font-medium">เฉลี่ย ฿{avgPerBill.toLocaleString()} / บิล</span>
+            </div>
+          </div>
+
+          <div className="overflow-y-auto overflow-x-hidden max-h-[220px] rounded-lg">
+            <table className="w-full text-left border-collapse table-fixed">
+              <colgroup>
+                <col className="w-[32%]" />
+                <col className="w-[20%]" />
+                <col className="w-[24%]" />
+                <col className="w-[24%]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#e5e7eb]">
+                <tr>
+                  <th className="px-2 py-2 text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">พนักงาน</th>
+                  <th className="px-2 py-2 text-right text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">บิล</th>
+                  <th className="px-2 py-2 text-right text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">เฉลี่ย/บิล</th>
+                  <th className="px-2 py-2 text-right text-[11px] font-bold text-gray-500 uppercase whitespace-nowrap">ยอดขาย</th>
+                </tr>
+              </thead>
+              <tbody>
+                {employees.map((emp: any, i: number) => {
+                  const bills = Number(emp["จำนวนบิล"]) || 0;
+                  const sales = Number(String(emp["ยอดขาย (฿)"] || '0').replace(/,/g, '')) || 0;
+                  const avg = bills > 0 ? Math.round(sales / bills) : 0;
+                  return (
+                    <tr key={i} className="hover:bg-gray-50 border-b border-dashed border-gray-100 last:border-0">
+                      <td className="px-2 py-2.5 text-[12px] font-medium text-gray-800 truncate" title={emp["พนักงาน"]}>
+                        {emp["พนักงาน"]}
+                      </td>
+                      <td className="px-2 py-2.5 text-right text-[12px] text-gray-600 whitespace-nowrap">
+                        {bills.toLocaleString()}
+                      </td>
+                      <td className="px-2 py-2.5 text-right text-[12px] text-gray-500 whitespace-nowrap">
+                        ฿{avg.toLocaleString()}
+                      </td>
+                      <td className="px-2 py-2.5 text-right text-[12px] font-semibold text-gray-800 whitespace-nowrap">
+                        ฿{sales.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+          <span>พนักงานขายดีเด่น: <b className="text-gray-800 font-semibold">{topStaff?.["พนักงาน"] || '-'}</b></span>
+          <span className="font-semibold text-[#7a5c4e]">฿{topStaffSales.toLocaleString()} ({topStaffPercent}%)</span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTaxCard = (data: any) => {
+    if (!data) return <EmptyState />;
+    if (data.available === false) return <UnavailableState message={data.message} />;
+    const taxList: any[] = Array.isArray(data) ? data : (data.table?.rows ? data.table.rows : [data]);
+    if (taxList.length === 0) return <EmptyState />;
+
+    const row = taxList[0] || {};
+    const rateStr = String(row["อัตราภาษี"] || '7%');
+    const taxBase = Number(String(row["ฐานภาษี (฿)"] || '0').replace(/,/g, '')) || 0;
+    const taxAmount = Number(String(row["ภาษี (฿)"] || '0').replace(/,/g, '')) || 0;
+    const grossTotal = taxBase + taxAmount;
+
+    return (
+      <div className="flex flex-1 flex-col justify-between">
+        <div>
+          <div className="mb-3.5 grid grid-cols-2 gap-2.5">
+            <div className="bg-gray-50 border border-gray-100 p-3 rounded-[14px]">
+              <span className="block text-[11px] font-bold text-gray-500 uppercase">อัตราภาษี (VAT)</span>
+              <span className="block text-[18px] font-black text-gray-800">{rateStr}</span>
+              <span className="block text-[10px] text-gray-400 mt-0.5 font-medium">คำนวณจากยอดขาย</span>
+            </div>
+            <div className="bg-gray-50 border border-gray-100 p-3 rounded-[14px]">
+              <span className="block text-[11px] font-bold text-gray-500 uppercase">ภาษีมูลค่าเพิ่ม</span>
+              <span className="block text-[18px] font-black text-gray-800">
+                ฿{taxAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="block text-[10px] text-gray-400 mt-0.5 font-medium">ยอดภาษีที่ต้องนำส่ง</span>
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-gray-50/70 border border-gray-100 p-3 text-[12px] space-y-2.5">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-200/60">
+              <span className="text-gray-500 font-medium">ฐานภาษีสุทธิ (ก่อน VAT)</span>
+              <span className="font-semibold text-gray-800">
+                ฿{taxBase.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pb-2 border-b border-gray-200/60">
+              <span className="text-gray-500 font-medium">ภาษีมูลค่าเพิ่ม ({rateStr})</span>
+              <span className="font-semibold text-[#7a5c4e]">
+                ฿{taxAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pb-2 border-b border-gray-200/60">
+              <span className="text-gray-700 font-bold">ยอดขายรวมสุทธิ (รวม VAT)</span>
+              <span className="font-black text-[13px] text-gray-900">
+                ฿{grossTotal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-gray-500 font-medium">รูปแบบการบันทึก</span>
+              <span className="text-gray-600 font-medium">ราคารวมภาษีในตัว (Inclusive)</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-[11px]">
+          <span className="text-gray-500">สถานะระบบภาษี</span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            เปิดใช้งาน VAT {rateStr}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const handlePrintShoppingList = (summaryList: any[]) => {
+    if (!summaryList || summaryList.length === 0) {
+      showToast("ไม่พบรายการวัตถุดิบที่ใช้ไปในช่วงนี้", "info");
+      return;
+    }
+    const filtered = stockFilterAlertOnly ? summaryList.filter(s => s.status === 'out' || s.status === 'low') : summaryList;
+    const periodLabel = dateSelection.period === 'วันนี้' ? 'วันนี้' : dateSelection.period || `${dateSelection.startDate} ถึง ${dateSelection.endDate}`;
+    const shopName = user?.shops?.shop_name || user?.shop_name || 'POS Shop';
+    const totalCost = filtered.reduce((sum, item) => sum + (Number(item.estimatedCost) || 0), 0);
+    const outCount = filtered.filter(i => i.status === 'out').length;
+    const lowCount = filtered.filter(i => i.status === 'low').length;
+    const printDate = new Date().toLocaleDateString('th-TH', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+
+    const printWin = window.open('', '_blank', 'width=960,height=900');
+    if (!printWin) {
+      showToast("กรุณาอนุญาตป๊อปอัปเพื่อพิมพ์รายการ", "error");
+      return;
+    }
+
+    const rowsHtml = filtered.map((item, index) => {
+      const storageUnit = item.mainUnit || item.unit || '';
+      const storageQty = formatStockQuantity(item.currentStockBase);
+      const remainingText = `${storageQty} ${storageUnit}${item.packageSize > 1 ? ` (${formatStockQuantity(item.currentStockQuantity)} ${item.packageUnit})` : ''}`;
+      const usedText = `${formatStockQuantity(item.totalUsedQuantity)} ${item.packageUnit || storageUnit}${item.packageSize > 1 ? ` (${formatStockQuantity(item.totalUsedBase)} ${storageUnit})` : ''}`;
+      const statusBadge = item.status === 'out' 
+        ? '<div style="color: #b91c1c; font-size: 11px; font-weight: bold; margin-top: 2px;">(หมดสต็อก)</div>' 
+        : item.status === 'low' 
+        ? '<div style="color: #666; font-size: 11px; margin-top: 2px;">(ใกล้หมด)</div>' 
+        : '';
+      const costStr = item.estimatedCost > 0 ? `฿${Number(item.estimatedCost).toLocaleString()}` : '-';
+
+      return `
+        <tr>
+          <td style="text-align: center; vertical-align: middle; width: 45px; white-space: nowrap;">
+            <div style="width: 16px; height: 16px; border: 1.5px solid #222; border-radius: 3px; margin: 0 auto; background: #fff;"></div>
+          </td>
+          <td style="text-align: center; font-size: 12px; font-weight: bold; width: 35px; white-space: nowrap;">${index + 1}</td>
+          <td>
+            <div style="font-weight: bold; font-size: 13px; color: #000;">${item.name}</div>
+            ${item.categoryName && item.categoryName !== '-' ? `<div style="font-size: 11px; color: #666;">หมวด: ${item.categoryName}</div>` : ''}
+          </td>
+          <td style="text-align: right; font-size: 12px; white-space: nowrap;">${usedText}</td>
+          <td style="text-align: right; font-size: 12px; white-space: nowrap;">
+            <div>${remainingText}</div>
+            ${statusBadge}
+          </td>
+          <td style="text-align: right; font-size: 13px; font-weight: bold; color: #000; white-space: nowrap;">
+            ${item.suggestedBuyText}
+          </td>
+          <td style="text-align: right; font-size: 12px; font-weight: bold; white-space: nowrap;">${costStr}</td>
+          <td style="text-align: center; vertical-align: middle; width: 90px; white-space: nowrap;">
+            <div style="border-bottom: 1px dotted #888; width: 60px; margin: 0 auto; height: 16px;"></div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html lang="th">
+      <head>
+        <meta charset="utf-8" />
+        <title>ใบสั่งซื้อ / รายการซื้อวัตถุดิบคืน - ${shopName}</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 12mm 10mm;
+          }
+          * { box-sizing: border-box; }
+          body {
+            font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #000;
+            background: #fff;
+            margin: 0;
+            padding: 24px;
+            font-size: 12px;
+            line-height: 1.4;
+          }
+          .no-print-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f4f4f4;
+            border: 1px solid #ddd;
+            padding: 10px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+          }
+          .no-print-bar button {
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 1px solid #333;
+          }
+          .btn-print {
+            background: #000;
+            color: #fff;
+          }
+          .btn-close {
+            background: #fff;
+            color: #000;
+            margin-left: 8px;
+          }
+          .header {
+            border-bottom: 2px solid #000;
+            padding-bottom: 12px;
+            margin-bottom: 14px;
+          }
+          .header h1 {
+            margin: 0 0 4px 0;
+            font-size: 20px;
+            font-weight: 800;
+            color: #000;
+          }
+          .header-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #333;
+            margin-top: 4px;
+          }
+          .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 16px;
+          }
+          .kpi-card {
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 8px 10px;
+            text-align: center;
+          }
+          .kpi-label {
+            font-size: 11px;
+            font-weight: bold;
+            color: #444;
+          }
+          .kpi-value {
+            font-size: 16px;
+            font-weight: 800;
+            color: #000;
+            margin-top: 2px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 6px;
+            margin-bottom: 16px;
+          }
+          th {
+            background: #f0f0f0;
+            color: #000;
+            font-weight: bold;
+            font-size: 11px;
+            padding: 8px 6px;
+            border: 1px solid #000;
+            text-align: left;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          th.center { text-align: center; }
+          th.right { text-align: right; }
+          td {
+            padding: 6px 6px;
+            border: 1px solid #ccc;
+            vertical-align: middle;
+            color: #000;
+          }
+          tr { page-break-inside: avoid; }
+          tr:nth-child(even) td {
+            background: #fafafa;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .total-summary {
+            border: 1.5px solid #000;
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: bold;
+            background: #f9f9f9;
+            margin-bottom: 24px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .signatures {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 36px;
+            padding: 0 20px;
+          }
+          .sign-col {
+            text-align: center;
+            font-size: 12px;
+          }
+          .sign-line {
+            margin-bottom: 6px;
+          }
+          @media print {
+            .no-print-bar { display: none !important; }
+            body { padding: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print-bar">
+          <div><b>🖨️ ตัวอย่างก่อนพิมพ์รายการสั่งซื้อวัตถุดิบ (A4)</b></div>
+          <div>
+            <button class="btn-print" onclick="window.print()">สั่งพิมพ์ (Print)</button>
+            <button class="btn-close" onclick="window.close()">ปิดหน้าต่าง</button>
+          </div>
+        </div>
+
+        <div class="header">
+          <h1>🛒 ใบสั่งซื้อวัตถุดิบ / คืนสต็อกสินค้า</h1>
+          <div class="header-meta">
+            <div>ร้าน: <b>${shopName}</b> | ยอดการใช้ช่วง: <b>${periodLabel}</b></div>
+            <div>วันที่พิมพ์: <b>${printDate}</b></div>
+          </div>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">รายการที่ต้องซื้อ</div>
+            <div class="kpi-value">${filtered.length} รายการ</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">สินค้าหมดสต็อก</div>
+            <div class="kpi-value">${outCount} รายการ</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">สินค้าใกล้หมด</div>
+            <div class="kpi-value">${lowCount} รายการ</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">งบประมาณรวม (ประมาณ)</div>
+            <div class="kpi-value">฿${Math.round(totalCost).toLocaleString()}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th class="center" style="width: 45px; white-space: nowrap;">เช็ค</th>
+              <th class="center" style="width: 35px; white-space: nowrap;">#</th>
+              <th>รายการวัตถุดิบ</th>
+              <th class="right" style="width: 130px; white-space: nowrap;">ใช้ไป (${periodLabel})</th>
+              <th class="right" style="width: 150px; white-space: nowrap;">คงเหลือในร้าน</th>
+              <th class="right" style="width: 140px; white-space: nowrap;">แนะนำซื้อคืน</th>
+              <th class="right" style="width: 80px; white-space: nowrap;">ประมาณการ</th>
+              <th class="center" style="width: 90px; white-space: nowrap;">จำนวนซื้อจริง</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <div class="total-summary">
+          <div>รวมทั้งหมด: <b>${filtered.length}</b> รายการ</div>
+          <div>ประมาณการงบประมาณรวม: <b>฿${Math.round(totalCost).toLocaleString()}</b></div>
+        </div>
+
+        <div class="signatures">
+          <div class="sign-col">
+            <div class="sign-line">..................................................................</div>
+            <div>ผู้ตรวจนับ / เสนอซื้อ</div>
+            <div style="font-size: 10px; color: #666; margin-top: 2px;">วันที่: ...... / ...... / ..........</div>
+          </div>
+          <div class="sign-col">
+            <div class="sign-line">..................................................................</div>
+            <div>ผู้จัดซื้อ / รับของเข้าสต็อก</div>
+            <div style="font-size: 10px; color: #666; margin-top: 2px;">วันที่: ...... / ...... / ..........</div>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+      </html>
+    `);
+    printWin.document.close();
+  };
+
+  const renderStockMovementTable = (data: any) => {
+    if (!data) return <EmptyState />;
+    if (data.available === false) return <UnavailableState message={data.message} />;
+
+    const isStructured = !Array.isArray(data) && (Array.isArray(data?.summary) || Array.isArray(data?.movements));
+    const rawMovements: any[] = isStructured ? (data.movements || []) : (Array.isArray(data) ? data : []);
+    const summaryList: any[] = isStructured ? (data.summary || []) : [];
+    const totalItemsUsed = isStructured ? (data.totalItemsUsed ?? summaryList.length) : summaryList.length;
+    const lowStockCount = isStructured ? (data.lowStockCount ?? summaryList.filter((s: any) => s.status === 'out' || s.status === 'low').length) : 0;
+    const totalEstimatedCost = isStructured ? (data.totalEstimatedCost ?? 0) : 0;
+
+    const filteredSummary = summaryList.filter((item: any) => {
+      const matchStatus = !stockFilterAlertOnly || (item.status === 'out' || item.status === 'low');
+      return matchStatus;
+    });
+
+    if (stockViewTab === 'summary') {
+      return (
+        <div>
+          <div className="mb-4 grid grid-cols-3 gap-3">
+            <div className="bg-gray-50 border border-gray-100 p-4 rounded-[16px] text-center">
+              <span className="block text-[12px] font-bold text-gray-500 uppercase">วัตถุดิบที่ใช้</span>
+              <span className="block text-[24px] font-black text-gray-700">{totalItemsUsed}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStockFilterAlertOnly(prev => !prev)}
+              className={`bg-gray-50 border p-4 rounded-[16px] text-center transition-colors ${
+                stockFilterAlertOnly ? 'border-gray-400 bg-gray-100' : 'border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              <span className="block text-[12px] font-bold text-gray-600 uppercase">ใกล้หมดสต็อก</span>
+              <span className="block text-[24px] font-black text-gray-800">{lowStockCount}</span>
+            </button>
+            <div className="bg-gray-50 border border-gray-100 p-4 rounded-[16px] text-center">
+              <span className="block text-[12px] font-bold text-gray-500 uppercase">งบซื้อคืน (ประมาณ)</span>
+              <span className="block text-[24px] font-black text-gray-700">฿{Math.round(totalEstimatedCost || 0).toLocaleString()}</span>
+            </div>
+          </div>
+
+          {filteredSummary.length > 0 ? (
+            <div className="max-h-[360px] overflow-auto">
+              <table className="w-full border-collapse text-left">
+                <thead className="sticky top-0 z-10 bg-white">
+                  <tr>
+                    <th className="border-b border-gray-200 px-3 py-3 text-[12px] font-bold text-gray-500 uppercase whitespace-nowrap">รายการวัตถุดิบ</th>
+                    <th className="border-b border-gray-200 px-3 py-3 text-right text-[12px] font-bold text-gray-500 uppercase whitespace-nowrap">จำนวนที่ใช้</th>
+                    <th className="border-b border-gray-200 px-3 py-3 text-[12px] font-bold text-gray-500 uppercase whitespace-nowrap">หน่วย</th>
+                    <th className="border-b border-gray-200 px-3 py-3 text-right text-[12px] font-bold text-gray-500 uppercase whitespace-nowrap">คงเหลือ</th>
+                    <th className="border-b border-gray-200 px-3 py-3 text-right text-[12px] font-bold text-gray-500 uppercase whitespace-nowrap">แนะนำซื้อคืน</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSummary.map((item: any, index: number) => {
+                    const isOut = item.status === 'out';
+                    const isLow = item.status === 'low';
+                    const storageUnit = item.mainUnit || item.unit || '';
+                    const storageQty = formatStockQuantity(item.currentStockBase);
+                    return (
+                      <tr key={`${item.name}-${index}`} className="border-b border-dashed border-gray-100 hover:bg-gray-50 last:border-0">
+                        <td className="px-3 py-3 text-[13px] font-medium text-gray-800 whitespace-nowrap">{item.name}</td>
+                        <td className="px-3 py-3 text-right text-[13px] font-semibold text-gray-800 whitespace-nowrap">
+                          {formatStockQuantity(item.totalUsedQuantity)}
+                        </td>
+                        <td className="px-3 py-3 text-[12px] text-gray-500 whitespace-nowrap">{item.packageUnit || storageUnit}</td>
+                        <td className="px-3 py-3 text-right text-[13px] text-gray-800 whitespace-nowrap">
+                          <span className="font-semibold">{storageQty} {storageUnit}</span>
+                          {isOut && <span className="ml-1 text-[11px] font-medium text-gray-500">(หมด)</span>}
+                          {isLow && <span className="ml-1 text-[11px] font-medium text-gray-500">(ใกล้หมด)</span>}
+                        </td>
+                        <td className="px-3 py-3 text-right text-[13px] font-semibold text-gray-800 whitespace-nowrap">
+                          {item.suggestedBuyText}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState />
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        {rawMovements.length > 0 ? (
+          <div className="max-h-[360px] overflow-auto">
+            <table className="w-full min-w-[720px] border-collapse text-left">
+              <thead className="sticky top-0 z-10 bg-white">
+                <tr>
+                  {['วันที่', 'รายการวัตถุดิบ', 'ประเภท', 'จำนวนที่เปลี่ยน', 'หน่วย', 'คงเหลือ', 'รายละเอียด'].map((heading) => (
+                    <th key={heading} className="border-b border-gray-200 px-3 py-3 text-[12px] font-bold text-gray-500 uppercase whitespace-nowrap">{heading}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rawMovements.map((movement: any, index: number) => {
+                  const rawQuantity = movement['จำนวนที่เปลี่ยน'];
+                  const quantityText = formatStockQuantity(rawQuantity);
+                  return (
+                    <tr key={`${movement['วันที่']}-${movement['รายการวัตถุดิบ']}-${index}`} className="border-b border-dashed border-gray-100 hover:bg-gray-50 last:border-0">
+                      <td className="px-3 py-3 text-[12px] text-gray-500 whitespace-nowrap">{movement['วันที่']}</td>
+                      <td className="px-3 py-3 text-[13px] font-medium text-gray-800 whitespace-nowrap">{movement['รายการวัตถุดิบ']}</td>
+                      <td className="px-3 py-3 text-[12px] text-gray-600 whitespace-nowrap">{movement['ประเภท']}</td>
+                      <td className="px-3 py-3 text-right text-[13px] font-semibold text-gray-800 whitespace-nowrap">{quantityText}</td>
+                      <td className="px-3 py-3 text-[12px] text-gray-500 whitespace-nowrap">{movement['หน่วย']}</td>
+                      <td className="px-3 py-3 text-right text-[13px] text-gray-800 whitespace-nowrap">{formatStockQuantity(movement['คงเหลือหลังรายการ'])}</td>
+                      <td className="px-3 py-3 text-[12px] text-gray-500 whitespace-nowrap">{movement['รายละเอียด']}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState />
+        )}
+      </div>
+    );
+  };
+
+  return (
  <div className="flex h-screen flex-col overflow-hidden bg-[#d6d6d6] font-sans print:h-auto print:overflow-visible print:bg-white md:flex-row">
 
  {/* 🌟 Main Sidebar (ห้ามเปลี่ยน) 🌟 */}
@@ -585,17 +1217,17 @@ export default function ReportsDashboardPage() {
 
  {/* 4. OPERATION ANALYTICS & TAX */}
  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
- <SectionWrapper state={shiftsApi} title="ประสิทธิภาพรอบการขาย" className="lg:col-span-1" icon={<Clock className="w-5 h-5 text-[#7a5c4e]"/>}>
- {renderGenericTable(shiftsApi.data)}
+ <SectionWrapper state={shiftsApi} title="ประสิทธิภาพรอบการขาย" className="lg:col-span-1 h-full" icon={<Clock className="w-5 h-5 text-[#7a5c4e]"/>}>
+ {renderShiftsCard(shiftsApi.data)}
  </SectionWrapper>
  
- <SectionWrapper state={employeesApi} title="ประสิทธิภาพพนักงาน" className="lg:col-span-1" icon={<UserCircle className="w-5 h-5 text-[#7a5c4e]"/>}>
- {renderGenericTable(employeesApi.data)}
+ <SectionWrapper state={employeesApi} title="ประสิทธิภาพพนักงาน" className="lg:col-span-1 h-full" icon={<UserCircle className="w-5 h-5 text-[#7a5c4e]"/>}>
+ {renderEmployeesCard(employeesApi.data)}
  </SectionWrapper>
 
  {!isCashier && (
- <SectionWrapper state={taxApi} title="ภาษี (Tax)" className="lg:col-span-1" icon={<FileText className="w-5 h-5 text-[#7a5c4e]"/>}>
- {renderGenericTable(taxApi.data)}
+ <SectionWrapper state={taxApi} title="ภาษี (Tax)" className="lg:col-span-1 h-full" icon={<FileText className="w-5 h-5 text-[#7a5c4e]"/>}>
+ {renderTaxCard(taxApi.data)}
  </SectionWrapper>
  )}
  </div>
@@ -620,9 +1252,48 @@ export default function ReportsDashboardPage() {
  {renderGenericTable(inventoryApi.data?.table || inventoryApi.data?.alertItems || inventoryApi.data)}
  </SectionWrapper>
 
- <SectionWrapper state={stockMovementsApi} title="การเคลื่อนไหวของ Stock" className="lg:col-span-1" icon={<Activity className="w-5 h-5 text-[#7a5c4e]"/>}>
- {renderStockMovementTable(stockMovementsApi.data)}
- </SectionWrapper>
+ <SectionWrapper
+ state={stockMovementsApi}
+ title="การเคลื่อนไหวของ Stock"
+ className="lg:col-span-1"
+ icon={<Activity className="w-5 h-5 text-[#7a5c4e]"/>}
+          action={
+            <div className="flex items-center gap-1.5">
+              <div className="inline-flex rounded-lg bg-gray-100 p-0.5 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setStockViewTab('summary')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    stockViewTab === 'summary' ? 'bg-white text-gray-800 shadow-sm font-bold' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  สรุปยอดใช้
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStockViewTab('log')}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    stockViewTab === 'log' ? 'bg-white text-gray-800 shadow-sm font-bold' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  ประวัติ
+                </button>
+              </div>
+              {stockViewTab === 'summary' && (
+                <button
+                  type="button"
+                  onClick={() => handlePrintShoppingList(stockMovementsApi.data?.summary || [])}
+                  title="พิมพ์รายการซื้อของ"
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-colors shadow-sm"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          }
+        >
+          {renderStockMovementTable(stockMovementsApi.data)}
+        </SectionWrapper>
  </div>
 
  {/* 6. FINANCIAL & ACCOUNTING */}
@@ -693,7 +1364,7 @@ export default function ReportsDashboardPage() {
 // องค์ประกอบย่อย (UI Components)
 // ==========================================
 
-function SectionWrapper({ state, title, icon, children, className = "", hideTitle = false }: any) {
+function SectionWrapper({ state, title, icon, children, className = "", hideTitle = false, action }: any) {
  if (state.loading) {
  return (
  <div className={`flex min-h-[150px] flex-col items-center justify-center rounded-2xl border border-gray-100 bg-white/60 p-8 shadow-sm backdrop-blur-sm ${className}`}>
@@ -718,11 +1389,14 @@ function SectionWrapper({ state, title, icon, children, className = "", hideTitl
  return (
  <div className={`${hideTitle ? "" : "group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:border-gray-200 hover:shadow-md"} ${className}`}>
  {!hideTitle && (
- <div className="flex shrink-0 items-center gap-3 border-b border-gray-50 bg-gradient-to-r from-[#fbfaf8] to-white px-5 py-4 sm:px-6">
- <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[#7a5c4e] shadow-sm ring-1 ring-black/5 transition-transform duration-300 group-hover:scale-110">
+ <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-50 bg-gradient-to-r from-[#fbfaf8] to-white px-5 py-4 sm:px-6">
+ <div className="flex items-center gap-3 min-w-0">
+ <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[#7a5c4e] shadow-sm ring-1 ring-black/5 transition-transform duration-300 group-hover:scale-110 shrink-0">
  {icon}
  </div>
- <h3 className="tracking-tight text-[15px] font-bold text-gray-800 sm:text-[16px]">{title}</h3>
+ <h3 className="tracking-tight text-[15px] font-bold text-gray-800 sm:text-[16px] truncate">{title}</h3>
+ </div>
+ {action && <div className="flex items-center gap-2 shrink-0">{action}</div>}
  </div>
  )}
  <div className={`flex flex-1 flex-col ${!hideTitle ? 'p-6' : ''}`}>
