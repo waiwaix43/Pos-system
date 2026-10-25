@@ -7,7 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
  Search, Plus, LayoutGrid, List, AlignJustify, RefreshCw, AlertCircle, AlertTriangle, Calendar, X,
  Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2, Minus, Check,
- Maximize2, Minimize2, ChevronUp, ChevronDown
+ Maximize2, Minimize2, ChevronUp, ChevronDown, Scale, Bell
 } from "lucide-react";
 
 const ITEMS_PER_PAGE = 50;
@@ -945,9 +945,9 @@ export default function InventoryPage() {
    }))
    .filter((b) => b.no_expiry || b.exp_date || b.mfg_date);
 
-  if (cleanedBatches.length === 0) {
-   return showToast("กรุณาระบุวันหมดอายุอย่างน้อย 1 ล็อต หรือเลือก 'สินค้าไม่มีวันหมดอายุ'", 'error');
-  }
+  if (cleanedBatches.length === 0 && formMode === 'add' && Number(formData.quantity || 0) > 0) {
+      return showToast("กรุณาระบุวันหมดอายุอย่างน้อย 1 ล็อต หรือเลือก 'สินค้าไม่มีวันหมดอายุ'", 'error');
+    }
 
   for (let i = 0; i < cleanedBatches.length; i++) {
    const b = cleanedBatches[i];
@@ -1295,22 +1295,27 @@ export default function InventoryPage() {
  }, [user?.shop_id, handleOpenDetail]);
 
  const openAddForm = () => {
- setFormMode("add");
- setFormData({ 
- status: 'active',
- type: activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material',
- category_id: "",
- quantity: 1,
- no_expiry: false,
- mfg_date: "",
- exp_date: "",
- expiry_alert_days: 7,
- expiry_batches: [
-  { id: `lot_${Date.now()}_0`, quantity: 1, mfg_date: "", exp_date: "", no_expiry: false }
- ]
- });
- setShowFormModal(true);
- };
+    setFormMode("add");
+    setFormData({ 
+      status: 'active',
+      type: activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material',
+      category_id: "",
+      unit: "",
+      cost: "",
+      package_size: "",
+      package_unit: "",
+      min_threshold: 0,
+      quantity: 0,
+      no_expiry: false,
+      mfg_date: "",
+      exp_date: "",
+      expiry_alert_days: 7,
+      expiry_batches: [
+        { id: `lot_${Date.now()}_0`, quantity: 0, mfg_date: "", exp_date: "", no_expiry: false }
+      ]
+    });
+    setShowFormModal(true);
+  };
 
  const openEditForm = (item: any) => {
  const expiry = getItemExpiryMeta(item);
@@ -1876,376 +1881,505 @@ export default function InventoryPage() {
  MODAL: ADD / EDIT FORM (วัตถุดิบ, บรรจุภัณฑ์)
  ========================================== */}
  {showFormModal && (
- <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
- <div className="bg-white w-full max-w-[680px] rounded-[24px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[92vh]">
- <div className="h-[76px] border-b border-gray-200 flex items-center justify-between px-7 shrink-0 bg-[#f5f6f8]">
- <div><h2 className="text-[20px] font-bold text-gray-800">{formMode === 'add' ? 'เพิ่มวัตถุดิบ' : 'แก้ไขวัตถุดิบ'}</h2><p className="mt-1 text-[12px] text-gray-500">{formMode === 'edit' ? formData.name : 'กรอกข้อมูลพื้นฐานที่จำเป็น แล้วบันทึกได้ทันที'}</p></div>
- <button onClick={() => setShowFormModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
- </div>
- 
- <div className="flex-1 overflow-y-auto p-7 space-y-6">
- <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
- <h3 className="mb-4 text-[16px] font-bold text-gray-800">ข้อมูลวัตถุดิบ</h3>
- <div className="flex flex-col items-center mb-6">
- <div className="w-24 h-24 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden mb-3 relative group">
- {formData.image_url ? <img src={formData.image_url} alt="preview" className="w-full h-full object-cover" /> : <Upload className="w-8 h-8 text-gray-400" />}
- {uploadingImage && <div className="absolute inset-0 bg-white/80 flex items-center justify-center"><RefreshCw className="w-5 h-5 animate-spin text-[#7a5c4e]" /></div>}
- </div>
- <div className="w-full flex flex-col items-center gap-3">
- <label className="cursor-pointer text-[13px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-4 py-2 rounded-full transition-colors text-center inline-block">
- อัปโหลดรูปภาพ
- <input type="file" className="hidden" accept="image/jpeg, image/png, image/webp" onChange={handleImageUpload} disabled={uploadingImage} />
- </label>
- <div className="w-full flex items-center gap-3 px-2">
- <div className="h-[1px] bg-gray-200 flex-1"></div>
- <span className="text-[12px] text-gray-400">หรือใส่ URL</span>
- <div className="h-[1px] bg-gray-200 flex-1"></div>
- </div>
- <input 
- type="text" 
- placeholder="วาง URL รูปภาพที่นี่..." 
- value={formData.image_url || ''} 
- onChange={(e) => setFormData({...formData, image_url: e.target.value})} 
- className="w-full text-[13px] p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] text-center"
- />
- </div>
- </div>
-
- <input type="hidden" value={formData.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material')} />
- <div><label className="block text-[13px] font-bold text-gray-600 mb-1">ชื่อวัตถุดิบ <span className="text-red-500">*</span></label><input type="text" value={formData.name || ''} onChange={(e)=>setFormData({...formData, name: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
- <div className="mt-4">
- <label className="block text-[13px] font-bold text-gray-600 mb-1">หน่วยที่เก็บในสต๊อก <span className="text-red-500">*</span></label>
- <input type="text" value={formData.unit || ''} onChange={(e)=>setFormData({...formData, unit: e.target.value})} placeholder="เช่น ขวด, ถุง, กล่อง, ชิ้น" className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" />
- </div>
- <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 mt-4">
- <h4 className="text-[14px] font-bold text-gray-800 mb-3">หมวดหมู่</h4>
- <div className="grid grid-cols-2 gap-4">
- <div>
- <label className="block text-[12px] font-bold text-gray-600 mb-1">ประเภทหลัก</label>
- <select
- value={formData.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material')}
- onChange={(e) => {
- const nextType = e.target.value;
- setFormData((prev: any) => ({ ...prev, type: nextType, category_id: '' }));
- }}
- className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white"
- >
- <option value="raw_material">วัตถุดิบ</option>
- <option value="packaging">บรรจุภัณฑ์</option>
- </select>
- </div>
- <div>
- <label className="block text-[12px] font-bold text-gray-600 mb-1">หมวดย่อย</label>
- <div className="flex min-w-0 flex-col gap-2">
- <select
- value={formData.category_id ?? ''}
- onChange={(e) => setFormData((prev: any) => ({ ...prev, category_id: e.target.value }))}
- className="w-full min-w-0 p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white"
- >
- <option value="">เลือกหมวดย่อย</option>
- {formCategoryOptions.map((category: any) => (
- <option key={category.id} value={category.id}>{category.name}</option>
- ))}
- </select>
- <button
- type="button"
- onClick={() => {
- setCategoryForm({ id: null, name: '', type: formData.type || (activeTab === 'บรรจุภัณฑ์' ? 'packaging' : 'raw_material') });
- setShowCategoryModal(true);
- }}
- className="w-full px-3 py-3 rounded-xl border border-[#7a5c4e] bg-[#7a5c4e] text-white text-[12px] font-bold whitespace-nowrap hover:bg-[#684c3f]"
- >
- + เพิ่มหมวดย่อย
- </button>
- </div>
- </div>
- </div>
- </div>
- <div className="mt-4"><label className="block text-[13px] font-bold text-gray-600 mb-1">ต้นทุนต่อ 1 {formData.unit || 'หน่วย'} (฿) <span className="text-red-500">*</span></label><input type="number" min="0" value={formData.cost ?? ''} onChange={(e)=>setFormData({...formData, cost: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
- </div>
-
- {/* วันผลิตและวันหมดอายุ (รองรับหลายล็อต) */}
- <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
- <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-  <div className="flex items-center gap-2">
-   <Calendar className="w-5 h-5 text-[#7a5c4e]" />
-   <div>
-    <h3 className="text-[16px] font-bold text-gray-800">วันผลิตและวันหมดอายุ</h3>
-    <p className="text-[11px] text-gray-500">สามารถเพิ่มได้หลายล็อตหากสินค้าที่นำเข้ามีวันหมดอายุไม่ตรงกัน</p>
-   </div>
-  </div>
-  <label className="flex items-center gap-2 cursor-pointer select-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 hover:bg-gray-100">
-   <input
-    type="checkbox"
-    checked={Boolean(formData.no_expiry)}
-    onChange={(e) => {
-     const checked = e.target.checked;
-     const existingBatches = Array.isArray(formData.expiry_batches) && formData.expiry_batches.length > 0
-      ? formData.expiry_batches
-      : [{ id: `batch-${Date.now()}`, quantity: Math.max(1, Number(formData.quantity || 1)), mfg_date: formData.mfg_date || '', exp_date: formData.exp_date || '', no_expiry: false }];
-     setFormData({
-      ...formData,
-      no_expiry: checked,
-      exp_date: checked ? '' : (formData.exp_date || ''),
-      expiry_batches: existingBatches
-     });
-    }}
-    className="h-4 w-4 accent-[#7a5c4e]"
-   />
-   <span className="text-[13px] font-bold text-gray-700">สินค้าไม่มีวันหมดอายุ</span>
-  </label>
- </div>
-
- {formData.no_expiry ? (
-  <div className="space-y-3">
-   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    <div>
-     <label className="block text-[13px] font-bold text-gray-600 mb-1">วันผลิต (MFG) <span className="font-normal text-gray-400">(ถ้ามี)</span></label>
-     <DateInputDMY
-      value={formData.mfg_date || ''}
-      onChange={(val) => setFormData({ ...formData, mfg_date: val })}
-      placeholder="วัน/เดือน/ปี"
-      className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
-     />
-    </div>
-    <div>
-     <label className="block text-[13px] font-bold text-gray-600 mb-1">
-      วันหมดอายุ (EXP) <span className="text-blue-600 font-normal">(ไม่มีวันหมดอายุ)</span>
-     </label>
-     <input
-      type="text"
-      disabled
-      value="สินค้าไม่มีวันหมดอายุ"
-      className="w-full p-3 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 font-medium"
-     />
-    </div>
-   </div>
-   <p className="text-[12px] text-blue-600 font-medium">รายการนี้ถูกตั้งค่าเป็นสินค้าที่ไม่มีวันหมดอายุ ระบบจะไม่แจ้งเตือนวันหมดอายุ</p>
-  </div>
- ) : (
-  <div className="space-y-3">
-   {(() => {
-    const batches = Array.isArray(formData.expiry_batches) && formData.expiry_batches.length > 0
-     ? formData.expiry_batches
-     : [{ id: 'batch-init', quantity: Math.max(1, Number(formData.quantity || 1)), mfg_date: formData.mfg_date || '', exp_date: formData.exp_date || '', no_expiry: false }];
-    const updateBatchRow = (index: number, patch: Record<string, any>) => {
-     const nextBatches = batches.map((b: any, i: number) => (i === index ? { ...b, ...patch } : b));
-     const totalBatchQty = nextBatches.reduce((sum: number, b: any) => sum + Math.max(0, Number(b.quantity || 0)), 0);
-     setFormData({
-      ...formData,
-      expiry_batches: nextBatches,
-      ...(formMode === 'add' ? { quantity: totalBatchQty } : {}),
-     });
-    };
-    const addBatchRow = () => {
-     const nextBatches = [
-      ...batches,
-      {
-       id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-       quantity: 1,
-       mfg_date: '',
-       exp_date: '',
-       no_expiry: false,
-      },
-     ];
-     const totalBatchQty = nextBatches.reduce((sum: number, b: any) => sum + Math.max(0, Number(b.quantity || 0)), 0);
-     setFormData({
-      ...formData,
-      expiry_batches: nextBatches,
-      ...(formMode === 'add' ? { quantity: totalBatchQty } : {}),
-     });
-    };
-    const removeBatchRow = (index: number) => {
-     if (batches.length <= 1) {
-      updateBatchRow(0, { mfg_date: '', exp_date: '', no_expiry: false });
-      return;
-     }
-     const nextBatches = batches.filter((_: any, i: number) => i !== index);
-     const totalBatchQty = nextBatches.reduce((sum: number, b: any) => sum + Math.max(0, Number(b.quantity || 0)), 0);
-     setFormData({
-      ...formData,
-      expiry_batches: nextBatches,
-      ...(formMode === 'add' ? { quantity: totalBatchQty } : {}),
-     });
-    };
-    return (
-     <>
-      <div className="space-y-3">
-       {batches.map((batch: any, idx: number) => (
-        <div key={batch.id || idx} className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 space-y-3">
-         <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#7a5c4e]">
-           ล็อตที่ {idx + 1}
-          </span>
-          <button
-           type="button"
-           onClick={() => removeBatchRow(idx)}
-           className="text-[12px] font-bold text-red-500 hover:text-red-700 flex items-center gap-1"
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white w-full max-w-[720px] rounded-[24px] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 max-h-[92vh]">
+        
+        {/* Header */}
+        <div className="h-[76px] border-b border-gray-200 flex items-center justify-between px-7 shrink-0 bg-[#f5f6f8]">
+          <div>
+            <h2 className="text-[20px] font-bold text-gray-800">
+              {formMode === 'add' 
+                ? (formData.type === 'packaging' ? 'เพิ่มบรรจุภัณฑ์' : 'เพิ่มวัตถุดิบ') 
+                : (formData.type === 'packaging' ? 'แก้ไขบรรจุภัณฑ์' : 'แก้ไขวัตถุดิบ')}
+            </h2>
+            <p className="mt-0.5 text-[12px] text-gray-500">
+              {formMode === 'edit' ? (formData.name || 'แก้ไขข้อมูลรายการ') : 'กรอกข้อมูลพื้นฐานที่จำเป็น แล้วบันทึกได้ทันที'}
+            </p>
+          </div>
+          <button 
+            onClick={() => setShowFormModal(false)} 
+            className="w-9 h-9 rounded-full bg-white hover:bg-gray-200 border border-gray-200 flex items-center justify-center text-gray-500 transition-colors"
           >
-           <Trash2 className="w-3.5 h-3.5" />
-           {batches.length > 1 ? 'ลบล็อตนี้' : 'ล้างวันที่'}
+            <X className="w-5 h-5"/>
           </button>
-         </div>
-         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-           <label className="block text-[12px] font-bold text-gray-600 mb-1">
-            จำนวนในล็อตนี้ ({formData.unit || 'หน่วย'})
-           </label>
-           <input
-            type="number"
-            min="0.01"
-            step="any"
-            value={batch.quantity ?? ''}
-            onChange={(e) => updateBatchRow(idx, { quantity: e.target.value === '' ? '' : Number(e.target.value) })}
-            className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white font-bold text-gray-800"
-           />
-          </div>
-          <div>
-           <label className="block text-[12px] font-bold text-gray-600 mb-1">วันผลิต (MFG)</label>
-           <DateInputDMY
-            value={batch.mfg_date || ''}
-            onChange={(val) => updateBatchRow(idx, { mfg_date: val })}
-            placeholder="วัน/เดือน/ปี"
-            className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
-           />
-          </div>
-          <div>
-           <label className="block text-[12px] font-bold text-gray-600 mb-1">วันหมดอายุ (EXP)</label>
-           <DateInputDMY
-            min={batch.mfg_date || undefined}
-            value={batch.exp_date || ''}
-            onChange={(val) => updateBatchRow(idx, { exp_date: val, no_expiry: false })}
-            placeholder="วัน/เดือน/ปี"
-            className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
-           />
-          </div>
-         </div>
         </div>
-       ))}
+        
+        {/* Modal Body */}
+        <div className="flex-1 overflow-y-auto p-7 space-y-5">
+          
+          {/* หมวดที่ 1: ข้อมูลทั่วไปและรูปภาพ */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+            <div className="border-b border-gray-100 pb-3">
+              <h3 className="text-[16px] font-bold text-gray-800">ข้อมูลทั่วไป</h3>
+            </div>
+
+            {/* อัปโหลดรูปภาพ */}
+            <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50/80 p-3.5 rounded-xl border border-gray-200/80">
+              <div className="w-20 h-20 rounded-xl bg-white border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 relative group shadow-xs">
+                {formData.image_url ? (
+                  <>
+                    <img src={formData.image_url} alt="preview" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, image_url: '' })}
+                      className="absolute inset-0 bg-black/50 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-[11px] font-bold"
+                    >
+                      ลบรูป
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-gray-400 font-medium text-center px-1">ไม่มีรูปภาพ</span>
+                )}
+                {uploadingImage && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5 animate-spin text-[#7a5c4e]" />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 w-full space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="cursor-pointer text-[12px] font-bold text-[#7a5c4e] bg-[#7a5c4e]/10 hover:bg-[#7a5c4e]/20 px-3.5 py-1.5 rounded-lg transition-colors inline-block">
+                    <span>อัปโหลดรูปภาพ</span>
+                    <input type="file" className="hidden" accept="image/jpeg, image/png, image/webp" onChange={handleImageUpload} disabled={uploadingImage} />
+                  </label>
+                  {formData.image_url && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, image_url: '' })}
+                      className="text-[12px] text-red-500 hover:text-red-700 font-medium px-2 py-1"
+                    >
+                      ล้างรูป
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  placeholder="หรือวาง URL รูปภาพที่นี่..."
+                  value={formData.image_url || ''}
+                  onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                  className="w-full text-[12px] px-3 py-1.5 rounded-lg border border-gray-300 bg-white outline-none focus:border-[#7a5c4e]"
+                />
+              </div>
+            </div>
+
+            {/* ชื่อรายการ */}
+            <div>
+              <label className="block text-[13px] font-bold text-gray-700 mb-1">
+                ชื่อรายการ <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="เช่น นมสด Meiji, เมล็ดกาแฟอาราบิก้า, แก้วกาแฟ 16oz"
+                value={formData.name || ''}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] font-medium text-gray-800"
+              />
+            </div>
+
+            {/* Grid 3 คอลัมน์: ประเภทหลัก, หมวดย่อย, สถานะการใช้งาน */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div>
+                <label className="block text-[12px] font-bold text-gray-600 mb-1">ประเภทหลัก <span className="text-red-500">*</span></label>
+                <select
+                  value={formData.type || (activeTab === "บรรจุภัณฑ์" ? 'packaging' : 'raw_material')}
+                  onChange={(e) => {
+                    const nextType = e.target.value;
+                    setFormData((prev: any) => ({ ...prev, type: nextType, category_id: '' }));
+                  }}
+                  className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px] font-medium"
+                >
+                  <option value="raw_material">วัตถุดิบ</option>
+                  <option value="packaging">บรรจุภัณฑ์</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-bold text-gray-600 mb-1">หมวดย่อย</label>
+                <div className="flex gap-1.5">
+                  <select
+                    value={formData.category_id ?? ''}
+                    onChange={(e) => setFormData((prev: any) => ({ ...prev, category_id: e.target.value }))}
+                    className="w-full min-w-0 p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
+                  >
+                    <option value="">เลือกหมวดย่อย</option>
+                    {formCategoryOptions.map((category: any) => (
+                      <option key={category.id} value={category.id}>{category.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryForm({ id: null, name: '', type: formData.type || (activeTab === 'บรรจุภัณฑ์' ? 'packaging' : 'raw_material') });
+                      setShowCategoryModal(true);
+                    }}
+                    title="เพิ่มหมวดย่อยใหม่"
+                    className="px-3 rounded-xl border border-[#7a5c4e] bg-[#7a5c4e] text-white text-[12px] font-bold shrink-0 hover:bg-[#684c3f] transition-colors"
+                  >
+                    + เพิ่ม
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[12px] font-bold text-gray-600 mb-1">สถานะการใช้งาน</label>
+                <select
+                  value={formData.status || 'active'}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px] font-medium"
+                >
+                  <option value="active">เปิดใช้งาน</option>
+                  <option value="inactive">ระงับ (ซ่อน)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* หมวดที่ 2: หน่วยนับ, ขนาดบรรจุ & ต้นทุน */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+            <div className="border-b border-gray-100 pb-3">
+              <h3 className="text-[16px] font-bold text-gray-800">หน่วยนับและต้นทุน</h3>
+              <p className="text-[11px] text-gray-500">กำหนดหน่วยหลักในการเก็บสต็อก ต้นทุน และการแปลงหน่วยย่อยสำหรับตัดสูตร</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[13px] font-bold text-gray-700 mb-1">
+                  หน่วยหลักที่เก็บในสต๊อก <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="เช่น ขวด, ถุง, กล่อง, ลัง, กิโลกรัม"
+                  value={formData.unit || ''}
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                  className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-bold text-gray-700 mb-1">
+                  ต้นทุนต่อ 1 {formData.unit || 'หน่วยหลัก'} (฿) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="0.00"
+                  value={formData.cost ?? ''}
+                  onChange={(e) => setFormData({ ...formData, cost: e.target.value === '' ? '' : Number(e.target.value) })}
+                  className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]"
+                />
+              </div>
+            </div>
+
+            {/* การแปลงหน่วยย่อย (สำหรับสูตรอาหาร / เครื่องดื่ม) */}
+            <div className="rounded-xl border border-amber-200/60 bg-amber-50/40 p-4 space-y-3">
+              <div>
+                <span className="text-[13px] font-bold text-gray-800">การแปลงหน่วยย่อย (สำหรับคำนวณตัดสต็อกตามสูตร)</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[12px] font-bold text-gray-600 mb-1">
+                    ปริมาณบรรจุต่อ 1 {formData.unit || 'หน่วยหลัก'}
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="any"
+                    placeholder="เช่น 1000"
+                    value={formData.package_size ?? ''}
+                    onChange={(e) => setFormData({ ...formData, package_size: e.target.value === '' ? '' : Math.max(0.01, Number(e.target.value)) })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-bold text-gray-600 mb-1">
+                    หน่วยย่อยของปริมาณ
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="เช่น ml, g, ชิ้น, ซอง"
+                    value={formData.package_unit ?? ''}
+                    onChange={(e) => setFormData({ ...formData, package_unit: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
+                  />
+                </div>
+              </div>
+              {Boolean(formData.package_size && formData.package_unit) && (
+                <div className="text-[12px] text-[#7a5c4e] bg-white/90 p-2.5 rounded-lg border border-amber-200/50 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>ตัวอย่าง: 1 {formData.unit || 'หน่วยหลัก'} = <strong>{Number(formData.package_size || 1).toLocaleString()} {formData.package_unit}</strong></span>
+                  {Boolean(formData.cost) && (
+                    <span>| ต้นทุนเฉลี่ย <strong>฿{(Number(formData.cost || 0) / Math.max(0.01, Number(formData.package_size || 1))).toFixed(4)}</strong> / {formData.package_unit}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* หมวดที่ 3: วันผลิต วันหมดอายุ & ล็อตสินค้า */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-[16px] font-bold text-gray-800">วันผลิตและวันหมดอายุ</h3>
+                <p className="text-[11px] text-gray-500">ติดตามอายุการใช้งานของสินค้าและแจ้งเตือนก่อนหมดอายุ</p>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 hover:bg-gray-100 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.no_expiry)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    const existingBatches = Array.isArray(formData.expiry_batches) && formData.expiry_batches.length > 0
+                      ? formData.expiry_batches
+                      : [{ id: `batch-${Date.now()}`, quantity: Math.max(0, Number(formData.quantity || 0)), mfg_date: formData.mfg_date || '', exp_date: formData.exp_date || '', no_expiry: false }];
+                    setFormData({
+                      ...formData,
+                      no_expiry: checked,
+                      exp_date: checked ? '' : (formData.exp_date || ''),
+                      expiry_batches: existingBatches
+                    });
+                  }}
+                  className="h-4 w-4 accent-[#7a5c4e]"
+                />
+                <span className="text-[13px] font-bold text-gray-700">สินค้าไม่มีวันหมดอายุ</span>
+              </label>
+            </div>
+
+            {formData.no_expiry ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[12px] font-bold text-gray-600 mb-1">
+                      วันผลิต (MFG) <span className="font-normal text-gray-400">(ถ้ามี)</span>
+                    </label>
+                    <DateInputDMY
+                      value={formData.mfg_date || ''}
+                      onChange={(val) => setFormData({ ...formData, mfg_date: val })}
+                      placeholder="วัน/เดือน/ปี"
+                      className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[12px] font-bold text-gray-600 mb-1">
+                      วันหมดอายุ (EXP)
+                    </label>
+                    <input
+                      type="text"
+                      disabled
+                      value="สินค้าไม่มีวันหมดอายุ"
+                      className="w-full p-2.5 rounded-xl border border-gray-200 bg-gray-100 text-gray-500 font-medium text-[13px]"
+                    />
+                  </div>
+                </div>
+                <p className="text-[12px] text-blue-600 font-medium bg-blue-50/60 p-2.5 rounded-xl border border-blue-100">
+                  รายการนี้ถูกตั้งค่าเป็นสินค้าไม่มีวันหมดอายุ ระบบจะไม่แจ้งเตือนวันหมดอายุ
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {(() => {
+                  const batches = Array.isArray(formData.expiry_batches) && formData.expiry_batches.length > 0
+                    ? formData.expiry_batches
+                    : [{ id: 'batch-init', quantity: Math.max(0, Number(formData.quantity || 0)), mfg_date: formData.mfg_date || '', exp_date: formData.exp_date || '', no_expiry: false }];
+                  const updateBatchRow = (index: number, patch: Record<string, any>) => {
+                    const nextBatches = batches.map((b: any, i: number) => (i === index ? { ...b, ...patch } : b));
+                    const totalBatchQty = nextBatches.reduce((sum: number, b: any) => sum + Math.max(0, Number(b.quantity || 0)), 0);
+                    setFormData({
+                      ...formData,
+                      expiry_batches: nextBatches,
+                      ...(formMode === 'add' ? { quantity: totalBatchQty } : {}),
+                    });
+                  };
+                  const addBatchRow = () => {
+                    const nextBatches = [
+                      ...batches,
+                      {
+                        id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                        quantity: 0,
+                        mfg_date: '',
+                        exp_date: '',
+                        no_expiry: false,
+                      },
+                    ];
+                    const totalBatchQty = nextBatches.reduce((sum: number, b: any) => sum + Math.max(0, Number(b.quantity || 0)), 0);
+                    setFormData({
+                      ...formData,
+                      expiry_batches: nextBatches,
+                      ...(formMode === 'add' ? { quantity: totalBatchQty } : {}),
+                    });
+                  };
+                  const removeBatchRow = (index: number) => {
+                    if (batches.length <= 1) {
+                      updateBatchRow(0, { mfg_date: '', exp_date: '', quantity: 0, no_expiry: false });
+                      return;
+                    }
+                    const nextBatches = batches.filter((_: any, i: number) => i !== index);
+                    const totalBatchQty = nextBatches.reduce((sum: number, b: any) => sum + Math.max(0, Number(b.quantity || 0)), 0);
+                    setFormData({
+                      ...formData,
+                      expiry_batches: nextBatches,
+                      ...(formMode === 'add' ? { quantity: totalBatchQty } : {}),
+                    });
+                  };
+                  const totalBatchQty = batches.reduce((s: number, b: any) => s + Math.max(0, Number(b.quantity || 0)), 0);
+                  return (
+                    <>
+                      <div className="space-y-3">
+                        {batches.map((batch: any, idx: number) => (
+                          <div key={batch.id || idx} className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#7a5c4e]">
+                                ล็อตที่ {idx + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeBatchRow(idx)}
+                                className="text-[12px] font-bold text-red-500 hover:text-red-700"
+                              >
+                                {batches.length > 1 ? 'ลบล็อตนี้' : 'ล้างข้อมูลล็อต'}
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div>
+                                <label className="block text-[12px] font-bold text-gray-600 mb-1">
+                                  จำนวนในล็อตนี้ ({formData.unit || 'หน่วย'})
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  placeholder="0"
+                                  value={batch.quantity === 0 ? '' : (batch.quantity ?? '')}
+                                  onChange={(e) => updateBatchRow(idx, { quantity: e.target.value === '' ? 0 : Number(e.target.value) })}
+                                  className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white font-bold text-gray-800 text-[13px]"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[12px] font-bold text-gray-600 mb-1">วันผลิต (MFG)</label>
+                                <DateInputDMY
+                                  value={batch.mfg_date || ''}
+                                  onChange={(val) => updateBatchRow(idx, { mfg_date: val })}
+                                  placeholder="วัน/เดือน/ปี"
+                                  className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[12px] font-bold text-gray-600 mb-1">วันหมดอายุ (EXP)</label>
+                                <DateInputDMY
+                                  min={batch.mfg_date || undefined}
+                                  value={batch.exp_date || ''}
+                                  onChange={(val) => updateBatchRow(idx, { exp_date: val, no_expiry: false })}
+                                  placeholder="วัน/เดือน/ปี"
+                                  className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] bg-white text-[13px]"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={addBatchRow}
+                          className="rounded-xl border border-[#7a5c4e] bg-[#7a5c4e]/10 px-3.5 py-2 text-[13px] font-bold text-[#7a5c4e] hover:bg-[#7a5c4e]/20 transition-colors"
+                        >
+                          + เพิ่มล็อตวันหมดอายุ
+                        </button>
+                        {totalBatchQty > 0 && (
+                          <span className="text-[12px] text-gray-500">
+                            รวมจำนวนที่ระบุล็อต: <strong className="text-gray-800">{formatStockQuantity(totalBatchQty)} {formData.unit || 'หน่วย'}</strong>
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+
+                {/* การตั้งค่าแจ้งเตือนวันหมดอายุ */}
+                <div className="pt-3 border-t border-gray-100">
+                  <label className="block text-[12px] font-bold text-gray-700 mb-1">
+                    แจ้งเตือนล่วงหน้าก่อนวันหมดอายุ (วัน)
+                  </label>
+                  <div className="flex items-center gap-2 max-w-[240px]">
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={formData.expiry_alert_days ?? 7}
+                      onChange={(e) => setFormData({ ...formData, expiry_alert_days: e.target.value === '' ? '' : Math.max(1, Number(e.target.value)) })}
+                      className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] text-[13px]"
+                    />
+                    <span className="text-[13px] font-medium text-gray-500 shrink-0">วันก่อนหมด</span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-gray-400">ระบบจะแจ้งเตือนเมื่อล็อตสินค้าเหลือเวลาไม่เกินกำหนดนี้</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* หมวดที่ 4: การแจ้งเตือนสต็อกขั้นต่ำ */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[15px] font-bold text-gray-800">แจ้งเตือนเมื่อสต็อกเหลือน้อย</p>
+                <p className="text-[11px] text-gray-500">แจ้งเตือนอัตโนมัติเมื่อจำนวนสินค้าลดลงถึงเกณฑ์ขั้นต่ำ</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={Number(formData.min_threshold || 0) > 0}
+                onChange={(e) => setFormData({ ...formData, min_threshold: e.target.checked ? (formData.min_threshold || 5) : 0 })}
+                className="h-5 w-5 accent-[#7a5c4e] cursor-pointer"
+              />
+            </div>
+
+            {Number(formData.min_threshold || 0) > 0 && (
+              <div className="pt-3 border-t border-gray-100 space-y-2 animate-in fade-in-50">
+                <label className="block text-[12px] font-bold text-gray-700">
+                  จำนวนขั้นต่ำที่ต้องการให้แจ้งเตือน ({formData.unit || 'หน่วย'})
+                </label>
+                <div className="flex items-center gap-2 max-w-[240px]">
+                  <input
+                    type="number"
+                    min="1"
+                    step="any"
+                    value={formData.min_threshold ?? ''}
+                    onChange={(e) => setFormData({ ...formData, min_threshold: e.target.value === '' ? '' : Number(e.target.value) })}
+                    className="w-full p-2.5 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] text-[14px] font-bold"
+                  />
+                  <span className="text-[13px] font-medium text-gray-500 shrink-0">{formData.unit || 'หน่วย'}</span>
+                </div>
+                <p className="text-[11px] text-[#7a5c4e]">
+                  ระบบจะแจ้งเตือนเมื่อสินค้าในคลังเหลือต่ำกว่าหรือเท่ากับ {formData.min_threshold} {formData.unit || 'หน่วย'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 bg-gray-50 border-t border-gray-200 grid grid-cols-2 gap-3 shrink-0">
+          <button 
+            type="button"
+            onClick={() => setShowFormModal(false)} 
+            className="py-3.5 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-100 transition-colors"
+          >
+            ยกเลิก
+          </button>
+          <button 
+            type="button"
+            onClick={handleSaveData} 
+            disabled={isSaving} 
+            className="py-3.5 bg-[#7a5c4e] text-white rounded-xl font-bold hover:bg-[#684c3f] transition-colors flex items-center justify-center gap-2 shadow-sm"
+          >
+            {isSaving && <RefreshCw className="w-5 h-5 animate-spin" />} บันทึกข้อมูล
+          </button>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-       <button
-        type="button"
-        onClick={addBatchRow}
-        className="inline-flex items-center gap-1.5 rounded-xl border border-[#7a5c4e] bg-[#7a5c4e]/10 px-3.5 py-2 text-[13px] font-bold text-[#7a5c4e] hover:bg-[#7a5c4e]/20 transition-colors"
-       >
-        <Plus className="w-4 h-4" /> เพิ่มล็อตวันหมดอายุ
-       </button>
-       <span className="text-[12px] text-gray-500">
-        รวมจำนวนที่ระบุล็อต: <strong className="text-gray-800">{formatStockQuantity(batches.reduce((s: number, b: any) => s + Math.max(0, Number(b.quantity || 0)), 0))} {formData.unit || 'หน่วย'}</strong>
-       </span>
-      </div>
-     </>
-    );
-   })()}
-   <p className="text-[12px] text-gray-500">ระบุวันผลิตและวันหมดอายุแยกตามล็อต เพื่อให้ระบบติดตามและแจ้งเตือนก่อนสินค้าแต่ละล็อตหมดอายุ</p>
-  </div>
- )}
- </div>
+    </div>
+  )}
 
- <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
- <h3 className="mb-4 text-[16px] font-bold text-gray-800">การตั้งค่าการแจ้งเตือน</h3>
- <div className="flex items-center justify-between rounded-xl border border-gray-200 p-4">
- <div><p className="text-[14px] font-bold text-gray-800">แจ้งเตือนเมื่อสต็อกต่ำ</p><p className="mt-1 text-[12px] text-gray-500">ปิดได้ถ้าไม่ต้องการติดตามขั้นต่ำ</p></div>
- <input type="checkbox" checked={Number(formData.min_threshold || 0) > 0} onChange={(e)=>setFormData({...formData, min_threshold: e.target.checked ? (formData.min_threshold || 1) : 0})} className="h-5 w-5 accent-[#7a5c4e]" />
- </div>
- <div className="mt-4"><label className="block text-[13px] font-bold text-gray-600 mb-1">จำนวนขั้นต่ำที่ต้องการให้แจ้งเตือน</label><input type="number" min="0" disabled={Number(formData.min_threshold || 0) === 0} value={formData.min_threshold ?? ''} onChange={(e)=>setFormData({...formData, min_threshold: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-300 outline-none disabled:bg-gray-100" /></div>
- {Number(formData.min_threshold || 0) > 0 && <p className="mt-3 text-[12px] text-gray-500">แจ้งเตือนเมื่อเหลือต่ำกว่า {formData.min_threshold} {formData.unit || 'หน่วย'}</p>}
-
- {!formData.no_expiry && (
-  <div className="mt-4 pt-4 border-t border-gray-100">
-   <label className="block text-[13px] font-bold text-gray-600 mb-1">แจ้งเตือนล่วงหน้าก่อนวันหมดอายุ (วัน)</label>
-   <input
-    type="number"
-    min="1"
-    max="365"
-    value={formData.expiry_alert_days ?? 7}
-    onChange={(e) => setFormData({ ...formData, expiry_alert_days: e.target.value === '' ? '' : Math.max(1, Number(e.target.value)) })}
-    className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]"
-   />
-   <p className="mt-2 text-[12px] text-gray-500">ระบบจะแจ้งเตือนเมื่อมีล็อตสินค้าที่เหลือเวลาอีกไม่เกิน {formData.expiry_alert_days || 7} วันก่อนถึงวันหมดอายุ</p>
-  </div>
- )}
- </div>
-
- <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
- <h3 className="mb-3 text-[16px] font-bold text-gray-800">หน่วยและปริมาณ</h3>
- <p className="mb-3 text-[13px] font-bold text-gray-700">ขนาดบรรจุและต้นทุนต่อชิ้น</p>
- <div className="grid grid-cols-2 gap-4">
- <div><label className="block text-[12px] font-bold text-gray-600 mb-1">ปริมาณต่อ 1 {formData.unit || 'หน่วย'}</label><input type="number" min="0.01" step="0.01" value={formData.package_size ?? ''} onChange={(e)=>setFormData({...formData, package_size: e.target.value === '' ? '' : Math.max(0.01, Number(e.target.value))})} placeholder="เช่น 1000" className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
- <div><label className="block text-[12px] font-bold text-gray-600 mb-1">หน่วยย่อยของปริมาณ</label><input type="text" value={formData.package_unit ?? ''} onChange={(e)=>setFormData({...formData, package_unit: e.target.value})} placeholder="เช่น ml, g, kg, ชิ้น" className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]" /></div>
- </div>
- <p className="mt-3 text-[12px] text-gray-500">ตัวอย่าง: 1 {formData.unit || 'ขวด'} = {Number(formData.package_size || 1).toLocaleString()} {formData.package_unit || 'หน่วยย่อย'} | ต้นทุนต่อ {formData.package_unit || 'หน่วยย่อย'}: ฿{(Number(formData.cost || 0) / Math.max(0.01, Number(formData.package_size || 1))).toFixed(2)} | Stock รวม: {(Number(formData.quantity || 0) * Math.max(0.01, Number(formData.package_size || 1))).toLocaleString()} {formData.package_unit || 'หน่วยย่อย'}</p>
- </div>
- {formMode === 'add' && (
- <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
- <h3 className="mb-3 text-[16px] font-bold text-gray-800">สต็อกเริ่มต้น</h3>
- <p className="mb-3 text-[12px] text-gray-500">ระบุจำนวนที่มีอยู่ตอนเริ่มต้น ระบบจะสร้างรายการรับเข้าให้อัตโนมัติ</p>
- <div className="flex items-center gap-3">
- <button
-  type="button"
-  onClick={() => {
-   const nextQty = Math.max(0, Number(formData.quantity || 0) - 1);
-   const nextBatches = Array.isArray(formData.expiry_batches) && formData.expiry_batches.length === 1
-    ? [{ ...formData.expiry_batches[0], quantity: Math.max(1, nextQty) }]
-    : formData.expiry_batches;
-   setFormData({ ...formData, quantity: nextQty, expiry_batches: nextBatches });
-  }}
-  className="h-11 w-11 rounded-xl border border-gray-300 bg-white text-gray-700"
- >
-  <Minus className="mx-auto h-4 w-4" />
- </button>
- <input
-  type="number"
-  min="0"
-  value={formData.quantity ?? 0}
-  onChange={(e) => {
-   const nextQty = e.target.value === '' ? '' : Math.max(0, Number(e.target.value));
-   const nextBatches = Array.isArray(formData.expiry_batches) && formData.expiry_batches.length === 1 && nextQty !== ''
-    ? [{ ...formData.expiry_batches[0], quantity: Math.max(1, Number(nextQty)) }]
-    : formData.expiry_batches;
-   setFormData({ ...formData, quantity: nextQty, expiry_batches: nextBatches });
-  }}
-  className="h-11 min-w-0 flex-1 rounded-xl border border-gray-300 text-center text-[18px] font-bold outline-none"
- />
- <button
-  type="button"
-  onClick={() => {
-   const nextQty = Number(formData.quantity || 0) + 1;
-   const nextBatches = Array.isArray(formData.expiry_batches) && formData.expiry_batches.length === 1
-    ? [{ ...formData.expiry_batches[0], quantity: Math.max(1, nextQty) }]
-    : formData.expiry_batches;
-   setFormData({ ...formData, quantity: nextQty, expiry_batches: nextBatches });
-  }}
-  className="h-11 w-11 rounded-xl bg-[#7a5c4e] text-white"
- >
-  <Plus className="mx-auto h-4 w-4" />
- </button>
- <span className="min-w-[70px] text-[13px] font-bold text-gray-500">{formData.unit || 'หน่วย'}</span>
- </div>
- </div>
- )}
- <div>
- <label className="block text-[13px] font-bold text-gray-600 mb-1">สถานะ</label>
- <select value={formData.status || 'active'} onChange={(e)=>setFormData({...formData, status: e.target.value})} className="w-full p-3 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e]">
- <option value="active">เปิดใช้งาน</option>
- <option value="inactive">ระงับ (ซ่อน)</option>
- </select>
- </div>
- </div>
-
- <div className="p-6 bg-gray-50 border-t border-gray-200 grid grid-cols-2 gap-3 shrink-0">
- <button onClick={() => setShowFormModal(false)} className="py-3.5 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-colors">ยกเลิก</button>
- <button onClick={handleSaveData} disabled={isSaving} className="py-3.5 bg-[#7a5c4e] text-white rounded-xl font-bold hover:bg-[#684c3f] transition-colors flex items-center justify-center gap-2 shadow-sm">
- {isSaving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} บันทึกข้อมูล
- </button>
- </div>
- </div>
- </div>
- )}
-
- {/* ==========================================
- DETAIL DRAWER
+  {/* ==========================================
+  DETAIL DRAWER
  ========================================== */}
  {selectedItem && (
  <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm">
