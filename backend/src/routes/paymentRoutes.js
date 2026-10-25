@@ -2,14 +2,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // Supabase client
 const OmiseProvider = require('../services/omiseProvider');
+const { getCachedShopSettings } = require('../shopSettingsCache');
 const statusChecksInFlight = new Set();
 
 // Helper to get provider instance based on shop settings
 async function getProvider(shopId, settingsData = null) {
     // In production, fetch config from DB where it is securely stored or ENV
     if (!settingsData) {
-        const { data: settings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shopId).single();
-        settingsData = settings?.settings_data;
+        settingsData = await getCachedShopSettings(shopId);
     }
     const config = settingsData?.payment_gateway || {};
     
@@ -31,15 +31,14 @@ async function getProvider(shopId, settingsData = null) {
 router.post('/create-qr', async (req, res) => {
     const { shop_id, order_id, amount, currency = 'THB' } = req.body;
     try {
-        const [orderResult, settingsResult] = await Promise.all([
+        const [orderResult, settingsData] = await Promise.all([
             db.from('orders').select('*').eq('id', order_id).eq('shop_id', shop_id).single(),
-            db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single()
+            getCachedShopSettings(shop_id)
         ]);
         const { data: order, error: orderErr } = orderResult;
         if (orderErr || !order) return res.status(404).json({ success: false, error: "Order not found" });
 
-        const { data: settings } = settingsResult;
-        const config = settings?.settings_data || {};
+        const config = settingsData || {};
         
         let qrData = '';
         let txId = 'TX-' + Date.now();

@@ -86,6 +86,8 @@ export default function ShiftsPage() {
  const [expenseMode, setExpenseMode] = useState<"in" | "out">("out"); 
  const [expenseData, setExpenseData] = useState({ amount: "", reason: "", pin: "" });
  const [isExpensing, setIsExpensing] = useState(false);
+ const [isSubmittingShift, setIsSubmittingShift] = useState(false);
+ const shiftActionRef = useRef(false);
 
  useEffect(() => {
  const savedUserRaw = localStorage.getItem("userContext");
@@ -310,7 +312,10 @@ export default function ShiftsPage() {
  };
 
  const handleOpenShift = async () => {
+ if (shiftActionRef.current || isSubmittingShift) return;
  if (!openingCash || isNaN(Number(openingCash))) return showToast("กรุณาระบุเงินสดเริ่มต้นให้ถูกต้อง", 'error');
+ shiftActionRef.current = true;
+ setIsSubmittingShift(true);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/open`, {
  method: "POST", headers: { "Content-Type": "application/json" },
@@ -322,7 +327,7 @@ export default function ShiftsPage() {
  } else {
  const errorData = await res.json(); showToast(`เกิดข้อผิดพลาด: ${errorData.message || errorData.error}`, 'error');
  }
- } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); }
+ } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { shiftActionRef.current = false; setIsSubmittingShift(false); }
  };
 
  const openClosingModal = () => {
@@ -337,6 +342,9 @@ export default function ShiftsPage() {
  };
 
  const handleCloseShift = async () => {
+ if (shiftActionRef.current || isSubmittingShift) return;
+ shiftActionRef.current = true;
+ setIsSubmittingShift(true);
  try {
  const closingPayload = {
  shift_id: currentShift.id, 
@@ -368,10 +376,12 @@ export default function ShiftsPage() {
  setIsClosingShift(false); setActualCash(""); setCurrentShift(null); setShiftSummary(null); setCloseStep(1);
  fetchShiftHistory(user.shop_id, dateSelection.startDate, currentShopTimezone, dateSelection.endDate);
  } else { showToast("เกิดข้อผิดพลาดในการปิดรอบ", 'error'); }
- } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); }
+ } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { shiftActionRef.current = false; setIsSubmittingShift(false); }
  };
 
  const handleReprintShift = async (pastShift: any) => {
+ if (shiftActionRef.current || printingShiftId !== null) return;
+ shiftActionRef.current = true;
  setPrintingShiftId(pastShift.id);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/${pastShift.id}/summary`);
@@ -391,12 +401,15 @@ export default function ShiftsPage() {
  } catch (error) {
  showToast("การเชื่อมต่อเซิร์ฟเวอร์ล้มเหลว", 'error');
  } finally {
+ shiftActionRef.current = false;
  setPrintingShiftId(null);
  }
  };
 
  const handleExpense = async () => {
+ if (shiftActionRef.current || isExpensing) return;
  if (!expenseData.amount || !expenseData.reason || !expenseData.pin) return showToast("กรุณากรอกข้อมูลให้ครบถ้วน", 'error');
+ shiftActionRef.current = true;
  setIsExpensing(true);
  try {
  const finalAmount = expenseMode === "in" ? -Math.abs(Number(expenseData.amount)) : Math.abs(Number(expenseData.amount));
@@ -415,7 +428,7 @@ export default function ShiftsPage() {
  setExpenseMode("out"); 
  fetchShiftSummary(currentShift.id); 
  } else { showToast(data.error, 'error'); }
- } catch (error) { showToast("เกิดข้อผิดพลาด", 'error'); } finally { setIsExpensing(false); }
+ } catch (error) { showToast("เกิดข้อผิดพลาด", 'error'); } finally { shiftActionRef.current = false; setIsExpensing(false); }
  };
 
  // ==========================================
@@ -902,7 +915,7 @@ export default function ShiftsPage() {
  <input type="number" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} className="w-full h-[54px] pl-10 pr-4 rounded-xl border border-gray-300 outline-none focus:border-[#7a5c4e] focus:ring-2 focus:ring-[#7a5c4e]/20 text-[18px] font-bold transition-all" placeholder="0.00" autoFocus />
  </div>
  </div>
- <button onClick={handleOpenShift} className="w-full py-4 bg-[#7a5c4e] text-white rounded-xl font-bold text-[16px] hover:bg-[#684c3f] shadow-md transition-all">ยืนยันเปิดรอบการขาย</button>
+ <button disabled={isSubmittingShift} onClick={handleOpenShift} className="w-full py-4 bg-[#7a5c4e] text-white rounded-xl font-bold text-[16px] hover:bg-[#684c3f] shadow-md transition-all disabled:opacity-60 flex items-center justify-center gap-2">{isSubmittingShift ? <RefreshCw className="w-5 h-5 animate-spin" /> : null}{isSubmittingShift ? "กำลังเปิดรอบ..." : "ยืนยันเปิดรอบการขาย"}</button>
  </div>
  </div>
  </div>
@@ -963,9 +976,9 @@ export default function ShiftsPage() {
  </div>
 
  <div className="grid grid-cols-2 gap-3">
- <button onClick={() => setCloseStep(1)} className="py-4 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[16px] hover:bg-gray-50 transition-colors">กลับไปแก้ไข</button>
- <button onClick={handleCloseShift} className="py-4 bg-red-500 text-white rounded-xl font-bold text-[16px] hover:bg-red-600 transition-colors shadow-md flex justify-center items-center gap-2">
- <CheckCircle className="w-5 h-5"/> ยืนยันปิดรอบ
+ <button disabled={isSubmittingShift} onClick={() => setCloseStep(1)} className="py-4 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-[16px] hover:bg-gray-50 transition-colors disabled:opacity-50">กลับไปแก้ไข</button>
+ <button disabled={isSubmittingShift} onClick={handleCloseShift} className="py-4 bg-red-500 text-white rounded-xl font-bold text-[16px] hover:bg-red-600 transition-colors shadow-md flex justify-center items-center gap-2 disabled:opacity-60">
+ {isSubmittingShift ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5"/>} {isSubmittingShift ? "กำลังปิดรอบ..." : "ยืนยันปิดรอบ"}
  </button>
  </div>
  </>
@@ -986,7 +999,7 @@ export default function ShiftsPage() {
  <p className="text-gray-500 text-[13px] mt-1 font-medium mb-4">เลือกว่าต้องการนำเงินเข้า หรือเบิกเงินออก</p>
  
  {/* Tab สลับโหมด */}
- <div className="flex bg-gray-100 p-1.5 rounded-xl">
+ <div data-allow-repeat="true" className="flex bg-gray-100 p-1.5 rounded-xl">
  <button 
  onClick={() => setExpenseMode('in')} 
  className={`flex-1 py-2.5 text-[14px] font-bold rounded-lg transition-all flex justify-center items-center gap-2 ${expenseMode === 'in' ? 'bg-white text-[#7a5c4e] shadow-sm' : 'text-gray-500 hover:bg-gray-200/50'}`}

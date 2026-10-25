@@ -1,6 +1,6 @@
 "use client";
 import { useToast } from '@/components/shared/ToastProvider';
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
 import UnifiedDateRangePicker, { DateRangeValue, getTodayIso } from '@/components/shared/UnifiedDateRangePicker';
@@ -87,6 +87,7 @@ export default function HistoryPage() {
  const [editPin, setEditPin] = useState("");
  const [editForm, setEditForm] = useState({ payment_method: "", order_type: "" });
  const [isEditing, setIsEditing] = useState(false);
+ const actionRef = useRef(false);
  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
 
  useEffect(() => {
@@ -113,7 +114,7 @@ export default function HistoryPage() {
  // โหลดการตั้งค่าร้านและประวัติบิลมาพร้อมกัน
  const [settingsRes, ordersRes] = await Promise.all([
  fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/settings?shop_id=${user.shop_id}`),
- fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders?shop_id=${user.shop_id}`)
+ fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders?shop_id=${user.shop_id}&limit=300`)
  ]);
  
  if (!ordersRes.ok) throw new Error("ไม่สามารถโหลดประวัติใบเสร็จได้");
@@ -199,6 +200,8 @@ export default function HistoryPage() {
  }, [fetchReceipts]);
 
  const handleViewDetail = async (receiptId: string) => {
+ if (actionRef.current || detailLoading) return;
+ actionRef.current = true;
  setDetailLoading(true);
  try {
  const resOrder = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/single/${receiptId}?shop_id=${user?.shop_id}`);
@@ -275,6 +278,7 @@ export default function HistoryPage() {
  } catch (err: any) {
  showToast(err.message, 'error');
  } finally {
+ actionRef.current = false;
  setDetailLoading(false);
  }
  };
@@ -282,7 +286,9 @@ export default function HistoryPage() {
  const handlePrint = () => window.print();
 
  const confirmVoidBill = async () => {
+ if (actionRef.current || isVoiding) return;
  if (!voidPin || voidPin.length !== 4) return showToast("กรุณากรอกรหัส PIN 4 หลักให้ครบถ้วน", 'error');
+ actionRef.current = true;
  setIsVoiding(true);
  try {
  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${voidModal.receiptId}/void`, {
@@ -292,7 +298,7 @@ export default function HistoryPage() {
  });
  const data = await response.json();
  if (data.success) {
- showToast(data.message, 'error');
+ showToast(data.message, 'success');
  setVoidModal({ show: false, receiptId: null, receiptNo: "" });
  setVoidPin(""); setVoidReason(""); setSelectedReceipt(null); 
  fetchReceipts(); 
@@ -300,11 +306,13 @@ export default function HistoryPage() {
  showToast("เกิดข้อผิดพลาด: " + data.error, 'error');
  setVoidPin("");
  }
- } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { setIsVoiding(false); }
+ } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { actionRef.current = false; setIsVoiding(false); }
  };
 
  const handleAuthEdit = async () => {
+ if (actionRef.current || isEditing) return;
  if (!editPin || editPin.length !== 4) return showToast("กรุณากรอกรหัส PIN 4 หลัก", 'error');
+ actionRef.current = true;
  setIsEditing(true);
  try {
  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/verify-manager-pin`, {
@@ -325,10 +333,12 @@ export default function HistoryPage() {
  showToast("รหัส PIN ไม่ถูกต้อง หรือไม่มีสิทธิ์แก้ไข", 'error');
  setEditPin("");
  }
- } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { setIsEditing(false); }
+ } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { actionRef.current = false; setIsEditing(false); }
  };
 
  const confirmEditBill = async () => {
+ if (actionRef.current || isEditing) return;
+ actionRef.current = true;
  setIsEditing(true);
  try {
  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${selectedReceipt.id}/basic`, {
@@ -343,14 +353,14 @@ export default function HistoryPage() {
  });
  const data = await response.json();
  if (data.success) {
- showToast(data.message, 'error');
+ showToast(data.message, 'success');
  setEditDataModal(false);
  setSelectedReceipt(null);
  fetchReceipts();
  } else {
  showToast("เกิดข้อผิดพลาด: " + data.error, 'error');
  }
- } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { setIsEditing(false); }
+ } catch (err) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { actionRef.current = false; setIsEditing(false); }
  };
 
  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -511,7 +521,7 @@ export default function HistoryPage() {
  {/* Pagination */}
  <div className="border-t border-gray-200 p-4 flex justify-between items-center bg-gray-50 rounded-b-[24px]">
  <span className="text-sm font-medium text-gray-500">หน้า {currentPage} จาก {totalPages} <span className="text-gray-400 ml-2">({receipts.length} รายการ)</span></span>
- <div className="flex gap-2">
+ <div data-allow-repeat="true" className="flex gap-2">
  <button 
  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
  disabled={currentPage === 1}

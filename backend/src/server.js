@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const compression = require('compression');
 require('dotenv').config();
 const JWT_SECRET = process.env.JWT_SECRET || 'd8537908239a461fdae853f8410e561662d5c0226cd3f283da9661eaa9e73945';
 const db = require('./db'); // Supabase client
@@ -8,7 +9,10 @@ const bcrypt = require('bcryptjs');
 const cron = require('node-cron');
 const { syncInventoryNotification, createNotification, encodeInventoryExpiry, decodeInventoryExpiry, addInventoryExpiryBatch, deductInventoryExpiryBatch, formatThaiDate } = require('./notificationService');
 
+const { getCachedShopSettings, invalidateShopSettings } = require('./shopSettingsCache');
+
 const app = express();
+app.use(compression()); // บีบอัด JSON (gzip/deflate) ลดขนาดข้อมูลที่ส่งผ่านเน็ตอย่างมาก
 app.use(cors());
 app.options(/.*/, cors()); 
 app.use(express.json({ limit: '10mb' })); 
@@ -68,7 +72,7 @@ app.post('/api/register', async (req, res) => {
             allow_negative_stock: false, auto_deduct_stock: true, allow_price_override: true, allow_discounts: true,
             require_reason_delete_item: true, require_reason_cancel_bill: true, auto_print_receipt: true, enable_e_receipt: false,
             receipt_show_logo: false, receipt_prefix: "INV-", receipt_start_number: "10001", receipt_footer: "ขอบคุณที่ใช้บริการ",
-            pin_enabled: Array.isArray(roles) && roles.length > 0,
+            pin_enabled: req.body.pin_enabled !== undefined ? Boolean(req.body.pin_enabled) : (Array.isArray(roles) && roles.length > 0),
             pin_settings: {},
             payment_cash_enabled: true, payment_qr_enabled: true, payment_transfer_enabled: false, payment_credit_enabled: false, payment_debit_enabled: false,
             alert_low_stock: true, low_stock_threshold: 10, vat_enabled: false, vat_rate: 7, prices_include_vat: true,
@@ -102,8 +106,7 @@ app.post('/api/login', async (req, res) => {
         if (!validPassword) return res.status(401).json({ error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
         if (user.status === 'inactive') return res.status(401).json({ error: 'บัญชีนี้ถูกระงับการใช้งาน' });
 
-        const { data: shopSettingsData } = await db.from('shop_settings').select('settings_data').eq('shop_id', user.shop_id).single();
-        const savedSettings = shopSettingsData?.settings_data ? (typeof shopSettingsData.settings_data === 'string' ? JSON.parse(shopSettingsData.settings_data) : shopSettingsData.settings_data) : {};
+        const savedSettings = await getCachedShopSettings(user.shop_id);
         const userPinMap = savedSettings.pin_settings && typeof savedSettings.pin_settings === 'object' && !Array.isArray(savedSettings.pin_settings)
             ? savedSettings.pin_settings
             : {};
@@ -277,20 +280,46 @@ app.post('/api/verify-manager-pin', async (req, res) => {
 });
 
 // ==========================================
+// --- In-Memory Caching for High-Frequency APIs ---
+// ==========================================
+const categoriesCache = new Map();
+const productsCache = new Map();
+const paymentMethodsCache = new Map();
+const optionsCache = new Map();
+
+function invalidateProductsCache(shopId) {
+    if (!shopId) return;
+    const prefix = `${shopId}_`;
+    for (const key of productsCache.keys()) {
+        if (key.startsWith(prefix)) productsCache.delete(key);
+    }
+}
+
+// ==========================================
 // --- 4. API หมวดหมู่สินค้า (Categories) ---
 // ==========================================
 app.get('/api/categories', async (req, res) => {
     try {
         const { shop_id } = req.query;
+        if (!shop_id) return res.status(200).json([]);
+        const cacheKey = String(shop_id);
+        const cached = categoriesCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 60000) {
+            return res.status(200).json(cached.data);
+        }
         const { data, error } = await db.from('categories').select('*').eq('shop_id', shop_id).order('sort_order', { ascending: true }).order('id', { ascending: false });
         if (error) throw error;
-        return res.status(200).json(data || []);
+        const result = data || [];
+        categoriesCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        return res.status(200).json(result);
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.post('/api/categories', async (req, res) => {
     try {
         const { error } = await db.from('categories').insert([{ shop_id: req.body.shop_id, name: req.body.name, status: req.body.status || 'active' }]);
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        categoriesCache.delete(String(req.body.shop_id));
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -302,6 +331,7 @@ app.put('/api/categories/reorder', async (req, res) => {
         for (let i = 0; i < ordered_ids.length; i++) {
             await db.from('categories').update({ sort_order: i }).eq('id', ordered_ids[i]).eq('shop_id', shop_id);
         }
+        categoriesCache.delete(String(shop_id));
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -310,7 +340,9 @@ app.put('/api/categories/:id', async (req, res) => {
         const shopId = req.body.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('categories').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        categoriesCache.delete(String(shopId));
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.delete('/api/categories/:id', async (req, res) => {
@@ -318,7 +350,9 @@ app.delete('/api/categories/:id', async (req, res) => {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'Missing shop_id' });
         const { error } = await db.from('categories').delete().eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        categoriesCache.delete(String(shopId));
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -330,18 +364,28 @@ app.delete('/api/categories/:id', async (req, res) => {
 app.get('/api/products', async (req, res) => {
     const { shop_id, category_id } = req.query;
     try {
+        if (!shop_id) return res.status(200).json([]);
+        const cacheKey = `${shop_id}_${category_id || 'all'}`;
+        const cached = productsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 30000) {
+            return res.status(200).json(cached.data);
+        }
         let query = db.from('products').select('*').eq('shop_id', shop_id);
         if (category_id && category_id !== 'all') query = query.eq('category_id', category_id);
         const { data, error } = await query.order('id', { ascending: false });
         if (error) throw error;
-        return res.status(200).json(data || []);
+        const result = data || [];
+        productsCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        return res.status(200).json(result);
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.post('/api/products', async (req, res) => {
     const { shop_id, category_id, name, price, status, image_url } = req.body;
     try {
         const { error } = await db.from('products').insert([{ shop_id, category_id, name, price, status: status || 'active', image_url }]);
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        invalidateProductsCache(shop_id);
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.put('/api/products/:id', async (req, res) => {
@@ -349,7 +393,9 @@ app.put('/api/products/:id', async (req, res) => {
         const shopId = req.body.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('products').update(req.body).eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        invalidateProductsCache(shopId);
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 app.delete('/api/products/:id', async (req, res) => {
@@ -357,7 +403,9 @@ app.delete('/api/products/:id', async (req, res) => {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('products').delete().eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error; res.json({ success: true });
+        if (error) throw error;
+        invalidateProductsCache(shopId);
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -367,22 +415,19 @@ app.delete('/api/products/:id', async (req, res) => {
 app.get('/api/options', async (req, res) => {
     try {
         const { shop_id } = req.query;
-        const { data: groups, error: err1 } = await db.from('option_groups').select('*').eq('shop_id', shop_id).order('id', { ascending: false });
-        if (err1) throw err1;
-        
-        const groupIds = groups.map(g => g.id);
-        let items = [];
-        
-        if (groupIds.length > 0) {
-            const { data: itemsData, error: err2 } = await db.from('option_items').select('*').in('option_group_id', groupIds);
-            if (err2) throw err2;
-            items = itemsData;
+        if (!shop_id) return res.json([]);
+        const cacheKey = String(shop_id);
+        const cached = optionsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 60000) {
+            return res.json(cached.data);
         }
-
-        const result = groups.map(g => ({
+        const { data: groups, error } = await db.from('option_groups').select('*, items:option_items(*)').eq('shop_id', shop_id).order('id', { ascending: false });
+        if (error) throw error;
+        const result = (groups || []).map(g => ({
             ...g,
-            items: items.filter(i => i.option_group_id === g.id)
+            items: g.items || []
         }));
+        optionsCache.set(cacheKey, { data: result, timestamp: Date.now() });
         res.json(result);
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -402,6 +447,7 @@ app.post('/api/options', async (req, res) => {
             const { error: itemsErr } = await db.from('option_items').insert(itemsToInsert);
             if (itemsErr) throw itemsErr;
         }
+        optionsCache.delete(String(shop_id));
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -426,6 +472,7 @@ app.put('/api/options/:id', async (req, res) => {
             const { error: itemsErr } = await db.from('option_items').insert(itemsToInsert);
             if (itemsErr) throw itemsErr;
         }
+        optionsCache.delete(String(shop_id));
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -435,7 +482,8 @@ app.delete('/api/options/:id', async (req, res) => {
         const shopId = req.body?.shop_id ?? req.query.shop_id;
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('option_groups').delete().eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error; 
+        if (error) throw error;
+        optionsCache.delete(String(shopId));
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -571,17 +619,7 @@ app.delete('/api/recipes/:id', async (req, res) => {
 // ==========================================
 // --- 8. API บันทึกออเดอร์ & ตัดสต็อก (Orders & Deduct) ---
 // ==========================================
-const shopSettingsCache = new Map();
-async function getCachedShopSettings(shopId) {
-    const cached = shopSettingsCache.get(String(shopId));
-    if (cached && Date.now() - cached.timestamp < 60000) {
-        return cached.data;
-    }
-    const { data } = await db.from('shop_settings').select('settings_data').eq('shop_id', shopId).single();
-    const parsed = data?.settings_data ? (typeof data.settings_data === 'string' ? JSON.parse(data.settings_data) : data.settings_data) : {};
-    shopSettingsCache.set(String(shopId), { data: parsed, timestamp: Date.now() });
-    return parsed;
-}
+// getCachedShopSettings / invalidateShopSettings ถูกย้ายไปที่ ./shopSettingsCache เพื่อใช้ร่วมกันทั้งระบบ
 
 const shiftStatusCache = new Map();
 async function getShiftStatus(shiftId) {
@@ -919,8 +957,27 @@ app.post('/api/orders/:id/confirm-transfer', async (req, res) => {
 
 app.get('/api/orders', async (req, res) => {
     try {
-        const { data, error } = await db.from('orders').select('*').eq('shop_id', req.query.shop_id).order('created_at', { ascending: false });
-        if (error) throw error; res.json(data);
+        const { shop_id, limit, status, startDate, endDate, shift_id } = req.query;
+        if (!shop_id) return res.json([]);
+        let query = db.from('orders').select('*').eq('shop_id', shop_id);
+        if (shift_id) {
+            query = query.eq('shift_id', shift_id);
+        }
+        if (status && status !== 'all' && status !== 'ทั้งหมด') {
+            query = query.eq('status', status);
+        }
+        if (startDate) {
+            query = query.gte('created_at', startDate);
+        }
+        if (endDate) {
+            query = query.lte('created_at', endDate);
+        }
+        query = query.order('created_at', { ascending: false });
+        const maxLimit = limit ? Math.min(Number(limit) || 200, 1000) : 200;
+        query = query.limit(maxLimit);
+
+        const { data, error } = await query;
+        if (error) throw error; res.json(data || []);
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
 
@@ -969,14 +1026,10 @@ app.post('/api/orders/:id/void', async (req, res) => {
         if (!order || order.status === 'cancelled') return res.status(400).json({ success: false, error: "ไม่พบบิลนี้ หรือบิลถูกยกเลิกไปแล้ว" });
 
         let autoDeduct = true;
-        let settings = null;
+        let sData = {};
         try {
-            const { data } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-            settings = data;
-            if (settings && settings.settings_data) {
-                const sData = typeof settings.settings_data === 'string' ? JSON.parse(settings.settings_data) : settings.settings_data;
-                if (sData.auto_deduct_stock === false) autoDeduct = false;
-            }
+            sData = await getCachedShopSettings(shop_id);
+            if (sData.auto_deduct_stock === false) autoDeduct = false;
         } catch (e) { console.error("Fetch Error: ", e); }
 
         const { data: items } = await db.from('order_items').select('*').eq('order_id', orderId);
@@ -1008,8 +1061,7 @@ app.post('/api/orders/:id/void', async (req, res) => {
         await db.from('order_items').update({ price: 0, addon_price: 0 }).eq('order_id', orderId);
         await db.from('orders').update({ total_amount: 0, received_amount: 0, change_amount: 0, status: 'cancelled' }).eq('id', orderId);
 
-        if (settings && settings.settings_data) {
-            const sData = typeof settings.settings_data === 'string' ? JSON.parse(settings.settings_data) : settings.settings_data;
+        {
             if (sData.notify_cancel_bill !== false) {
                 await createNotification({ shopId: shop_id, type: 'CANCEL_BILL', priority: 'WARNING', title: 'ยกเลิกบิล', message: `บิล ${order.bill_number} ถูกยกเลิก`, entityType: 'order', entityId: orderId, userId: req.body.staff_id || null });
             }
@@ -1688,13 +1740,9 @@ const defaultSettings = {
 app.get('/api/settings', async (req, res) => {
     const shop_id = req.query.shop_id || 1;
     try {
-        const { data, error } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-        if (error && error.code !== 'PGRST116') throw error;
-        if (data) {
-            const savedSettings = typeof data.settings_data === 'string' ? JSON.parse(data.settings_data) : data.settings_data;
-            res.json({ shop_id: Number(shop_id), ...defaultSettings, ...(savedSettings || {}) });
-        }
-        else { res.json({ shop_id: Number(shop_id), ...defaultSettings }); }
+        const savedSettings = await getCachedShopSettings(shop_id);
+        res.setHeader('Cache-Control', 'private, max-age=60');
+        res.json({ shop_id: Number(shop_id), ...defaultSettings, ...(savedSettings || {}) });
     } catch (error) { res.status(500).json({ error: "Internal Server Error" }); }
 });
 
@@ -1731,7 +1779,9 @@ app.get('/api/staff-roles', async (req, res) => {
 app.put('/api/settings', async (req, res) => {
     try {
         const { error } = await db.from('shop_settings').upsert({ shop_id: req.body.shop_id, settings_data: req.body.data });
-        if (error) throw error; res.json({ success: true, message: "บันทึกการตั้งค่าเรียบร้อยแล้วค่ะ" });
+        if (error) throw error;
+        invalidateShopSettings(req.body.shop_id);
+        res.json({ success: true, message: "บันทึกการตั้งค่าเรียบร้อยแล้วค่ะ" });
     } catch (error) { res.status(500).json({ error: "ไม่สามารถบันทึกข้อมูลได้" }); }
 });
 
@@ -1762,6 +1812,7 @@ app.put('/api/users/:id/pin-setting', async (req, res) => {
 
         const { error } = await db.from('shop_settings').upsert({ shop_id, settings_data: nextSettings });
         if (error) throw error;
+        invalidateShopSettings(shop_id);
 
         res.json({ success: true, pin_enabled: Boolean(pin_enabled), user_id: Number(userId) });
     } catch (error) {
@@ -1772,6 +1823,12 @@ app.put('/api/users/:id/pin-setting', async (req, res) => {
 app.get('/api/payment-methods', async (req, res) => {
     try {
         const shopId = req.query.shop_id;
+        if (!shopId) return res.json([]);
+        const cacheKey = String(shopId);
+        const cached = paymentMethodsCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 60000) {
+            return res.json(cached.data);
+        }
         let { data, error } = await db.from('payment_methods').select('*').eq('shop_id', shopId).order('display_order', { ascending: true });
         if (error) throw error;
         if (!data || data.length === 0) {
@@ -1783,8 +1840,9 @@ app.get('/api/payment-methods', async (req, res) => {
             ];
             const seeded = await db.from('payment_methods').insert(defaults).select('*');
             if (seeded.error) throw seeded.error;
-            return res.json(seeded.data || []);
+            data = seeded.data || [];
         }
+        paymentMethodsCache.set(cacheKey, { data, timestamp: Date.now() });
         return res.json(data);
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -1798,6 +1856,7 @@ app.post('/api/payment-methods', async (req, res) => {
             shop_id, name: String(name).trim(), type: type || 'OTHER', is_enabled: true, display_order: count || 0
         }]).select('*').single();
         if (error) throw error;
+        paymentMethodsCache.delete(String(shop_id));
         res.status(201).json(data);
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -1806,6 +1865,7 @@ app.delete('/api/payment-methods/:id', async (req, res) => {
     try {
         const { error } = await db.from('payment_methods').delete().eq('id', req.params.id).eq('shop_id', req.query.shop_id);
         if (error) throw error;
+        paymentMethodsCache.delete(String(req.query.shop_id));
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -1818,6 +1878,7 @@ app.put('/api/payment-methods', async (req, res) => {
             .eq('shop_id', req.body.shop_id)));
         const failed = results.find(result => result.error);
         if (failed?.error) throw failed.error;
+        paymentMethodsCache.delete(String(req.body.shop_id));
         res.json({ success: true, message: "อัปเดตช่องทางการชำระเงินเรียบร้อยแล้ว" });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
 });
@@ -2087,18 +2148,25 @@ app.get('/api/reports/summary', async (req, res) => {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
         
-        const orders = await fetchAll(() => db.from('orders').select('id, total_amount')
+        const orders = await fetchAll(() => db.from('orders')
+            .select('id, total_amount, order_items(quantity)')
             .eq('shop_id', shop_id).eq('status', 'completed')
             .gte('created_at', start).lte('created_at', end));
             
         const totalBills = orders ? orders.length : 0;
-        const netSales = orders ? orders.reduce((sum, o) => sum + Number(o.total_amount), 0) : 0;
+        let netSales = 0;
+        let totalItems = 0;
+        if (orders) {
+            for (const o of orders) {
+                netSales += Number(o.total_amount || 0);
+                if (Array.isArray(o.order_items)) {
+                    for (const item of o.order_items) {
+                        totalItems += Number(item.quantity || 0);
+                    }
+                }
+            }
+        }
         const avgBill = totalBills > 0 ? netSales / totalBills : 0;
-        
-        const items = orders && orders.length > 0
-            ? await fetchAllInChunks(() => db.from('order_items').select('quantity'), 'order_id', orders.map(o => o.id))
-            : [];
-        const totalItems = items ? items.reduce((sum, i) => sum + Number(i.quantity), 0) : 0;
 
         res.json({ summary: { netSales, totalBills, avgBill, totalItems } });
     } catch (e) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
@@ -2108,18 +2176,23 @@ app.get('/api/reports/sales', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const orders = await fetchAll(() => db.from('orders').select('id, bill_number, created_at, total_amount, payment_method, staff(name)')
+        const orders = await fetchAll(() => db.from('orders')
+            .select('id, bill_number, created_at, total_amount, payment_method, staff(name), order_items(quantity)')
             .eq('shop_id', shop_id).eq('status', 'completed')
             .gte('created_at', start).lte('created_at', end).order('created_at', { ascending: true }));
         
-        const orderIds = (orders || []).map(order => order.id);
-        const orderItems = orderIds.length > 0
-            ? await fetchAllInChunks(() => db.from('order_items').select('order_id, quantity'), 'order_id', orderIds)
-            : [];
-        const itemCountsByOrder = (orderItems || []).reduce((counts, item) => {
-            counts[item.order_id] = (counts[item.order_id] || 0) + (Number(item.quantity) || 0);
-            return counts;
-        }, {});
+        const itemCountsByOrder = {};
+        if (orders) {
+            for (const order of orders) {
+                let count = 0;
+                if (Array.isArray(order.order_items)) {
+                    for (const item of order.order_items) {
+                        count += Number(item.quantity || 0);
+                    }
+                }
+                itemCountsByOrder[order.id] = count;
+            }
+        }
         const startKey = getBangkokDateKey(new Date(start));
         const endKey = getBangkokDateKey(new Date(end));
         const rangeStart = new Date(`${startKey}T00:00:00+07:00`);
@@ -2214,19 +2287,24 @@ app.get('/api/reports/products', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const orders = await fetchAll(() => db.from('orders').select('id').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
+        const orders = await fetchAll(() => db.from('orders')
+            .select('id, order_items(quantity, price, products(name, category_id))')
+            .eq('shop_id', shop_id).eq('status', 'completed')
+            .gte('created_at', start).lte('created_at', end));
         
         if (!orders || orders.length === 0) return res.json([]);
-        const items = await fetchAllInChunks(() => db.from('order_items').select('quantity, price, products(name, category_id)'), 'order_id', orders.map(o => o.id));
-        if (!items || items.length === 0) return res.json([]);
 
         const productSales = {};
-        items.forEach(i => {
-            const pName = i.products?.name || 'Unknown';
-            if (!productSales[pName]) productSales[pName] = { qty: 0, sum: 0 };
-            productSales[pName].qty += Number(i.quantity);
-            productSales[pName].sum += (Number(i.quantity) * Number(i.price));
-        });
+        for (const order of orders) {
+            if (Array.isArray(order.order_items)) {
+                for (const i of order.order_items) {
+                    const pName = i.products?.name || 'Unknown';
+                    if (!productSales[pName]) productSales[pName] = { qty: 0, sum: 0 };
+                    productSales[pName].qty += Number(i.quantity || 0);
+                    productSales[pName].sum += (Number(i.quantity || 0) * Number(i.price || 0));
+                }
+            }
+        }
 
         const topProducts = Object.keys(productSales).sort((a,b) => productSales[b].qty - productSales[a].qty).slice(0, 10).map(k => ({
             "ชื่อสินค้า": k, "ขายได้ (ชิ้น)": productSales[k].qty, "ยอดรวม (฿)": productSales[k].sum.toLocaleString()
@@ -2506,14 +2584,23 @@ app.get('/api/reports/profit', async (req, res) => {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
         
-        const orders = await fetchAll(() => db.from('orders').select('id, total_amount').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
+        const orders = await fetchAll(() => db.from('orders')
+            .select('id, total_amount, order_items(product_id, quantity)')
+            .eq('shop_id', shop_id).eq('status', 'completed')
+            .gte('created_at', start).lte('created_at', end));
         const revenue = orders ? orders.reduce((sum, o) => sum + Number(o.total_amount), 0) : 0;
 
         const { data: exps } = await db.from('shift_expenses').select('amount').eq('shop_id', shop_id).gte('created_at', start).lte('created_at', end);
         const expenses = exps ? exps.filter(e => Number(e.amount) > 0).reduce((sum, e) => sum + Number(e.amount), 0) : 0;
 
-        const orderIds = (orders || []).map(order => order.id);
-        const soldItems = await fetchAllInChunks(() => db.from('order_items').select('product_id, quantity'), 'order_id', orderIds);
+        const soldItems = [];
+        if (orders) {
+            for (const order of orders) {
+                if (Array.isArray(order.order_items)) {
+                    soldItems.push(...order.order_items);
+                }
+            }
+        }
         const productIds = [...new Set((soldItems || []).map(item => item.product_id).filter(Boolean))];
         const recipes = await fetchAllInChunks(() => db.from('recipes').select('product_id, quantity, inventory_items(cost, unit)'), 'product_id', productIds);
         const recipesByProduct = (recipes || []).reduce((map, recipe) => {
@@ -2546,8 +2633,7 @@ app.get('/api/reports/tax', async (req, res) => {
     try {
         const { shop_id, period, startDate, endDate } = req.query;
         const { start, end } = getDateRange(period, startDate, endDate);
-        const { data: settings } = await db.from('shop_settings').select('settings_data').eq('shop_id', shop_id).single();
-        const data = settings?.settings_data || {};
+        const data = await getCachedShopSettings(shop_id);
         if (!data.vat_enabled) return res.json({ available: false, message: 'ยังไม่ได้เปิดใช้งานภาษีมูลค่าเพิ่ม' });
         const orders = await fetchAll(() => db.from('orders').select('total_amount').eq('shop_id', shop_id).eq('status', 'completed').gte('created_at', start).lte('created_at', end));
         const total = (orders || []).reduce((sum, order) => sum + (Number(order.total_amount) || 0), 0);
@@ -2674,7 +2760,7 @@ app.get('/api/notifications', async (req, res) => {
         }
 
         const lastInventorySync = inventoryNotificationSyncAt.get(shopId) || 0;
-        if (Date.now() - lastInventorySync >= 60_000) {
+        if (Date.now() - lastInventorySync >= 300_000) {
             inventoryNotificationSyncAt.set(shopId, Date.now());
             try {
                 const [inventoryResult, activeAlertsResult] = await Promise.all([

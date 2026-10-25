@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Cropper, { Point, Area } from "react-easy-crop";
 import getCroppedImg from '@/utils/cropImage'; // ตรวจสอบ path ให้ตรงกับโปรเจกต์
 import { 
-    Camera, Eye, EyeOff, Plus, Trash2, CheckCircle, AlertCircle, RefreshCw, Check, ChevronRight, ChevronLeft
+    Camera, Eye, EyeOff, CheckCircle, AlertCircle, RefreshCw, Check, ChevronRight, ChevronLeft
 } from "lucide-react";
 
 // นำเข้า Modals
@@ -23,6 +23,8 @@ export default function RegisterPage() {
 
     const [currentStep, setCurrentStep] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
+    const [isCropping, setIsCropping] = useState(false);
+    const submittingRef = useRef(false);
     const [showSuccess, setShowSuccess] = useState(false);
 
     // =====================================
@@ -36,10 +38,10 @@ export default function RegisterPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [hasPin, setHasPin] = useState(false);
-    const [roles, setRoles] = useState([
-        { roleName: "เจ้าของร้าน", pin: "", showPin: false },
-        { roleName: "ผู้จัดการ", pin: "", showPin: false }
-    ]);
+    const [pin, setPin] = useState("");
+    const [confirmPin, setConfirmPin] = useState("");
+    const [showPin, setShowPin] = useState(false);
+    const [showConfirmPin, setShowConfirmPin] = useState(false);
     
     // Consent Checkbox State
     const [acceptTerms, setAcceptTerms] = useState(false);
@@ -120,16 +122,17 @@ export default function RegisterPage() {
     const validateStep3 = () => {
         let newErrors: any = {};
         if (hasPin) {
-            const usedPins = new Set();
-            roles.forEach((r, i) => {
-                if (r.pin.length !== 4 || isNaN(Number(r.pin))) {
-                    newErrors[`pin_${i}`] = "PIN 4 หลัก";
-                } else if (usedPins.has(r.pin)) {
-                    newErrors[`pin_${i}`] = "รหัสซ้ำ";
-                } else {
-                    usedPins.add(r.pin);
-                }
-            });
+            if (!pin) {
+                newErrors.pin = "กรุณาระบุรหัส PIN 4 หลัก";
+            } else if (pin.length !== 4) {
+                newErrors.pin = "รหัส PIN ต้องมี 4 หลัก";
+            }
+
+            if (!confirmPin) {
+                newErrors.confirmPin = "กรุณายืนยันรหัส PIN";
+            } else if (confirmPin !== pin) {
+                newErrors.confirmPin = "รหัส PIN ไม่ตรงกัน";
+            }
         }
         
         if (!acceptTerms) {
@@ -174,34 +177,47 @@ export default function RegisterPage() {
         window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
-    const handleRoleChange = (index: number, field: string, value: string | boolean) => {
-        const updatedRoles = [...roles];
-        updatedRoles[index] = { ...updatedRoles[index], [field]: value };
-        setRoles(updatedRoles);
-
-        if (field === "pin" && typeof value === "string") {
-            let error = null;
-            if (value.length !== 4 || isNaN(Number(value))) error = "PIN 4 หลัก";
-            const allPins = updatedRoles.map(r => r.pin).filter(p => p.length === 4);
-            if (allPins.filter(p => p === value).length > 1) error = "รหัสซ้ำ";
-            
-            setErrors((prev: any) => {
-                const newErrs = { ...prev };
-                if (error) newErrs[`pin_${index}`] = error;
-                else delete newErrs[`pin_${index}`];
-                return newErrs;
-            });
-        }
+    const handlePinChange = (value: string) => {
+        setPin(value);
+        setErrors((prev: any) => {
+            const next = { ...prev };
+            if (value.length === 4) {
+                delete next.pin;
+            }
+            if (confirmPin && value !== confirmPin) {
+                next.confirmPin = "รหัส PIN ไม่ตรงกัน";
+            } else if (confirmPin && value === confirmPin) {
+                delete next.confirmPin;
+            }
+            return next;
+        });
     };
 
-    const addRole = () => setRoles([...roles, { roleName: "พนักงาน", pin: "", showPin: false }]);
-    const removeRole = (index: number) => {
-        setRoles(roles.filter((_, i) => i !== index));
+    const handleConfirmPinChange = (value: string) => {
+        setConfirmPin(value);
         setErrors((prev: any) => {
-            const newErrs = { ...prev };
-            delete newErrs[`pin_${index}`];
-            return newErrs;
+            const next = { ...prev };
+            if (value && value !== pin) {
+                next.confirmPin = "รหัส PIN ไม่ตรงกัน";
+            } else if (value && value === pin) {
+                delete next.confirmPin;
+            }
+            return next;
         });
+    };
+
+    const handleTogglePin = (checked: boolean) => {
+        setHasPin(checked);
+        if (!checked) {
+            setPin("");
+            setConfirmPin("");
+            setErrors((prev: any) => {
+                const next = { ...prev };
+                delete next.pin;
+                delete next.confirmPin;
+                return next;
+            });
+        }
     };
 
     // =====================================
@@ -228,13 +244,16 @@ export default function RegisterPage() {
 
     const handleCropConfirm = async () => {
         try {
-            if (!tempImageSrc || !croppedAreaPixels) return;
+            if (!tempImageSrc || !croppedAreaPixels || isCropping) return;
+            setIsCropping(true);
             const croppedImageBase64 = await getCroppedImg(tempImageSrc, croppedAreaPixels);
             setFinalLogoBase64(croppedImageBase64);
             setIsCropModalOpen(false);
             setTempImageSrc(null);
         } catch (e) {
             showToast("เกิดข้อผิดพลาดในการตัดรูปภาพ", 'error');
+        } finally {
+            setIsCropping(false);
         }
     };
 
@@ -243,17 +262,21 @@ export default function RegisterPage() {
     // =====================================
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (isLoading) return;
+        if (submittingRef.current || isLoading) return;
         
         // ตรวจสอบ Validation Step 3 และ เช็ค Checkbox
         if (!validateStep3()) return;
+        submittingRef.current = true;
         
         setIsLoading(true);
 
         try {
             const payload = {
                 ...formData,
-                roles: hasPin ? roles : [], 
+                has_pin: hasPin,
+                pin_enabled: hasPin,
+                pin: hasPin ? pin : null,
+                roles: hasPin ? [{ roleName: "เจ้าของร้าน", pin }] : [], 
                 profile_image: finalLogoBase64,
                 // ข้อมูล Consent ที่ส่งไปบันทึกบน Database
                 terms_accepted: acceptTerms,
@@ -303,6 +326,7 @@ export default function RegisterPage() {
         } catch (error) {
             setErrors((prev: any) => ({ ...prev, submit: "ไม่สามารถติดต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง" }));
         } finally {
+            submittingRef.current = false;
             setIsLoading(false);
         }
     };
@@ -508,56 +532,73 @@ export default function RegisterPage() {
                                 <div className="space-y-4">
                                     <label className="flex items-center gap-3 cursor-pointer group">
                                         <div className="relative">
-                                            <input type="checkbox" checked={hasPin} onChange={(e) => setHasPin(e.target.checked)} className="peer sr-only" />
+                                            <input 
+                                                type="checkbox" 
+                                                checked={hasPin} 
+                                                onChange={(e) => handleTogglePin(e.target.checked)} 
+                                                className="peer sr-only" 
+                                            />
                                             <div className="w-12 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer-checked:bg-black transition-colors"></div>
                                             <div className="absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
                                         </div>
-                                        <span className="text-base font-medium text-gray-800">เปิดใช้งานระบบ PIN สำหรับพนักงาน</span>
+                                        <span className="text-base font-medium text-gray-800">เปิดใช้งานระบบ PIN สำหรับทุกบัญชี</span>
                                     </label>
 
                                     {hasPin && (
-                                        <div className="space-y-4 bg-gray-50 border border-gray-200 p-5 rounded-xl">
-                                            {roles.map((role, index) => (
-                                                <div key={index} className="flex gap-3 items-start relative pb-4">
-                                                    <select 
-                                                        value={role.roleName} 
-                                                        onChange={(e) => handleRoleChange(index, "roleName", e.target.value)} 
-                                                        className="w-[130px] sm:w-[150px] px-3 py-3 rounded-xl border border-gray-300 outline-none focus:border-black text-sm bg-white shrink-0"
-                                                    >
-                                                        <option value="เจ้าของร้าน">เจ้าของร้าน</option>
-                                                        <option value="ผู้จัดการ">ผู้จัดการ</option>
-                                                        <option value="พนักงาน">พนักงาน</option>
-                                                    </select>
-
-                                                    <div className="flex-1 relative">
+                                        <div className="space-y-4 bg-gray-50 border border-gray-200 p-5 rounded-xl animate-in fade-in duration-200">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                                        รหัส PIN (4 หลัก) <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <div className="relative">
                                                         <input 
-                                                            type={role.showPin ? "text" : "password"} 
-                                                            placeholder="PIN 4 หลัก" 
+                                                            type={showPin ? "text" : "password"} 
+                                                            inputMode="numeric"
                                                             maxLength={4} 
-                                                            value={role.pin} 
-                                                            onChange={(e) => handleRoleChange(index, "pin", e.target.value.replace(/[^0-9]/g, ''))} 
-                                                            className={`w-full px-4 py-3 pr-10 rounded-xl border ${errors[`pin_${index}`] ? 'border-red-500 bg-red-50' : 'border-gray-300'} outline-none focus:border-black text-base text-center tracking-[0.2em] font-bold`} 
+                                                            placeholder="PIN 4 หลัก" 
+                                                            value={pin} 
+                                                            onChange={(e) => handlePinChange(e.target.value.replace(/[^0-9]/g, ''))} 
+                                                            className={`w-full px-4 py-3 pr-11 rounded-xl border ${errors.pin ? 'border-red-500 bg-red-50' : 'border-gray-300'} outline-none focus:border-black text-base text-center tracking-[0.25em] font-bold`} 
                                                         />
-                                                        <button type="button" onClick={() => handleRoleChange(index, "showPin", !role.showPin)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-800 transition-colors">
-                                                            {role.showPin ? <EyeOff className="w-5 h-5"/> : <Eye className="w-5 h-5"/>}
+                                                        <button 
+                                                            type="button" 
+                                                            onClick={() => setShowPin(!showPin)} 
+                                                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-800 transition-colors bg-transparent border-none outline-none"
+                                                            tabIndex={-1}
+                                                        >
+                                                            {showPin ? <EyeOff className="w-5 h-5"/> : <Eye className="w-5 h-5"/>}
                                                         </button>
-                                                        {errors[`pin_${index}`] && <p className="text-red-500 text-xs mt-1 text-center absolute -bottom-5 w-full">{errors[`pin_${index}`]}</p>}
                                                     </div>
-
-                                                    <button 
-                                                        type="button" 
-                                                        onClick={() => removeRole(index)} 
-                                                        disabled={roles.length <= 1}
-                                                        className="w-12 h-[48px] shrink-0 flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors disabled:opacity-50"
-                                                    >
-                                                        <Trash2 className="w-5 h-5" />
-                                                    </button>
+                                                    {errors.pin && <p className="text-red-500 text-xs mt-1.5">{errors.pin}</p>}
                                                 </div>
-                                            ))}
 
-                                            <button type="button" onClick={addRole} className="w-full mt-2 py-3 border border-dashed border-gray-300 rounded-xl text-base font-medium text-gray-600 hover:bg-white hover:text-black hover:border-black flex justify-center items-center gap-2 transition-all">
-                                                <Plus className="w-5 h-5"/> เพิ่มตำแหน่ง
-                                            </button>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                                                        ยืนยันรหัส PIN <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type={showConfirmPin ? "text" : "password"} 
+                                                            inputMode="numeric"
+                                                            maxLength={4} 
+                                                            placeholder="ยืนยัน PIN 4 หลัก" 
+                                                            value={confirmPin} 
+                                                            onChange={(e) => handleConfirmPinChange(e.target.value.replace(/[^0-9]/g, ''))} 
+                                                            className={`w-full px-4 py-3 pr-11 rounded-xl border ${errors.confirmPin ? 'border-red-500 bg-red-50' : 'border-gray-300'} outline-none focus:border-black text-base text-center tracking-[0.25em] font-bold`} 
+                                                        />
+                                                        <button 
+                                                            type="button" 
+                                                            onClick={() => setShowConfirmPin(!showConfirmPin)} 
+                                                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-800 transition-colors bg-transparent border-none outline-none"
+                                                            tabIndex={-1}
+                                                        >
+                                                            {showConfirmPin ? <EyeOff className="w-5 h-5"/> : <Eye className="w-5 h-5"/>}
+                                                        </button>
+                                                    </div>
+                                                    {errors.confirmPin && <p className="text-red-500 text-xs mt-1.5">{errors.confirmPin}</p>}
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -656,8 +697,8 @@ export default function RegisterPage() {
                             <input type="range" value={zoom} min={1} max={3} step={0.1} onChange={(e) => setZoom(Number(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black" />
                         </div>
                         <div className="flex w-full gap-3 p-5 border-t border-gray-100 bg-gray-50">
-                            <button onClick={() => { setIsCropModalOpen(false); setTempImageSrc(null); }} className="flex-1 py-3.5 border border-gray-300 rounded-xl text-gray-700 font-bold hover:bg-gray-100 transition-colors text-base">ยกเลิก</button>
-                            <button onClick={handleCropConfirm} className="flex-1 py-3.5 bg-black text-white rounded-xl font-bold hover:bg-gray-800 transition-colors text-base">ยืนยัน</button>
+                            <button disabled={isCropping} onClick={() => { setIsCropModalOpen(false); setTempImageSrc(null); }} className="flex-1 py-3.5 border border-gray-300 rounded-xl text-gray-700 font-bold hover:bg-gray-100 transition-colors text-base disabled:opacity-50">ยกเลิก</button>
+                            <button disabled={isCropping} onClick={handleCropConfirm} className="flex-1 py-3.5 bg-black text-white rounded-xl font-bold hover:bg-gray-800 transition-colors text-base disabled:opacity-50">{isCropping ? "กำลังตัดรูป..." : "ยืนยัน"}</button>
                         </div>
                     </div>
                 </div>

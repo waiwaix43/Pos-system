@@ -162,14 +162,14 @@ export default function UnifiedDateRangePicker({ value, onChange, className = ""
   const yearValue = (date: string) => date.slice(0, 4);
 
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div ref={containerRef} data-allow-repeat="true" className={`relative ${className}`}>
       <button ref={triggerRef} type="button" onClick={openPicker} className="flex min-h-[48px] max-w-full flex-wrap items-center gap-y-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-left text-[13px] font-bold text-gray-700 shadow-sm sm:px-4 sm:text-[14px]">
         <Calendar className="w-5 h-5 text-gray-400 mr-2 shrink-0" />
         <span className="min-w-0 whitespace-normal break-words" suppressHydrationWarning>{formatDisplay(value)}</span>
         <ChevronDown className="ml-1 h-4 w-4 shrink-0 text-gray-400" />
       </button>
       {open && typeof document !== "undefined" && createPortal((
-        <div ref={popoverRef} style={{ top: popoverPosition.top, left: popoverPosition.left }} className="fixed z-[200] w-[min(420px,calc(100vw-32px))] max-h-[calc(100vh-32px)] overflow-y-auto pointer-events-auto bg-white border border-gray-200 rounded-2xl shadow-2xl p-4">
+        <div ref={popoverRef} data-allow-repeat="true" style={{ top: popoverPosition.top, left: popoverPosition.left }} className="fixed z-[200] w-[min(420px,calc(100vw-32px))] max-h-[calc(100vh-32px)] overflow-y-auto pointer-events-auto bg-white border border-gray-200 rounded-2xl shadow-2xl p-4">
           <div className="flex items-center justify-between mb-4">
             <span className="text-[15px] font-bold text-gray-800">ช่วงเวลา</span>
             <select value={draft.period === "กำหนดเอง" ? (view === "range" ? "กำหนดเอง" : view === "month" ? "เลือกเดือน" : view === "monthRange" ? "ช่วงเดือน" : view === "year" ? "เลือกปี" : "ช่วงปี") : draft.period} onChange={e => selectPreset(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-2 text-[13px] font-bold text-gray-700 outline-none">

@@ -1,6 +1,6 @@
 "use client";
 import { useToast } from '@/components/shared/ToastProvider';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
 import UnifiedDateRangePicker, { DateRangeValue, getCurrentMonthToDate } from '@/components/shared/UnifiedDateRangePicker';
@@ -44,18 +44,27 @@ function useReportAPI(endpoint: string, paramsStr: string) {
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
 
+ const inFlightParamsRef = useRef<string | null>(null);
+ const requestIdRef = useRef(0);
+
  const fetchApi = async () => {
+ if (inFlightParamsRef.current === paramsStr) return;
+ inFlightParamsRef.current = paramsStr;
+ const currentReqId = ++requestIdRef.current;
  setLoading(true);
  setError(null);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}${endpoint}?${paramsStr}`);
  if (!res.ok) throw new Error(`ไม่สามารถโหลดข้อมูลได้ (${res.status})`);
  const json = await res.json();
- setData(json);
+ if (currentReqId === requestIdRef.current) setData(json);
  } catch (e: any) {
- setError(e.message || "เกิดข้อผิดพลาด");
+ if (currentReqId === requestIdRef.current) setError(e.message || "เกิดข้อผิดพลาด");
  } finally {
+ if (currentReqId === requestIdRef.current) {
+ inFlightParamsRef.current = null;
  setLoading(false);
+ }
  }
  };
 
@@ -170,6 +179,7 @@ export default function ReportsDashboardPage() {
  const [stockSearchTerm, setStockSearchTerm] = useState('');
  const [stockFilterAlertOnly, setStockFilterAlertOnly] = useState(false);
  const [isStockExpanded, setIsStockExpanded] = useState(false);
+ const printingRef = useRef(false);
 
  useEffect(() => {
  const savedUser = JSON.parse(localStorage.getItem("userContext") || "{}");
@@ -582,10 +592,13 @@ export default function ReportsDashboardPage() {
   };
 
   const handlePrintShoppingList = (summaryList: any[]) => {
+    if (printingRef.current) return;
     if (!summaryList || summaryList.length === 0) {
       showToast("ไม่พบรายการวัตถุดิบที่ใช้ไปในช่วงนี้", "info");
       return;
     }
+    printingRef.current = true;
+    window.setTimeout(() => { printingRef.current = false; }, 1200);
     const filtered = stockFilterAlertOnly ? summaryList.filter(s => s.status === 'out' || s.status === 'low') : summaryList;
     const periodLabel = dateSelection.period === 'วันนี้' ? 'วันนี้' : dateSelection.period || `${dateSelection.startDate} ถึง ${dateSelection.endDate}`;
     const shopName = user?.shops?.shop_name || user?.shop_name || 'POS Shop';
@@ -1124,7 +1137,7 @@ export default function ReportsDashboardPage() {
  );
  })}
  </div>
- <div className="absolute left-[64px] right-4 top-6 flex h-[300px] items-stretch sm:left-[80px] sm:right-6">
+ <div data-allow-repeat="true" className="absolute left-[64px] right-4 top-6 flex h-[300px] items-stretch sm:left-[80px] sm:right-6">
  {salesChart.map((bucket: any) => {
  const metricValue = Number(bucket[chartMetric]) || 0;
  const height = maxSalesValue > 0 ? Math.max(metricValue / maxSalesValue * 100, metricValue > 0 ? 1 : 0) : 0;
@@ -1259,7 +1272,7 @@ export default function ReportsDashboardPage() {
  icon={<Activity className="w-5 h-5 text-[#7a5c4e]"/>}
           action={
             <div className="flex items-center gap-1.5">
-              <div className="inline-flex rounded-lg bg-gray-100 p-0.5 text-[11px] font-bold">
+              <div data-allow-repeat="true" className="inline-flex rounded-lg bg-gray-100 p-0.5 text-[11px] font-bold">
                 <button
                   type="button"
                   onClick={() => setStockViewTab('summary')}

@@ -1,6 +1,6 @@
 "use client";
 import { useToast } from '@/components/shared/ToastProvider';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
 import { createClient } from "@supabase/supabase-js";
@@ -49,6 +49,8 @@ export default function EmployeeManagementPage() {
  const [loading, setLoading] = useState(true);
  const [isSaving, setIsSaving] = useState(false);
  const [isUploading, setIsUploading] = useState(false);
+ const [isProcessingAction, setIsProcessingAction] = useState(false);
+ const actionRef = useRef(false);
 
  const [searchTerm, setSearchTerm] = useState("");
  const [roleFilter, setRoleFilter] = useState("");
@@ -188,6 +190,7 @@ export default function EmployeeManagementPage() {
  // 5. SAVE WITH SECURITY OVERRIDE
  // ==========================================
  const handleSave = () => {
+ if (actionRef.current || isSaving || isUploading) return;
  // 5.1 Validation
  if (!formData.name || !formData.email || !formData.role) {
  return showToast("กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน", "error");
@@ -214,6 +217,8 @@ export default function EmployeeManagementPage() {
  };
 
  const executeSaveData = async () => {
+ if (actionRef.current || isSaving) return;
+ actionRef.current = true;
  setIsSaving(true);
  try {
  const method = formMode === 'edit' ? 'PUT' : 'POST';
@@ -254,6 +259,7 @@ export default function EmployeeManagementPage() {
  } catch (error: any) {
  showToast(error.message, "error");
  } finally {
+ actionRef.current = false;
  setIsSaving(false);
  setAuthModalOpen(false);
  setAuthPin("");
@@ -262,6 +268,7 @@ export default function EmployeeManagementPage() {
  };
 
  const handleToggleStatus = async (staff: Staff) => {
+ if (actionRef.current || isProcessingAction) return;
  if (staff.role === 'เจ้าของร้าน') {
  return showToast("ไม่สามารถปิดการใช้งานบัญชีเจ้าของร้านได้", "error");
  }
@@ -270,6 +277,8 @@ export default function EmployeeManagementPage() {
  }
 
  const nextStatus = staff.status === "active" ? "inactive" : "active";
+ actionRef.current = true;
+ setIsProcessingAction(true);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/staff/${staff.id}`, {
  method: "PUT",
@@ -284,10 +293,14 @@ export default function EmployeeManagementPage() {
  fetchStaffData(user.shop_id);
  } catch (error: any) {
  showToast(error.message, "error");
+ } finally {
+ actionRef.current = false;
+ setIsProcessingAction(false);
  }
  };
 
  const handleDeleteStaff = async (staff: Staff) => {
+ if (actionRef.current || isProcessingAction) return;
  if (staff.role === 'เจ้าของร้าน') {
  return showToast("ไม่สามารถลบบัญชีเจ้าของร้านได้", "error");
  }
@@ -296,6 +309,8 @@ export default function EmployeeManagementPage() {
  }
  if (!window.confirm(`ต้องการลบพนักงาน ${staff.name} ออกจากระบบหรือไม่?`)) return;
 
+ actionRef.current = true;
+ setIsProcessingAction(true);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/staff/${staff.id}`, {
  method: "DELETE",
@@ -310,11 +325,16 @@ export default function EmployeeManagementPage() {
  fetchStaffData(user.shop_id);
  } catch (error: any) {
  showToast(error.message, "error");
+ } finally {
+ actionRef.current = false;
+ setIsProcessingAction(false);
  }
  };
 
  const confirmSecurityOverride = async () => {
- if (!authPin) return;
+ if (!authPin || actionRef.current || isProcessingAction || isSaving) return;
+ actionRef.current = true;
+ setIsProcessingAction(true);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/verify-manager-pin`, {
  method: "POST",
@@ -324,8 +344,12 @@ export default function EmployeeManagementPage() {
  const data = await res.json();
  if (!res.ok || !data.success) throw new Error("รหัส PIN ผิด หรือคุณไม่มีสิทธิ์อนุมัติ");
 
+ actionRef.current = false;
+ setIsProcessingAction(false);
  if (pendingAction) pendingAction();
  } catch (error: any) {
+ actionRef.current = false;
+ setIsProcessingAction(false);
  showToast(error.message, "error");
  setAuthPin("");
  }
@@ -650,7 +674,7 @@ export default function EmployeeManagementPage() {
  <div className="mt-3 grid grid-cols-2 gap-3 w-full">
  <button
  onClick={() => handleToggleStatus(selectedStaff)}
- disabled={selectedStaff.id === user?.id || selectedStaff.role === 'เจ้าของร้าน'}
+ disabled={isProcessingAction || selectedStaff.id === user?.id || selectedStaff.role === 'เจ้าของร้าน'}
  className="py-2.5 bg-gray-100 border border-gray-300 rounded-xl text-[13px] font-bold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
  >
  <Power className="w-4 h-4" />
@@ -658,7 +682,7 @@ export default function EmployeeManagementPage() {
  </button>
  <button
  onClick={() => handleDeleteStaff(selectedStaff)}
- disabled={selectedStaff.id === user?.id || selectedStaff.role === 'เจ้าของร้าน'}
+ disabled={isProcessingAction || selectedStaff.id === user?.id || selectedStaff.role === 'เจ้าของร้าน'}
  className="py-2.5 bg-red-50 border border-red-200 rounded-xl text-[13px] font-bold text-red-600 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
  >
  <Trash2 className="w-4 h-4" /> ลบพนักงาน
@@ -725,7 +749,7 @@ export default function EmployeeManagementPage() {
 
  <div className="flex w-full gap-3">
  <button onClick={() => { setAuthModalOpen(false); setAuthPin(""); setPendingAction(null); }} className="flex-1 py-3.5 bg-white border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50">ยกเลิก</button>
- <button onClick={confirmSecurityOverride} disabled={!authPin} className="flex-1 py-3.5 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 disabled:opacity-50">ยืนยัน</button>
+ <button onClick={confirmSecurityOverride} disabled={!authPin || isProcessingAction || isSaving} className="flex-1 py-3.5 bg-red-500 text-white rounded-xl font-bold hover:bg-red-600 disabled:opacity-50">ยืนยัน</button>
  </div>
  </div>
  </div>

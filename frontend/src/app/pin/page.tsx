@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 export default function PinPage() {
@@ -7,6 +7,8 @@ export default function PinPage() {
   const [pin, setPin] = useState("");
   const [user, setUser] = useState<any>(null);
   const [isVerifying, setIsVerifying] = useState(false); 
+  const verifyingRef = useRef(false);
+  const pinRef = useRef("");
   const [errorMsg, setErrorMsg] = useState(""); 
   const [isErrorAnimation, setIsErrorAnimation] = useState(false);
   
@@ -119,30 +121,36 @@ export default function PinPage() {
   // ระบบพิมพ์ PIN ผ่าน Keyboard
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isVerifying) return;
+      if (verifyingRef.current || isVerifying) return;
 
       if (e.key >= "0" && e.key <= "9") {
         handleNumberClick(e.key);
       } else if (e.key === "Backspace") {
-        setPin((prev) => prev.slice(0, -1));
+        const nextPin = pinRef.current.slice(0, -1);
+        pinRef.current = nextPin;
+        setPin(nextPin);
         setErrorMsg(""); 
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pin, isVerifying]);
+  }, [pin, isVerifying, user, selectedRole]);
 
   const handleNumberClick = (num: string) => {
-    if (pin.length < 4 && !isVerifying) {
-      setErrorMsg(""); 
-      const newPin = pin + num;
-      setPin(newPin);
-      if (newPin.length === 4) verifyPin(newPin);
+    if (verifyingRef.current || isVerifying || pinRef.current.length >= 4) return;
+    setErrorMsg(""); 
+    const newPin = pinRef.current + num;
+    pinRef.current = newPin;
+    setPin(newPin);
+    if (newPin.length === 4) {
+      verifyPin(newPin);
     }
   };
 
   // ตรวจสอบ PIN กับ Backend
   const verifyPin = async (inputPin: string) => {
+    if (verifyingRef.current) return;
+    verifyingRef.current = true;
     setIsVerifying(true);
     setErrorMsg("");
     try {
@@ -179,7 +187,9 @@ export default function PinPage() {
     setIsErrorAnimation(true);
     setTimeout(() => {
       setIsErrorAnimation(false);
+      pinRef.current = "";
       setPin("");
+      verifyingRef.current = false;
       setIsVerifying(false);
     }, 300);
   };
@@ -266,7 +276,7 @@ export default function PinPage() {
           </div>
 
           {/* Numpad */}
-          <div className="grid grid-cols-3 gap-x-8 gap-y-6 mb-10 pointer-events-auto">
+          <div data-allow-repeat="true" className="grid grid-cols-3 gap-x-8 gap-y-6 mb-10 pointer-events-auto">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
               <button 
                 key={num} 
@@ -295,7 +305,10 @@ export default function PinPage() {
             <button 
               disabled={isVerifying}
               onClick={() => {
-                setPin(pin.slice(0, -1));
+                if (verifyingRef.current || isVerifying) return;
+                const nextPin = pinRef.current.slice(0, -1);
+                pinRef.current = nextPin;
+                setPin(nextPin);
                 setErrorMsg("");
               }} 
               className="w-[86px] h-[86px] flex items-center justify-center bg-white border border-gray-200 rounded-full text-gray-400 transition-colors duration-150

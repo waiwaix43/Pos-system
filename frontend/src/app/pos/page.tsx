@@ -28,6 +28,7 @@ export default function POSPage() {
 
  const [categories, setCategories] = useState<any[]>([]);
  const [products, setProducts] = useState<any[]>([]);
+ const [allProductsList, setAllProductsList] = useState<any[]>([]);
  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
  
  // Option Group ของเมนู
@@ -51,6 +52,10 @@ export default function POSPage() {
 	const savingOrderPromiseRef = useRef<Promise<any> | null>(null);
  const [isConfirmingQR, setIsConfirmingQR] = useState(false);
  const [isConfirmingTransfer, setIsConfirmingTransfer] = useState(false);
+ const confirmingQrRef = useRef(false);
+ const confirmingTransferRef = useRef(false);
+ const finishingRef = useRef(false);
+ const addingToCartRef = useRef(false);
 
  // ==========================================
  // Helper: ฟังก์ชันป้องกัน Error JSON เวลา API ล่ม/หาไม่เจอ
@@ -136,54 +141,66 @@ export default function POSPage() {
  return;
  }
 
- // ตรวจสอบกะการขาย (Active Shift)
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/shifts/active?shop_id=${currentShopId}`)
- .then(data => {
- if (data && data.shift) {
- setActiveShift(data.shift);
- fetchNextBillNumber(currentShopId, data.shift.id);
- 
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/settings?shop_id=${currentShopId}`)
- .then(res => { if (res) setShopSettings(res); });
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "");
 
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/payment-methods?shop_id=${currentShopId}`)
- .then(res => {
- if (Array.isArray(res)) {
- const enabledMethods = res.filter(m => m.is_enabled).sort((a, b) => a.display_order - b.display_order);
+ // โหลดข้อมูลทั้งหมดแบบ Parallel เพื่อความเร็วสูงสุด (ไม่รอ Waterfall)
+ Promise.all([
+ safeFetchJson(`${apiBase}/api/shifts/active?shop_id=${currentShopId}`),
+ safeFetchJson(`${apiBase}/api/settings?shop_id=${currentShopId}`),
+ safeFetchJson(`${apiBase}/api/payment-methods?shop_id=${currentShopId}`),
+ safeFetchJson(`${apiBase}/api/categories?shop_id=${currentShopId}`),
+ safeFetchJson(`${apiBase}/api/options?shop_id=${currentShopId}`),
+ safeFetchJson(`${apiBase}/api/products?shop_id=${currentShopId}&category_id=all`)
+ ]).then(([shiftData, settingsRes, paymentRes, catRes, optRes, prodRes]) => {
+ if (shiftData && shiftData.shift) {
+ setActiveShift(shiftData.shift);
+ fetchNextBillNumber(currentShopId, shiftData.shift.id);
+ }
+ if (settingsRes) {
+ setShopSettings(settingsRes);
+ }
+ if (Array.isArray(paymentRes)) {
+ const enabledMethods = paymentRes.filter(m => m.is_enabled).sort((a, b) => a.display_order - b.display_order);
  setPaymentMethods(enabledMethods);
  if (enabledMethods.length > 0) setPaymentMethod(enabledMethods[0].name); 
  }
- });
-
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/categories?shop_id=${currentShopId}`)
- .then(res => {
- if (Array.isArray(res)) {
- const activeCategories = res.filter((c: any) => c.status === 'active' || !c.status);
+ if (Array.isArray(optRes)) {
+ setAllOptions(optRes.filter((o: any) => o.status === 'active' || !o.status));
+ }
+ let firstCatId = "";
+ if (Array.isArray(catRes)) {
+ const activeCategories = catRes.filter((c: any) => c.status === 'active' || !c.status);
  setCategories(activeCategories);
- if (activeCategories.length > 0) setSelectedCategory(activeCategories[0].id);
+ if (activeCategories.length > 0) {
+ firstCatId = activeCategories[0].id;
+ setSelectedCategory(firstCatId);
  }
+ }
+ if (Array.isArray(prodRes)) {
+ const activeProducts = prodRes.filter((p: any) => p.status === 'active' || !p.status);
+ setAllProductsList(activeProducts);
+ if (firstCatId) {
+ setProducts(activeProducts.filter((p: any) => String(p.category_id) === String(firstCatId)));
+ } else {
+ setProducts(activeProducts);
+ }
+ }
+ }).finally(() => {
+ setIsShiftChecking(false);
  });
- 
- // โหลด Option Groups ทั้งหมด
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/options?shop_id=${currentShopId}`)
- .then(res => { if (Array.isArray(res)) setAllOptions(res.filter((o: any) => o.status === 'active' || !o.status)); });
- }
- })
- .finally(() => setIsShiftChecking(false));
  }, [router]);
 
+ // สลับหมวดหมู่สินค้าแบบ Instant จาก Memory โดยไม่ต้องยิง API ใหม่ทุกครั้ง
  useEffect(() => {
- if (!user?.shop_id || !selectedCategory || !activeShift || view !== 'pos') return;
- safeFetchJson(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/products?shop_id=${user.shop_id}&category_id=${selectedCategory}`)
- .then(data => {
- if (Array.isArray(data)) setProducts(data.filter((p: any) => p.status === 'active' || !p.status));
- });
- }, [selectedCategory, user, activeShift, view]);
+ if (!selectedCategory || allProductsList.length === 0) return;
+ setProducts(allProductsList.filter((p: any) => String(p.category_id) === String(selectedCategory)));
+ }, [selectedCategory, allProductsList]);
 
  // ==========================================
  // ดึง Options เฉพาะของสินค้านั้นขึ้นมาแสดง (แก้ไข Type Mismatch แล้ว)
  // ==========================================
  const openItemModal = async (product: any) => {
+ addingToCartRef.current = false;
  setSelectedProduct(product);
  setItemPrice(String(product.price ?? 0));
  setItemDetails({ quantity: 1, note: "" });
@@ -236,6 +253,7 @@ export default function POSPage() {
  };
 
  const addToCart = () => {
+ if (!selectedProduct || addingToCartRef.current) return;
  const missingRequired = currentProductOptions.find(group => {
  if (group.is_required) {
  const selected = selectedDynamicOptions[group.id] || [];
@@ -263,6 +281,7 @@ export default function POSPage() {
  const finalPrice = Number(itemPrice || selectedProduct.price || 0) + optionsPrice;
  const optionsText = optionsTextArr.join(', ');
 
+ addingToCartRef.current = true;
  setCart((prev) => {
  const existingItem = prev.find(item =>
  item.id === selectedProduct.id && 
@@ -525,24 +544,31 @@ export default function POSPage() {
 	};
 
 	const finishTransaction = async () => {
-		if (isSubmittingPayment && savingOrderPromiseRef.current) {
-			try {
-				await savingOrderPromiseRef.current;
-			} catch (e) {}
+		if (finishingRef.current) return;
+		finishingRef.current = true;
+		try {
+			if (isSubmittingPayment && savingOrderPromiseRef.current) {
+				try {
+					await savingOrderPromiseRef.current;
+				} catch (e) {}
+			}
+			if (pollingInterval) clearInterval(pollingInterval);
+			setQrTransaction(null);
+			setPendingTransferOrderId(null);
+			setCart([]); 
+			setPaidAmountStr(""); 
+			if (paymentMethods.length > 0) setPaymentMethod(paymentMethods[0].name);
+			if (user?.shop_id && activeShift?.id) {
+				fetchNextBillNumber(user.shop_id, activeShift.id); 
+			}
+			setView('pos');
+		} finally {
+			finishingRef.current = false;
 		}
-		if (pollingInterval) clearInterval(pollingInterval);
-		setQrTransaction(null);
-		setPendingTransferOrderId(null);
-		setCart([]); 
-		setPaidAmountStr(""); 
-		if (paymentMethods.length > 0) setPaymentMethod(paymentMethods[0].name);
-		if (user?.shop_id && activeShift?.id) {
-			fetchNextBillNumber(user.shop_id, activeShift.id); 
-		}
-		setView('pos');
 	};
  const handleConfirmTransfer = async () => {
- if (!pendingTransferOrderId || !user?.shop_id || isConfirmingTransfer) return;
+ if (!pendingTransferOrderId || !user?.shop_id || isConfirmingTransfer || confirmingTransferRef.current) return;
+ confirmingTransferRef.current = true;
  setIsConfirmingTransfer(true);
 
  try {
@@ -562,6 +588,7 @@ export default function POSPage() {
  } catch (error) {
  showToast('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', 'error');
  } finally {
+ confirmingTransferRef.current = false;
  setIsConfirmingTransfer(false);
  }
  };
@@ -628,6 +655,7 @@ export default function POSPage() {
 							<div className="h-[68px] sm:h-[78px] bg-[#f5f6f8] flex items-center z-10 shrink-0 w-full px-3 sm:px-6 gap-3 sm:gap-6 border-b border-gray-200 shadow-sm">
 								<div className="flex-1 flex items-center overflow-hidden min-w-0">
 									<div 
+										data-allow-repeat="true"
 										className="flex w-full gap-2 sm:gap-3 overflow-x-auto items-center pb-1 pt-1 custom-scrollbar"
 										onWheel={(e) => {
 											e.currentTarget.scrollLeft += e.deltaY;
@@ -824,9 +852,10 @@ export default function POSPage() {
 								<p className="text-base sm:text-lg font-bold text-gray-800 mb-1">สแกน QR เพื่อชำระเงิน</p>
 								
 								<div className="w-full flex gap-2.5 sm:gap-3 mt-6">
-									<button onClick={() => { if(pollingInterval) clearInterval(pollingInterval); setView('payment'); }} className="flex-1 py-3 sm:py-3.5 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 transition-colors text-sm sm:text-base">ยกเลิก</button>
+									<button disabled={isConfirmingQR} onClick={() => { if(pollingInterval) clearInterval(pollingInterval); setView('payment'); }} className="flex-1 py-3 sm:py-3.5 rounded-xl bg-gray-100 text-gray-700 font-bold hover:bg-gray-200 transition-colors text-sm sm:text-base disabled:opacity-50">ยกเลิก</button>
 									<button disabled={isConfirmingQR} onClick={async () => {
-										if (isConfirmingQR) return;
+										if (isConfirmingQR || confirmingQrRef.current) return;
+										confirmingQrRef.current = true;
 										setIsConfirmingQR(true);
 										if (pollingInterval) clearInterval(pollingInterval);
 										try {
@@ -838,7 +867,7 @@ export default function POSPage() {
 												showToast('เกิดข้อผิดพลาด: ' + data.error, 'error');
 											}
 										} catch(e) { showToast('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้', 'error'); }
-										finally { setIsConfirmingQR(false); }
+										finally { confirmingQrRef.current = false; setIsConfirmingQR(false); }
 									}} className={`flex-1 py-3 sm:py-3.5 rounded-xl text-white font-bold transition-all text-sm sm:text-base shadow-sm ${isConfirmingQR ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#7a5c4e] hover:bg-[#684c3f]'}`}>{isConfirmingQR ? 'กำลังบันทึก...' : 'ยืนยันรับเงิน'}</button>
 								</div>
 							</div>
@@ -952,7 +981,7 @@ export default function POSPage() {
 							{/* Right Column: Keypad & Payment method display */}
 							<div className="flex-1 bg-white p-3.5 sm:p-5 lg:p-6 rounded-2xl sm:rounded-3xl border border-gray-200 shadow-sm flex flex-col justify-between min-h-0">
 								{/* Payment Method Tabs */}
-								<div className="flex justify-start gap-2 sm:gap-3 border-b border-gray-200 mb-2.5 sm:mb-3 overflow-x-auto no-scrollbar shrink-0">
+								<div data-allow-repeat="true" className="flex justify-start gap-2 sm:gap-3 border-b border-gray-200 mb-2.5 sm:mb-3 overflow-x-auto no-scrollbar shrink-0">
 									{paymentMethods.length > 0 ? paymentMethods.map(m => (
 										<button 
 											key={m.id} 
@@ -988,7 +1017,7 @@ export default function POSPage() {
 								
 								{/* Method Specific Display */}
 								{isCash ? (
-									<div className="flex flex-col gap-2 sm:gap-2.5 flex-1 min-h-0">
+									<div data-allow-repeat="true" className="flex flex-col gap-2 sm:gap-2.5 flex-1 min-h-0">
 										<div className="flex gap-2 sm:gap-2.5 shrink-0">
 											{[100, 500, 1000].map(val => (
 												<button 

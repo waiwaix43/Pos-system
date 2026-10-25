@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 // สร้าง Component ไอคอนดวงตาแยกออกมา เพื่อลดความซ้ำซ้อนของโค้ด
@@ -33,6 +33,8 @@ export default function ForgotPinPage() {
   
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     const savedUser = localStorage.getItem("userContext");
@@ -49,6 +51,7 @@ export default function ForgotPinPage() {
 
   const handleResetPin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     setErrorMsg("");
     setSuccessMsg("");
 
@@ -61,6 +64,9 @@ export default function ForgotPinPage() {
       setErrorMsg("กรุณาตั้งรหัส PIN เป็นตัวเลข 4 หลัก");
       return;
     }
+
+    submittingRef.current = true;
+    setIsLoading(true);
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/reset-pin`, {
@@ -82,9 +88,13 @@ export default function ForgotPinPage() {
         }, 1500);
       } else {
         setErrorMsg(data.message || "รหัสผ่านบัญชีไม่ถูกต้อง");
+        submittingRef.current = false;
+        setIsLoading(false);
       }
     } catch (err) {
       setErrorMsg("ไม่สามารถติดต่อเซิร์ฟเวอร์ได้");
+      submittingRef.current = false;
+      setIsLoading(false);
     }
   };
 
@@ -116,13 +126,16 @@ export default function ForgotPinPage() {
               onChange={handleChange}
               placeholder="รหัสผ่านบัญชี (Password)" 
               required 
+              disabled={isLoading}
               // ใส่ pl-4 pr-12 เพื่อเว้นที่ให้ตา และ [&::-ms-reveal]:hidden เพื่อซ่อนตาของ Edge ถาวร
-              className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:border-black [&::-ms-reveal]:hidden [&::-ms-clear]:hidden" 
+              className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:border-black disabled:bg-gray-100 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden" 
             />
             <button 
               type="button" 
+              data-allow-repeat="true"
+              disabled={isLoading}
               onClick={() => setShowPassword(!showPassword)} 
-              className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none disabled:opacity-50"
             >
               <EyeIcon isOpen={showPassword} />
             </button>
@@ -139,12 +152,15 @@ export default function ForgotPinPage() {
                 onChange={handleChange}
                 placeholder="รหัส PIN ใหม่ (ตัวเลข 4 หลัก)" 
                 required 
-                className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:border-black font-sans [&::-ms-reveal]:hidden [&::-ms-clear]:hidden" 
+                disabled={isLoading}
+                className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:border-black font-sans disabled:bg-gray-100 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden" 
               />
               <button 
                 type="button" 
+                data-allow-repeat="true"
+                disabled={isLoading}
                 onClick={() => setShowNewPin(!showNewPin)} 
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none disabled:opacity-50"
               >
                 <EyeIcon isOpen={showNewPin} />
               </button>
@@ -160,26 +176,30 @@ export default function ForgotPinPage() {
                 onChange={handleChange}
                 placeholder="ยืนยันรหัส PIN ใหม่" 
                 required 
-                className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:border-black font-sans [&::-ms-reveal]:hidden [&::-ms-clear]:hidden" 
+                disabled={isLoading}
+                className="w-full pl-4 pr-12 py-3 rounded-lg border border-gray-300 focus:outline-none focus:border-black font-sans disabled:bg-gray-100 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden" 
               />
               <button 
                 type="button" 
+                data-allow-repeat="true"
+                disabled={isLoading}
                 onClick={() => setShowConfirmPin(!showConfirmPin)} 
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none disabled:opacity-50"
               >
                 <EyeIcon isOpen={showConfirmPin} />
               </button>
             </div>
           </div>
 
-          <button type="submit" className="w-full bg-black text-white font-bold py-3.5 rounded-lg hover:bg-gray-800 active:scale-95 transition-all mt-6">
-            ยืนยันการเปลี่ยน PIN
+          <button type="submit" disabled={isLoading} className="w-full bg-black text-white font-bold py-3.5 rounded-lg hover:bg-gray-800 active:scale-95 transition-all mt-6 disabled:opacity-60 disabled:cursor-not-allowed">
+            {isLoading ? "กำลังเปลี่ยน PIN..." : "ยืนยันการเปลี่ยน PIN"}
           </button>
         </form>
 
         <button 
+          disabled={isLoading}
           onClick={() => router.push('/pin')} 
-          className="w-full mt-6 text-sm font-medium text-gray-500 hover:text-black transition-colors"
+          className="w-full mt-6 text-sm font-medium text-gray-500 hover:text-black transition-colors disabled:opacity-50"
         >
           ยกเลิก และกลับไปหน้าเข้าร้าน
         </button>

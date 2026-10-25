@@ -1,4 +1,5 @@
 const db = require('./db');
+const { getCachedShopSettings } = require('./shopSettingsCache');
 
 const getState = (quantity, minimum) => {
     if (Number(quantity) <= 0) return 'OUT_OF_STOCK';
@@ -378,9 +379,8 @@ const createNotification = async ({ shopId, type, priority, title, message, enti
     // Check shop settings first
     let allowNotify = true;
     try {
-        const { data: settingsRow } = await db.from('shop_settings').select('settings_data').eq('shop_id', shopId).single();
-        if (settingsRow && settingsRow.settings_data) {
-            const settings = typeof settingsRow.settings_data === 'string' ? JSON.parse(settingsRow.settings_data) : settingsRow.settings_data;
+        const settings = await getCachedShopSettings(shopId);
+        if (settings) {
             if (type === 'STOCK_LOW' && settings.notify_low_stock === false) allowNotify = false;
             if (type === 'STOCK_OUT' && settings.notify_out_of_stock === false) allowNotify = false;
             if (type === 'REFUND' && settings.notify_refund === false) allowNotify = false;

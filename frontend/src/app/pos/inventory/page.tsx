@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
 import { createClient } from "@supabase/supabase-js";
+import { compressImageFile } from "@/utils/imageCompress";
 import {
  Search, Plus, LayoutGrid, List, AlignJustify, RefreshCw, AlertCircle, AlertTriangle, Calendar, X,
  Package, Edit, Save, Upload, ArrowUpDown, Box, Droplets, Filter, Trash2, Minus, Check,
@@ -522,6 +523,8 @@ export default function InventoryPage() {
  const [formData, setFormData] = useState<any>({});
  const [uploadingImage, setUploadingImage] = useState(false);
  const [isSaving, setIsSaving] = useState(false);
+ const [isSavingCategory, setIsSavingCategory] = useState(false);
+ const actionRef = useRef(false);
 
  // States: Detail Drawer
  const [selectedItem, setSelectedItem] = useState<any | null>(null);
@@ -712,10 +715,13 @@ export default function InventoryPage() {
  };
 
  const saveCategory = async () => {
+ if (actionRef.current || isSavingCategory) return;
  if (!user?.shop_id || !categoryForm.name.trim()) {
  showToast('กรุณากรอกชื่อหมวดย่อย' , 'error');
  return;
  }
+ actionRef.current = true;
+ setIsSavingCategory(true);
  try {
  const url = categoryForm.id ? `${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/categories/${categoryForm.id}` : `${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/categories`;
  const method = categoryForm.id ? 'PUT' : 'POST';
@@ -755,14 +761,20 @@ export default function InventoryPage() {
  showToast(categoryForm.id ? 'แก้ไขหมวดย่อยสำเร็จ' : 'เพิ่มหมวดย่อยสำเร็จ', 'success');
  } catch (err: any) {
  showToast(getThaiApiMessage(err.message, 'บันทึกหมวดย่อยไม่สำเร็จ กรุณาลองใหม่'), 'error');
+ } finally {
+ actionRef.current = false;
+ setIsSavingCategory(false);
  }
  };
 
  const deleteCategory = async (categoryId: number | string) => {
+ if (actionRef.current || isSavingCategory) return;
  if (!user?.shop_id) return;
  const category = inventoryCategories.find((cat) => Number(cat.id) === Number(categoryId));
  if (!category) return;
  if (!window.confirm(`ต้องการลบหมวดย่อย "${category.name}" หรือไม่?\nระบบจะย้ายสินค้าในหมวดนี้ให้เป็น "ยังไม่ได้จัดหมวดหมู่" ก่อนลบหมวด`)) return;
+ actionRef.current = true;
+ setIsSavingCategory(true);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/categories/${Number(categoryId)}?shop_id=${Number(user.shop_id)}`, {
  method: 'DELETE'
@@ -784,6 +796,9 @@ export default function InventoryPage() {
  showToast('ลบหมวดย่อยสำเร็จ', 'success');
  } catch (err: any) {
  showToast(getThaiApiMessage(err.message, 'ลบหมวดย่อยไม่สำเร็จ กรุณาลองใหม่'), 'error');
+ } finally {
+ actionRef.current = false;
+ setIsSavingCategory(false);
  }
  };
 
@@ -909,12 +924,8 @@ export default function InventoryPage() {
 
  setUploadingImage(true);
  try {
- const imageDataUrl = await new Promise<string>((resolve, reject) => {
- const reader = new FileReader();
- reader.onload = () => resolve(String(reader.result));
- reader.onerror = () => reject(new Error("อ่านไฟล์รูปภาพไม่สำเร็จ"));
- reader.readAsDataURL(file);
- });
+ // ย่อรูปไม่เกิน 480px + บีบอัด ก่อนเก็บเป็น Base64 (ลดจากหลาย MB เหลือหลักสิบ KB)
+ const imageDataUrl = await compressImageFile(file, { maxSize: 480, quality: 0.8 });
  setFormData((previous: any) => ({ ...previous, image_url: imageDataUrl }));
  } catch (err: any) {
  showToast('อ่านรูปภาพไม่สำเร็จ กรุณาลองเลือกไฟล์ใหม่', 'error');
@@ -927,6 +938,7 @@ export default function InventoryPage() {
  // SAVE DATA
  // ==========================================
  const handleSaveData = async () => {
+ if (actionRef.current || isSaving || uploadingImage) return;
  if (!formData.name) return showToast("กรุณากรอกชื่อรายการ", 'error');
  if (!formData.type) return showToast("กรุณาเลือกประเภทหลัก", 'error');
  const isNoExpiry = Boolean(formData.no_expiry);
@@ -971,6 +983,7 @@ export default function InventoryPage() {
 
  const primaryBatch = cleanedBatches.find((b) => !b.no_expiry && b.exp_date) || cleanedBatches[0] || null;
 
+ actionRef.current = true;
  setIsSaving(true);
  try {
  let endpoint = `/api/inventory/items${formMode === 'edit' ? `/${formData.id}` : ''}`;
@@ -1004,14 +1017,16 @@ export default function InventoryPage() {
  } catch (err: any) {
  showToast(getThaiApiMessage(err.message, 'บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่'), 'error');
  } finally {
+ actionRef.current = false;
  setIsSaving(false);
  }
  };
 
  const handleDeleteItem = async () => {
- if (!selectedItem) return;
+ if (!selectedItem || actionRef.current || isSaving) return;
  if (!window.confirm(`คุณต้องการลบ "${selectedItem.name}" ใช่หรือไม่? การเปลี่ยนแปลงนี้ไม่สามารถย้อนกลับได้`)) return;
 
+ actionRef.current = true;
  setIsSaving(true);
  try {
  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/items/${selectedItem.id}`, {
@@ -1026,6 +1041,7 @@ export default function InventoryPage() {
  } catch (err: any) {
  showToast(getThaiApiMessage(err.message, 'ลบรายการไม่สำเร็จ กรุณาลองใหม่'), 'error');
  } finally {
+ actionRef.current = false;
  setIsSaving(false);
  }
  };
@@ -1083,6 +1099,7 @@ export default function InventoryPage() {
  };
 
  const handleAdjustStock = async () => {
+ if (actionRef.current || isSaving) return;
  if (!adjustData.qty || isNaN(Number(adjustData.qty))) return showToast("กรุณาระบุจำนวนที่ต้องการปรับ", 'error');
  if (!selectedItem) return;
  const amount = Number(adjustData.qty);
@@ -1095,6 +1112,7 @@ export default function InventoryPage() {
  }
  }
 
+ actionRef.current = true;
  const itemId = Number(selectedItem.id);
  const previousQuantity = Number(selectedItem.quantity || 0);
  const optimisticQuantity = previousQuantity + amount;
@@ -1155,6 +1173,7 @@ export default function InventoryPage() {
  }
  showToast(getThaiApiMessage(err.message, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'), 'error');
  } finally {
+ actionRef.current = false;
  setIsSaving(false);
  }
  };
@@ -1174,7 +1193,7 @@ export default function InventoryPage() {
  };
 
  const submitStockAdjustment = async () => {
- if (!selectedItem) return;
+ if (!selectedItem || actionRef.current || isSaving) return;
  const amount = Number(stockForm.amount);
  if (!Number.isFinite(amount) || amount <= 0) return showToast("กรุณาระบุจำนวนที่มากกว่า 0", 'error');
  if (stockDialog.mode === "out" && amount > Number(selectedItem.quantity || 0)) return showToast("จำนวนที่ลดไม่สามารถมากกว่าสต็อกปัจจุบันได้", 'error');
@@ -1186,6 +1205,7 @@ export default function InventoryPage() {
  return showToast("วันหมดอายุต้องไม่น้อยกว่าวันผลิต", 'error');
  }
  }
+ actionRef.current = true;
  const itemId = Number(selectedItem.id);
  const previousQuantity = Number(selectedItem.quantity || 0);
  const adjustment = stockDialog.mode === "in" ? amount : -amount;
@@ -1249,6 +1269,7 @@ export default function InventoryPage() {
  }
  showToast(getThaiApiMessage(error.message, 'ปรับสต็อกไม่สำเร็จ กรุณาลองใหม่'), 'error');
  } finally {
+ actionRef.current = false;
  setIsSaving(false);
  }
  };
@@ -1495,7 +1516,7 @@ export default function InventoryPage() {
  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
    {/* Mini Tabs when Expanded */}
    {isExpanded && (
-    <div className="flex items-center bg-gray-200/80 p-1 rounded-xl shrink-0 mr-1 animate-fade-in">
+    <div data-allow-repeat="true" className="flex items-center bg-gray-200/80 p-1 rounded-xl shrink-0 mr-1 animate-fade-in">
      <button
       type="button"
       onClick={() => selectTypeTab("วัตถุดิบ")}
@@ -1578,7 +1599,7 @@ export default function InventoryPage() {
  </button>
  </div>
 
-<div className="flex shrink-0 items-center gap-2">
+<div data-allow-repeat="true" className="flex shrink-0 items-center gap-2">
  <div className="flex shrink-0 bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
  <button onClick={() => changeViewMode("table")} className={`p-2 transition-colors ${viewMode === 'table' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><List className="w-4 h-4" /></button>
  <button onClick={() => changeViewMode("grid")} className={`p-2 border-l border-gray-200 transition-colors ${viewMode === 'grid' ? 'bg-gray-100 text-[#7a5c4e]' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid className="w-4 h-4" /></button>
@@ -1603,7 +1624,7 @@ export default function InventoryPage() {
    )}
   </button>
  </div>
- <div className="flex shrink-0 items-center gap-2 text-[12px] text-gray-500">
+ <div data-allow-repeat="true" className="flex shrink-0 items-center gap-2 text-[12px] text-gray-500">
  <span>
  {displayedItems.length === 0
  ? '0 รายการ'
@@ -2392,7 +2413,7 @@ export default function InventoryPage() {
  </button>
  </div>
 
- <div className="flex border-b border-gray-200 px-6 shrink-0 overflow-x-auto no-scrollbar">
+ <div data-allow-repeat="true" className="flex border-b border-gray-200 px-6 shrink-0 overflow-x-auto no-scrollbar">
  <button onClick={() => setDrawerTab("detail")} className={`py-4 text-[14px] font-bold border-b-2 mr-6 shrink-0 ${drawerTab === 'detail' ? 'border-[#7a5c4e] text-[#7a5c4e]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>รายละเอียด</button>
  <button onClick={() => setDrawerTab("movement")} className={`py-4 text-[14px] font-bold border-b-2 shrink-0 ${drawerTab === 'movement' ? 'border-[#7a5c4e] text-[#7a5c4e]' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>ประวัติ Movement</button>
  </div>
@@ -2806,7 +2827,7 @@ export default function InventoryPage() {
  </select>
  </div>
  <div className="mt-4 flex gap-3">
- <button type="button" onClick={saveCategory} className="flex-1 rounded-xl bg-[#7a5c4e] px-4 py-3 font-bold text-white hover:bg-[#684c3f]">
+ <button type="button" onClick={saveCategory} disabled={isSavingCategory} className="flex-1 rounded-xl bg-[#7a5c4e] px-4 py-3 font-bold text-white hover:bg-[#684c3f] disabled:opacity-50">
  {categoryForm.id ? 'บันทึกการแก้ไข' : 'เพิ่มหมวดย่อย'}
  </button>
  {categoryForm.id && (
@@ -2833,8 +2854,8 @@ export default function InventoryPage() {
  <div className="text-[11px] text-gray-500">{categoryCountMap[String(category.id)] || 0} รายการ</div>
  </div>
  <div className="flex items-center gap-2">
- <button type="button" onClick={() => setCategoryForm({ id: Number(category.id), name: category.name, type: category.type || categoryTypeMap[String(category.id)] || activeTypeValue })} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] font-bold text-gray-700 hover:bg-gray-50">แก้ไข</button>
- <button type="button" onClick={() => deleteCategory(category.id)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-bold text-red-600 hover:bg-red-100">ลบ</button>
+ <button type="button" disabled={isSavingCategory} onClick={() => setCategoryForm({ id: Number(category.id), name: category.name, type: category.type || categoryTypeMap[String(category.id)] || activeTypeValue })} className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50">แก้ไข</button>
+ <button type="button" disabled={isSavingCategory} onClick={() => deleteCategory(category.id)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-bold text-red-600 hover:bg-red-100 disabled:opacity-50">ลบ</button>
  </div>
  </div>
  ))
@@ -2858,7 +2879,7 @@ export default function InventoryPage() {
  <div className="space-y-5 p-6 overflow-y-auto flex-1">
  <div>
  <label className="mb-2 block text-[13px] font-bold text-gray-700">จำนวนที่ต้องการ{stockDialog.mode === 'in' ? 'เพิ่มในล็อตนี้' : 'ลด'}</label>
- <div className="flex items-center gap-3">
+ <div data-allow-repeat="true" className="flex items-center gap-3">
  <button type="button" onClick={() => setStockForm({...stockForm, amount: String(Math.max(1, Number(stockForm.amount || 1) - 1))})} className="h-12 w-12 rounded-xl border border-gray-300 bg-white"><Minus className="mx-auto h-4 w-4" /></button>
  <input type="number" min="1" max={stockDialog.mode === 'out' ? Number(selectedItem.quantity || 0) : undefined} value={stockForm.amount} onChange={(e) => setStockForm({...stockForm, amount: e.target.value})} className="h-12 min-w-0 flex-1 rounded-xl border border-gray-300 text-center text-[20px] font-bold outline-none" />
  <button type="button" onClick={() => setStockForm({...stockForm, amount: String(Number(stockForm.amount || 0) + 1)})} className="h-12 w-12 rounded-xl bg-[#7a5c4e] text-white"><Plus className="mx-auto h-4 w-4" /></button>

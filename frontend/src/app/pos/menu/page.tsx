@@ -20,7 +20,7 @@ import { CSS } from '@dnd-kit/utilities';
 import React from 'react';
 
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 import NotificationBell from '@/components/shared/NotificationBell';
@@ -151,6 +151,8 @@ export default function MenuPromotionsPage() {
   const [loadError, setLoadError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const actionRef = useRef(false);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [filters, setFilters] = useState({ category: "", status: "", price: "" });
@@ -180,6 +182,8 @@ export default function MenuPromotionsPage() {
     const { active, over } = event;
     
     if (activeTab === 'categories' && over && active.id !== over.id) {
+      if (actionRef.current) return;
+      actionRef.current = true;
       const oldIndex = categories.findIndex((c) => c.id === active.id);
       const newIndex = categories.findIndex((c) => c.id === over.id);
       
@@ -205,6 +209,8 @@ export default function MenuPromotionsPage() {
       } catch (e) {
         console.error(e);
         showToast('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+      } finally {
+        actionRef.current = false;
       }
     }
   };
@@ -356,6 +362,8 @@ export default function MenuPromotionsPage() {
   // SAVE DATA
   // ==========================================
   const handleSave = async () => {
+    if (actionRef.current || isSaving || isUploading) return;
+    actionRef.current = true;
     setIsSaving(true);
     try {
       const method = editingItem.id ? 'PUT' : 'POST';
@@ -385,6 +393,7 @@ export default function MenuPromotionsPage() {
     } catch (error: any) {
       showToast(error.message || "เกิดข้อผิดพลาดในการบันทึก", "error");
     } finally {
+      actionRef.current = false;
       setIsSaving(false);
     }
   };
@@ -393,7 +402,10 @@ export default function MenuPromotionsPage() {
   // DELETE DATA
   // ==========================================
   const handleDelete = async (id: number) => {
+    if (actionRef.current || isDeleting) return;
     if(!confirm("คุณต้องการลบรายการนี้ใช่หรือไม่? การเปลี่ยนแปลงนี้ไม่สามารถย้อนกลับได้")) return;
+    actionRef.current = true;
+    setIsDeleting(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/${activeTab}/${id}`, { method: 'DELETE' });
        const data = await res.json().catch(() => ({}));
@@ -405,11 +417,17 @@ export default function MenuPromotionsPage() {
        fetchAllData(user?.shop_id || 1);
     } catch (error: any) {
        showToast(error.message || "ลบข้อมูลไม่สำเร็จ", "error");
+    } finally {
+       actionRef.current = false;
+       setIsDeleting(false);
     }
   };
 
   const handleBulkDelete = async () => {
+    if (actionRef.current || isDeleting || selectedItems.length === 0) return;
     if(!confirm(`คุณต้องการลบรายการที่เลือกจำนวน ${selectedItems.length} รายการใช่หรือไม่? การเปลี่ยนแปลงนี้ไม่สามารถย้อนกลับได้`)) return;
+    actionRef.current = true;
+    setIsDeleting(true);
     try {
        await Promise.all(selectedItems.map(id => 
           fetch(`${API_BASE_URL}/api/${activeTab}/${id}`, { method: 'DELETE' })
@@ -419,6 +437,9 @@ export default function MenuPromotionsPage() {
        fetchAllData(user?.shop_id || 1);
     } catch (error: any) {
        showToast("ลบข้อมูลไม่สำเร็จบางรายการ", "error");
+    } finally {
+       actionRef.current = false;
+       setIsDeleting(false);
     }
   };
 
@@ -470,6 +491,8 @@ export default function MenuPromotionsPage() {
   };
 
   const handleSaveProductOptions = async () => {
+    if (actionRef.current || isSaving) return;
+    actionRef.current = true;
     setIsSaving(true);
     try {
       if (isBulkOptionsMode) {
@@ -507,6 +530,7 @@ export default function MenuPromotionsPage() {
     } catch (err: any) {
       showToast(err.message, "error");
     } finally {
+      actionRef.current = false;
       setIsSaving(false);
     }
   };
@@ -516,7 +540,7 @@ export default function MenuPromotionsPage() {
   // ==========================================
   const loadInventoryForRecipe = async (shopId: number) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/inventory/items?shop_id=${shopId}`);
+      const res = await fetch(`${API_BASE_URL}/api/inventory/items?shop_id=${shopId}&include_images=false`);
       if(res.ok) {
         setInventoryItems(await res.json());
       }
@@ -599,7 +623,8 @@ export default function MenuPromotionsPage() {
   };
 
   const handleSaveRecipeBatch = async () => {
-    if (!selectedProductForRecipe) return;
+    if (!selectedProductForRecipe || actionRef.current || isRecipeSaving) return;
+    actionRef.current = true;
     setIsRecipeSaving(true);
     try {
        const payload = {
@@ -625,6 +650,7 @@ export default function MenuPromotionsPage() {
     } catch (e: any) {
        showToast(e.message, "error");
     } finally {
+       actionRef.current = false;
        setIsRecipeSaving(false);
     }
   };
@@ -762,7 +788,7 @@ export default function MenuPromotionsPage() {
         {/* Content Body */}
         <div className="flex-1 flex overflow-hidden p-6 gap-6">
           
-          <div className="w-[260px] bg-white rounded-[20px] shadow-sm border border-gray-200 p-2 shrink-0 flex flex-col overflow-y-auto no-scrollbar">
+          <div data-allow-repeat="true" className="w-[260px] bg-white rounded-[20px] shadow-sm border border-gray-200 p-2 shrink-0 flex flex-col overflow-y-auto no-scrollbar">
              {TABS.map((tab) => {
                const Icon = tab.icon;
                const isActive = activeTab === tab.id;
@@ -888,7 +914,7 @@ export default function MenuPromotionsPage() {
                                จัดการตัวเลือก
                              </button>
                            )}
-                           <button onClick={handleBulkDelete} className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg font-bold text-[13px] hover:bg-red-100 transition-all border border-red-200 shadow-sm">
+                           <button onClick={handleBulkDelete} disabled={isDeleting} className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg font-bold text-[13px] hover:bg-red-100 transition-all border border-red-200 shadow-sm disabled:opacity-50">
                              <Trash2 className="w-4 h-4" />
                              ลบทั้งหมด
                            </button>
@@ -897,7 +923,7 @@ export default function MenuPromotionsPage() {
                       
                       {/* View Switch (เฉพาะเมนูรายการสินค้า) */}
                       {activeTab === "products" && (
-                        <div className="flex items-center bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+                        <div data-allow-repeat="true" className="flex items-center bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
                            <button 
                              onClick={() => setViewMode('list')} 
                              className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-gray-100 text-[#7a5c4e] shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
@@ -976,7 +1002,7 @@ export default function MenuPromotionsPage() {
                                  <button onClick={() => handleOpenModal(item)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="แก้ไข">
                                    <Edit3 className="w-4 h-4" />
                                  </button>
-                                 <button onClick={() => handleDelete(item.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบ">
+                                 <button onClick={() => handleDelete(item.id)} disabled={isDeleting} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50" title="ลบ">
                                    <Trash2 className="w-4 h-4" />
                                  </button>
                                </div>
@@ -1098,7 +1124,7 @@ export default function MenuPromotionsPage() {
                                    <button onClick={() => handleOpenModal(item)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="แก้ไข">
                                      <Edit3 className="w-4 h-4" />
                                    </button>
-                                   <button onClick={() => handleDelete(item.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors" title="ลบ">
+                                   <button onClick={() => handleDelete(item.id)} disabled={isDeleting} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50" title="ลบ">
                                      <Trash2 className="w-4 h-4" />
                                    </button>
                                  </div>

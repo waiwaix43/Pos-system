@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 
@@ -11,9 +11,12 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const submittingRef = useRef(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setErrorMsg("");
     setIsLoading(true);
 
@@ -48,10 +51,12 @@ export default function LoginPage() {
         }
       } else {
         setErrorMsg(data.error || "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+        submittingRef.current = false;
+        setIsLoading(false);
       }
     } catch (error) {
       setErrorMsg("ไม่สามารถติดต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง");
-    } finally {
+      submittingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -94,6 +99,7 @@ export default function LoginPage() {
             
             <button 
               type="button" 
+              data-allow-repeat="true"
               onClick={() => setShowPassword(!showPassword)} 
               disabled={isLoading}
               className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none disabled:opacity-50"
@@ -114,8 +120,9 @@ export default function LoginPage() {
           <div className="text-right">
             <button 
               type="button" 
+              disabled={isLoading}
               onClick={() => router.push('/forgot-password')} 
-              className="text-sm font-medium text-black hover:underline"
+              className="text-sm font-medium text-black hover:underline disabled:opacity-50"
             >
               ลืมรหัสผ่าน
             </button>

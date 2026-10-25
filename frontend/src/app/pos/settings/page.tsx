@@ -1,7 +1,8 @@
 "use client";
+import { compressImageFile } from "@/utils/imageCompress";
 import { useToast } from '@/components/shared/ToastProvider';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
@@ -189,6 +190,8 @@ export default function SettingsPage() {
     const [isLoadingPaymentMethods, setIsLoadingPaymentMethods] = useState(false);
     const [paymentMethodsError, setPaymentMethodsError] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+    const [deletingMethodId, setDeletingMethodId] = useState<number | null>(null);
+    const actionRef = useRef(false);
     const [errorMsg, setErrorMsg] = useState("");
 
 
@@ -337,6 +340,12 @@ export default function SettingsPage() {
     const handleQrSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
+            if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                return showToast("รองรับไฟล์ JPG, PNG, WEBP เท่านั้น", "error");
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                return showToast("ขนาดไฟล์ QR ต้องไม่เกิน 5MB", "error");
+            }
             setQrFile(file);
             const reader = new FileReader();
             reader.onloadend = () => setQrPreview(reader.result as string);
@@ -396,9 +405,11 @@ export default function SettingsPage() {
     };
 
     const handleFindAddress = async () => {
+        if (actionRef.current || isFindingAddress) return;
         const address = currentSettings?.address?.trim();
         if (!address) return showToast("กรุณากรอกที่อยู่ก่อนค้นหาตำแหน่ง", "error");
 
+        actionRef.current = true;
         setIsFindingAddress(true);
         try {
             const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=th&q=${encodeURIComponent(address)}`, {
@@ -418,6 +429,7 @@ export default function SettingsPage() {
         } catch (error: any) {
             showToast(error.message || "ไม่สามารถค้นหาตำแหน่งได้", "error");
         } finally {
+            actionRef.current = false;
             setIsFindingAddress(false);
         }
     };
@@ -476,7 +488,9 @@ export default function SettingsPage() {
     };
 
     const handleAddPaymentMethod = async () => {
+        if (actionRef.current || isAddingPaymentMethod) return;
         if (!user || !newPaymentMethod.name.trim()) return showToast("กรุณาระบุชื่อช่องทางการชำระเงิน", "error");
+        actionRef.current = true;
         setIsAddingPaymentMethod(true);
         try {
             const response = await fetch(`${API_BASE_URL}/api/payment-methods`, {
@@ -493,12 +507,16 @@ export default function SettingsPage() {
         } catch (error: any) {
             showToast(error.message, "error");
         } finally {
+            actionRef.current = false;
             setIsAddingPaymentMethod(false);
         }
     };
 
     const handleDeletePaymentMethod = async (method: PaymentMethod) => {
+        if (actionRef.current || deletingMethodId !== null) return;
         if (!user || !window.confirm(`ลบช่องทาง “${method.name}” ใช่หรือไม่?`)) return;
+        actionRef.current = true;
+        setDeletingMethodId(method.id);
         try {
             const response = await fetch(`${API_BASE_URL}/api/payment-methods/${method.id}?shop_id=${user.shop_id}`, { method: "DELETE" });
             const data = await response.json();
@@ -508,6 +526,9 @@ export default function SettingsPage() {
             showToast("ลบช่องทางการชำระเงินแล้ว", "success");
         } catch (error: any) {
             showToast(error.message, "error");
+        } finally {
+            actionRef.current = false;
+            setDeletingMethodId(null);
         }
     };
 
@@ -548,19 +569,16 @@ export default function SettingsPage() {
     };
 
     const handleSaveSettings = async () => {
-        if (!currentSettings || !user) return;
+        if (!currentSettings || !user || actionRef.current || isSaving) return;
+        actionRef.current = true;
         setIsSaving(true);
         try {
             let finalLogoUrl = currentSettings.logo;
 
             // 1. แปลงไฟล์รูปภาพเป็น Base64 แทนการอัปโหลดขึ้น Supabase Bucket (แก้ปัญหา Bucket not found)
             if (logoFile) {
-                finalLogoUrl = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.readAsDataURL(logoFile);
-                    reader.onload = () => resolve(reader.result as string);
-                    reader.onerror = error => reject(error);
-                });
+                // ย่อ + บีบอัดโลโก้ก่อนเก็บ (โลโก้บนใบเสร็จไม่ต้องใหญ่กว่า 512px)
+                finalLogoUrl = await compressImageFile(logoFile, { maxSize: 512, quality: 0.85 });
             } else if (logoPreview === null) {
                 finalLogoUrl = ''; // กรณีผู้ใช้กดลบโลโก้
             }
@@ -568,12 +586,8 @@ export default function SettingsPage() {
 
             let finalQrUrl = currentSettings.qr_image;
             if (qrFile) {
-                finalQrUrl = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.readAsDataURL(qrFile);
-                    reader.onload = () => resolve(reader.result as string);
-                    reader.onerror = error => reject(error);
-                });
+                // QR ต้องยังสแกนได้ จึงใช้ขนาดใหญ่กว่าและคุณภาพสูงกว่า
+                finalQrUrl = await compressImageFile(qrFile, { maxSize: 900, quality: 0.92 });
             } else if (qrPreview === null) {
                 finalQrUrl = '';
             }
@@ -611,12 +625,14 @@ export default function SettingsPage() {
         } catch (error: any) {
             showToast(error.message, "error");
         } finally {
+            actionRef.current = false;
             setIsSaving(false);
         }
     };
 
     const handleToggleUserPin = async (enabled: boolean) => {
-        if (!user) return;
+        if (!user || actionRef.current || isSaving) return;
+        actionRef.current = true;
         setIsSaving(true);
 
         try {
@@ -641,11 +657,13 @@ export default function SettingsPage() {
         } catch (error: any) {
             showToast(error.message || 'ไม่สามารถบันทึกสถานะ PIN ได้', 'error');
         } finally {
+            actionRef.current = false;
             setIsSaving(false);
         }
     };
 
     const handleUpdateSecurity = async (type: 'password' | 'pin') => {
+        if (actionRef.current || isSaving) return;
         const isPasswordType = type === 'password';
         const hasIncompleteInput = isPasswordType
             ? !securityForm.oldPass || !securityForm.newPass || !securityForm.confirmPass
@@ -669,6 +687,7 @@ export default function SettingsPage() {
             return showToast("กรุณากรอก PIN ใหม่เป็นตัวเลข 4 หลัก", "error");
         }
 
+        actionRef.current = true;
         setIsSaving(true);
         try {
             const endpoint = type === 'password' ? '/api/users/change-password' : '/api/users/change-pin';
@@ -691,16 +710,19 @@ export default function SettingsPage() {
             resetSecurityDraft();
             showToast(error.message, "error");
         } finally {
+            actionRef.current = false;
             setIsSaving(false);
         }
     };
 
     const handleCloseAccount = async () => {
+        if (actionRef.current || isClosingAccount) return;
         if (!closeAccountPassword) {
             showToast("กรุณากรอกรหัสผ่านเพื่อยืนยัน", "error");
             return;
         }
         
+        actionRef.current = true;
         setIsClosingAccount(true);
         try {
             const res = await fetchWithTimeout(`${API_BASE_URL}/api/shops/close`, {
@@ -726,6 +748,7 @@ export default function SettingsPage() {
         } catch (err) {
             showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", "error");
         } finally {
+            actionRef.current = false;
             setIsClosingAccount(false);
             setShowCloseAccountModal(false);
             setCloseAccountPassword("");
@@ -871,7 +894,7 @@ export default function SettingsPage() {
 
                 <div className="flex-1 flex overflow-hidden p-6 gap-6">
                     {/* Inner Sidebar */}
-                    <div className="w-[260px] bg-white rounded-[20px] shadow-sm border border-gray-200 p-2 shrink-0 flex flex-col overflow-y-auto no-scrollbar">
+                    <div data-allow-repeat="true" className="w-[260px] bg-white rounded-[20px] shadow-sm border border-gray-200 p-2 shrink-0 flex flex-col overflow-y-auto no-scrollbar">
                         {TABS.map((tab) => {
                             if (!tab.allowed) return null;
                             const Icon = tab.icon;
@@ -1090,7 +1113,7 @@ export default function SettingsPage() {
                                                 <div className="flex items-center justify-between mb-4">
                                                     <p className="text-[14px] font-bold text-gray-800">ข้อมูลบัญชีรับเงินของร้าน (สำหรับ QR และโอนเงิน)</p>
 
-                                                    <div className="flex bg-white rounded-lg p-1 border border-gray-200">
+                                                    <div data-allow-repeat="true" className="flex bg-white rounded-lg p-1 border border-gray-200">
                                                         <button
                                                             type="button"
                                                             disabled={!isEditing}
@@ -1162,7 +1185,7 @@ export default function SettingsPage() {
                                                         className={`flex items-center justify-between p-4 rounded-[16px] border transition-all ${isEditing ? 'border-gray-300 bg-white cursor-move hover:shadow-md' : 'border-gray-100 bg-gray-50 opacity-80'} ${draggedPaymentIndex === index ? 'opacity-40 border-dashed border-[#7a5c4e]' : ''}`}
                                                     >
                                                         <div className="flex items-center gap-4">
-                                                            <div className="flex flex-col gap-1">
+                                                            <div data-allow-repeat="true" className="flex flex-col gap-1">
                                                                 <button disabled={!isEditing || index === 0} onClick={() => handleMovePayment(index, -1)} className="text-gray-400 hover:text-gray-800 disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
                                                                 <button disabled={!isEditing || index === paymentMethods.length - 1} onClick={() => handleMovePayment(index, 1)} className="text-gray-400 hover:text-gray-800 disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
                                                             </div>
@@ -1170,7 +1193,7 @@ export default function SettingsPage() {
                                                         </div>
                                                         <div className="flex items-center gap-3">
                                                             <input type="checkbox" disabled={!isEditing} checked={method.is_enabled} onChange={() => handleTogglePayment(index)} className="w-5 h-5 accent-[#7a5c4e] cursor-pointer" />
-                                                            <button type="button" onClick={() => handleDeletePaymentMethod(method)} className="text-gray-400 hover:text-red-500" title="ลบช่องทาง"><Trash2 className="h-4 w-4" /></button>
+                                                            <button type="button" disabled={deletingMethodId !== null} onClick={() => handleDeletePaymentMethod(method)} className="text-gray-400 hover:text-red-500 disabled:opacity-40" title="ลบช่องทาง"><Trash2 className="h-4 w-4" /></button>
                                                         </div>
                                                     </div>
                                                 ))}

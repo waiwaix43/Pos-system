@@ -1,6 +1,6 @@
 "use client";
 import { useToast } from '@/components/shared/ToastProvider';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import NotificationBell from '@/components/shared/NotificationBell';
 
@@ -29,6 +29,8 @@ export default function EditOrderPage() {
 
  const [paymentMethod, setPaymentMethod] = useState("เงินสด");
  const [paidAmountStr, setPaidAmountStr] = useState("");
+ const [isSubmitting, setIsSubmitting] = useState(false);
+ const submittingRef = useRef(false);
 
  useEffect(() => {
  const savedUser = JSON.parse(localStorage.getItem("userContext") || "{}");
@@ -112,7 +114,10 @@ export default function EditOrderPage() {
  const remainingAmount = Math.max(0, totalPrice - paidAmount);
 
  const confirmEdit = async () => {
+ if (submittingRef.current || isSubmitting) return;
  if (paidAmount < totalPrice && paymentMethod === "เงินสด") return showToast("จำนวนเงินไม่เพียงพอ!", 'error');
+ submittingRef.current = true;
+ setIsSubmitting(true);
  try {
  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/orders/${orderId}`, {
  method: "PUT",
@@ -123,7 +128,7 @@ export default function EditOrderPage() {
  if (data.success) {
  setView('success');
  } else showToast("เกิดข้อผิดพลาด: " + data.error, 'error');
- } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); }
+ } catch (error) { showToast("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", 'error'); } finally { submittingRef.current = false; setIsSubmitting(false); }
  };
 
  return (
@@ -170,7 +175,7 @@ export default function EditOrderPage() {
  <div className="flex-1 flex flex-col min-w-0">
  <div className="h-[90px] bg-[#f5f6f8] flex items-center z-10 shrink-0 w-full px-6 gap-6 border-b border-gray-200 shadow-sm">
  <div className="flex-1 flex items-center overflow-hidden">
- <div className="flex w-full gap-3 overflow-x-auto no-scrollbar items-center">
+ <div data-allow-repeat="true" className="flex w-full gap-3 overflow-x-auto no-scrollbar items-center">
  <button onClick={() => setSelectedCategory("promo")} className={`shrink-0 px-6 py-2.5 rounded-full text-[15px] font-bold border-2 ${selectedCategory === "promo" ? "bg-[#e74c3c] text-white border-[#e74c3c]" : "bg-white text-[#e74c3c] border-[#e74c3c]"}`}>โปรโมชั่น</button>
  <div className="w-[2px] h-8 bg-gray-300 rounded-full mx-1 shrink-0"></div>
  {categories.map((cat) => (
@@ -329,7 +334,7 @@ export default function EditOrderPage() {
  </div>
  </div>
  <div className="flex-1 bg-white p-8 rounded-[32px] border border-gray-200 shadow-sm flex flex-col">
- <div className="flex justify-around border-b border-gray-200 mb-8 text-[20px] font-bold text-gray-400">
+ <div data-allow-repeat="true" className="flex justify-around border-b border-gray-200 mb-8 text-[20px] font-bold text-gray-400">
  {["เงินสด", "เงินโอน", "เครดิต"].map(m => (
  <button key={m} onClick={() => setPaymentMethod(m)} className={`pb-4 px-4 border-b-4 transition-all ${paymentMethod === m ? "border-[#7a5c4e] text-[#7a5c4e]" : "border-transparent"}`}>{m}</button>
  ))}
@@ -338,7 +343,7 @@ export default function EditOrderPage() {
  <div className="flex justify-between items-center text-gray-500 font-bold"><span>ชำระแล้ว</span><span className="text-3xl font-bold text-black">{paidAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
  <div className="flex justify-between items-center text-gray-500 font-bold border-t border-gray-300 pt-3"><span>เงินทอน</span><span className="text-3xl font-bold text-black">{changeAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
  </div>
- <div className="flex flex-col gap-4 flex-1">
+ <div data-allow-repeat="true" className="flex flex-col gap-4 flex-1">
  <div className="flex gap-4">
  {[100, 500, 1000].map(val => (
  <button key={val} onClick={() => setPaidAmountStr(val.toString())} className="flex-1 py-4 border rounded-xl text-xl font-bold hover:bg-gray-50 text-black">{val}</button>
@@ -351,7 +356,7 @@ export default function EditOrderPage() {
  ))}
  </div>
  </div>
- <button onClick={confirmEdit} className={`w-full py-5 rounded-2xl mt-6 text-[20px] font-bold transition-all ${paidAmount >= totalPrice ? "bg-orange-500 text-white hover:bg-orange-600" : "bg-gray-300 text-gray-500"}`}>บันทึกการอัปเดตบิล</button>
+ <button disabled={isSubmitting} onClick={confirmEdit} className={`w-full py-5 rounded-2xl mt-6 text-[20px] font-bold transition-all ${paidAmount >= totalPrice && !isSubmitting ? "bg-orange-500 text-white hover:bg-orange-600" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}>{isSubmitting ? "กำลังบันทึก..." : "บันทึกการอัปเดตบิล"}</button>
  </div>
  </div>
  )}
