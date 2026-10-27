@@ -751,7 +751,7 @@ export default function MenuPromotionsPage() {
             <h1 className="text-[36px] font-black italic tracking-widest text-white">POS</h1>
             <NotificationBell />
           </div>
-          <nav className="sidebar-menu flex flex-col text-[16px]">
+          <nav className="sidebar-menu flex flex-col text-[16px] border-y border-[#666666]">
             <button onClick={() => router.push('/pos')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สั่งและชำระเงิน</button>
             <button onClick={() => router.push('/pos/history')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">ประวัติใบเสร็จ</button>
             <button onClick={() => router.push('/pos/inventory')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">สินค้าคงคลัง</button>
@@ -765,7 +765,7 @@ export default function MenuPromotionsPage() {
             {user && user.role !== 'พนักงาน' && user.role !== 'Cashier' && (
           <button onClick={() => router.push('/pos/employees')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">พนักงาน</button>
           )}
-            <button onClick={() => router.push('/pos/settings')} className="py-5 px-6 text-left text-gray-300 border-b border-[#666666] hover:bg-[#666666] transition-colors">การตั้งค่า</button>
+            <button onClick={() => router.push('/pos/settings')} className="py-5 px-6 text-left text-gray-300 hover:bg-[#666666] transition-colors">การตั้งค่า</button>
           </nav>
         </div>
         <button onClick={() => {
