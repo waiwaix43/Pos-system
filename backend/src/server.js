@@ -17,6 +17,20 @@ app.use(cors());
 app.options(/.*/, cors()); 
 app.use(express.json({ limit: '10mb' })); 
 
+const getShopIdFromReq = (req) => {
+    let shopId = req.body?.shop_id ?? req.query?.shop_id;
+    if (!shopId && req.headers?.['authorization']) {
+        try {
+            const token = req.headers['authorization'].split(' ')[1];
+            if (token) {
+                const decoded = jwt.decode(token);
+                if (decoded && decoded.shop_id) shopId = decoded.shop_id;
+            }
+        } catch (e) {}
+    }
+    return shopId ? Number(shopId) : null;
+}; 
+
 // ==========================================
 // --- 1. API สมัครสมาชิก (Register) ---
 // ==========================================
@@ -347,10 +361,17 @@ app.put('/api/categories/:id', async (req, res) => {
 });
 app.delete('/api/categories/:id', async (req, res) => {
     try {
-        const shopId = req.body?.shop_id ?? req.query.shop_id;
-        if (!shopId) return res.status(400).json({ error: 'Missing shop_id' });
+        const shopId = getShopIdFromReq(req);
+        if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('categories').delete().eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error;
+        if (error) {
+            if (error.code === '23503') {
+                return res.status(400).json({ 
+                    error: 'ไม่สามารถลบหมวดหมู่นี้ได้ เนื่องจากยังมีสินค้าที่ผูกกับหมวดหมู่นี้อยู่' 
+                });
+            }
+            throw error;
+        }
         categoriesCache.delete(String(shopId));
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
@@ -400,13 +421,29 @@ app.put('/api/products/:id', async (req, res) => {
 });
 app.delete('/api/products/:id', async (req, res) => {
     try {
-        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        const shopId = getShopIdFromReq(req);
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+
+        // ลบความสัมพันธ์ของสูตรและตัวเลือกที่ผูกกับสินค้านี้ก่อน
+        await db.from('recipes').delete().eq('product_id', req.params.id);
+        await db.from('product_options').delete().eq('product_id', req.params.id);
+
         const { error } = await db.from('products').delete().eq('id', req.params.id).eq('shop_id', shopId);
-        if (error) throw error;
+        if (error) {
+            console.error("Delete product error:", error);
+            if (error.code === '23503') {
+                return res.status(400).json({ 
+                    error: 'ไม่สามารถลบสินค้านี้ได้ เนื่องจากมีประวัติการขายในระบบ แนะนำให้ปิดการใช้งานแทน' 
+                });
+            }
+            throw error;
+        }
         invalidateProductsCache(shopId);
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); }
+    } catch (err) { 
+        console.error("Delete product err:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในระบบ' }); 
+    }
 });
 
 // ==========================================
@@ -479,8 +516,10 @@ app.put('/api/options/:id', async (req, res) => {
 
 app.delete('/api/options/:id', async (req, res) => {
     try {
-        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        const shopId = getShopIdFromReq(req);
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
+        await db.from('product_options').delete().eq('option_group_id', req.params.id);
+        await db.from('option_items').delete().eq('option_group_id', req.params.id);
         const { error } = await db.from('option_groups').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error;
         optionsCache.delete(String(shopId));
@@ -1557,7 +1596,7 @@ app.put('/api/inventory/items/:id', async (req, res) => {
 
 app.delete('/api/inventory/items/:id', async (req, res) => {
     try {
-        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        const shopId = getShopIdFromReq(req);
         if (!shopId) return res.status(400).json({ error: 'กรุณาระบุร้านค้า' });
         const { error } = await db.from('inventory_items').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) throw error; res.json({ success: true });
@@ -1926,7 +1965,7 @@ app.put('/api/promotions/:id', async (req, res) => {
 
 app.delete('/api/promotions/:id', async (req, res) => {
     try {
-        const shopId = req.body?.shop_id ?? req.query.shop_id;
+        const shopId = getShopIdFromReq(req);
         if (!shopId) return res.status(400).json({ error: 'ต้องระบุ shop_id' });
         const { error } = await db.from('promotions').delete().eq('id', req.params.id).eq('shop_id', shopId);
         if (error) {

@@ -1029,8 +1029,11 @@ export default function InventoryPage() {
  actionRef.current = true;
  setIsSaving(true);
  try {
- const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/items/${selectedItem.id}`, {
- method: "DELETE"
+ const currentShopId = Number(user?.shop_id || (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("userContext") || "{}").shop_id : null) || 1);
+ const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "")}/api/inventory/items/${selectedItem.id}?shop_id=${currentShopId}`, {
+ method: "DELETE",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({ shop_id: currentShopId })
  });
  const data = await res.json().catch(() => ({}));
  if (!res.ok) throw new Error(getThaiApiMessage(data.error, 'ลบรายการไม่สำเร็จ กรุณาลองใหม่'));

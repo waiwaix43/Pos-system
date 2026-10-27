@@ -407,19 +407,24 @@ export default function MenuPromotionsPage() {
     actionRef.current = true;
     setIsDeleting(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/${activeTab}/${id}`, { method: 'DELETE' });
-       const data = await res.json().catch(() => ({}));
+      const currentShopId = user?.shop_id || (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("userContext") || "{}").shop_id : null) || 1;
+      const res = await fetch(`${API_BASE_URL}/api/${activeTab}/${id}?shop_id=${currentShopId}`, { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shop_id: currentShopId })
+      });
+      const data = await res.json().catch(() => ({}));
        
-       if (!res.ok) throw new Error(data.error || data.message || `HTTP Error ${res.status}`);
+      if (!res.ok) throw new Error(data.error || data.message || `HTTP Error ${res.status}`);
 
-       showToast("ลบข้อมูลเรียบร้อยแล้ว", "success");
-       setSelectedItems(prev => prev.filter(itemId => itemId !== id));
-       fetchAllData(user?.shop_id || 1);
+      showToast("ลบข้อมูลเรียบร้อยแล้ว", "success");
+      setSelectedItems(prev => prev.filter(itemId => itemId !== id));
+      fetchAllData(currentShopId);
     } catch (error: any) {
-       showToast(error.message || "ลบข้อมูลไม่สำเร็จ", "error");
+      showToast(error.message || "ลบข้อมูลไม่สำเร็จ", "error");
     } finally {
-       actionRef.current = false;
-       setIsDeleting(false);
+      actionRef.current = false;
+      setIsDeleting(false);
     }
   };
 
@@ -429,17 +434,25 @@ export default function MenuPromotionsPage() {
     actionRef.current = true;
     setIsDeleting(true);
     try {
-       await Promise.all(selectedItems.map(id => 
-          fetch(`${API_BASE_URL}/api/${activeTab}/${id}`, { method: 'DELETE' })
-       ));
-       showToast("ลบข้อมูลทั้งหมดที่เลือกเรียบร้อยแล้ว", "success");
-       setSelectedItems([]);
-       fetchAllData(user?.shop_id || 1);
+      const currentShopId = user?.shop_id || (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("userContext") || "{}").shop_id : null) || 1;
+      await Promise.all(selectedItems.map(async (id) => {
+        const res = await fetch(`${API_BASE_URL}/api/${activeTab}/${id}?shop_id=${currentShopId}`, { 
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shop_id: currentShopId })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || `HTTP Error ${res.status}`);
+        return data;
+      }));
+      showToast("ลบข้อมูลทั้งหมดที่เลือกเรียบร้อยแล้ว", "success");
+      setSelectedItems([]);
+      fetchAllData(currentShopId);
     } catch (error: any) {
-       showToast("ลบข้อมูลไม่สำเร็จบางรายการ", "error");
+      showToast(error.message || "ลบข้อมูลไม่สำเร็จบางรายการ", "error");
     } finally {
-       actionRef.current = false;
-       setIsDeleting(false);
+      actionRef.current = false;
+      setIsDeleting(false);
     }
   };
 
